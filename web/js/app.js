@@ -29,7 +29,9 @@
           h('span', { class: 'cab-titulo', text: 'Carro Controle EM80' }),
           h('span', { class: 'cab-sub', text: 'Centro de Monitoramento de Ativos' })),
         h('div', { class: 'cab-logo', 'aria-hidden': 'true' })),
-      h('div', { class: 'cab-acoes' }, badgeEl, temaBtn));
+      h('div', { class: 'cab-acoes' }, badgeEl,
+        h('button', { class: 'btn-icone', 'aria-label': 'Relatório de anomalia', title: 'Relatório de anomalia', onclick: () => abrirGaveta() }, ui.icone('alerta')),
+        temaBtn));
   }
 
   function atualizarBotaoTema() {
@@ -96,28 +98,40 @@
     return [gavetaFundo, gaveta, puxador];
   }
 
+  let abertaEm = 0;
+
   function abrirGaveta() {
-    if (!gavetaMontada) {
-      App.anomalia.montar(gaveta);
-      gavetaMontada = true;
+    if (gaveta.classList.contains('aberta')) return;
+    try {
+      if (!gavetaMontada) {
+        App.anomalia.montar(gaveta);
+        gavetaMontada = true;
+      }
+    } catch (e) {
+      console.error(e);
+      ui.toast(`Não foi possível abrir o relatório: ${e.message}`, 'erro', 8000);
+      return;
     }
+    abertaEm = Date.now();
     gaveta.classList.add('aberta');
     gaveta.removeAttribute('aria-hidden');
-    gaveta.inert = false;
+    gaveta.removeAttribute('inert');
     gavetaFundo.hidden = false;
     puxador.hidden = true;
     document.body.classList.add('sem-rolagem');
-    App.anomalia.aoAbrir();
+    Promise.resolve().then(() => App.anomalia.aoAbrir()).catch((e) => console.error(e));
     setTimeout(() => {
       const primeiro = gaveta.querySelector('input:not([type=hidden]), textarea');
       if (primeiro && window.matchMedia('(min-width: 900px)').matches) primeiro.focus();
     }, 250);
   }
 
-  function fecharGaveta() {
+  function fecharGaveta(ev) {
+    // Ignora o "clique fantasma" que alguns celulares disparam logo após o toque que abriu a gaveta.
+    if (ev && ev.currentTarget === gavetaFundo && Date.now() - abertaEm < 600) return;
     gaveta.classList.remove('aberta');
     gaveta.setAttribute('aria-hidden', 'true');
-    gaveta.inert = true;
+    gaveta.setAttribute('inert', '');
     gavetaFundo.hidden = true;
     puxador.hidden = false;
     document.body.classList.remove('sem-rolagem');
@@ -190,12 +204,18 @@
     registrarServiceWorker();
   }
 
-  window.addEventListener('error', (e) => {
-    console.error(e.error || e.message);
-  });
-  window.addEventListener('unhandledrejection', (e) => {
-    console.error(e.reason);
-  });
+  // Erros inesperados aparecem na tela, para facilitar o diagnóstico em campo.
+  const avisados = new Set();
+  function avisarErro(erro) {
+    console.error(erro);
+    if (erro && erro.codigo) return; // erros de comunicação já são tratados na tela
+    const msg = String((erro && erro.message) || erro || 'erro desconhecido');
+    if (avisados.has(msg)) return;
+    avisados.add(msg);
+    try { ui.toast(`Erro inesperado: ${msg}`, 'erro', 8000); } catch (e) { /* ignora */ }
+  }
+  window.addEventListener('error', (e) => avisarErro(e.error || e.message));
+  window.addEventListener('unhandledrejection', (e) => avisarErro(e.reason));
 
   App.iniciar = iniciar;
   App.ir = ir;
