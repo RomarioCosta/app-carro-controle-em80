@@ -62,6 +62,21 @@
     { id: 'vrbt5', nome: 'VrBTmax5' }
   ];
 
+  /** Parâmetros que podem ser vistos no gráfico selecionável (por grupo). */
+  B.GRUPOS_GRAFICO = [
+    { grupo: 'Alinhamento', ids: ['alr10', 'alr20', 'al10', 'al20', 'alMax10', 'val25'] },
+    { grupo: 'Nivelamento longitudinal', ids: ['nl5', 'nl20'] },
+    { grupo: 'Empeno e torção', ids: ['emp2', 'emp10', 'emp20', 'warp'] },
+    { grupo: 'Superelevação', ids: ['sup'] },
+    { grupo: 'Outros', ids: ['vrbt5'] }
+  ];
+  /** Nome e grupo de um parâmetro do gráfico selecionável. */
+  B.parametroGrafico = (id) => {
+    const p = [...B.ALINHAMENTO, ...B.NIVELAMENTO].find((x) => x.id === id) || B.ALINHAMENTO[0];
+    const g = B.GRUPOS_GRAFICO.find((x) => x.ids.includes(p.id));
+    return { id: p.id, nome: p.nome, grupo: g ? g.grupo : 'Parâmetro' };
+  };
+
   B.PADRAO = {
     limiarCurva: 3, // |10000/R| a partir do qual o trecho é curva (R ≈ 3.333 m)
     suavizacao: 10, // metros (média móvel da curvatura)

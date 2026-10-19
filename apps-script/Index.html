@@ -780,7 +780,7 @@ window.App = window.App || {};
     versao: '1.0.0',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-e0d9878ae2', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-ab45f975e7', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -2333,6 +2333,21 @@ window.App = window.App || {};
     { id: 'vrbt5', nome: 'VrBTmax5' }
   ];
 
+  /** Parâmetros que podem ser vistos no gráfico selecionável (por grupo). */
+  B.GRUPOS_GRAFICO = [
+    { grupo: 'Alinhamento', ids: ['alr10', 'alr20', 'al10', 'al20', 'alMax10', 'val25'] },
+    { grupo: 'Nivelamento longitudinal', ids: ['nl5', 'nl20'] },
+    { grupo: 'Empeno e torção', ids: ['emp2', 'emp10', 'emp20', 'warp'] },
+    { grupo: 'Superelevação', ids: ['sup'] },
+    { grupo: 'Outros', ids: ['vrbt5'] }
+  ];
+  /** Nome e grupo de um parâmetro do gráfico selecionável. */
+  B.parametroGrafico = (id) => {
+    const p = [...B.ALINHAMENTO, ...B.NIVELAMENTO].find((x) => x.id === id) || B.ALINHAMENTO[0];
+    const g = B.GRUPOS_GRAFICO.find((x) => x.ids.includes(p.id));
+    return { id: p.id, nome: p.nome, grupo: g ? g.grupo : 'Parâmetro' };
+  };
+
   B.PADRAO = {
     limiarCurva: 3, // |10000/R| a partir do qual o trecho é curva (R ≈ 3.333 m)
     suavizacao: 10, // metros (média móvel da curvatura)
@@ -3298,7 +3313,7 @@ window.App = window.App || {};
   /* ---------------- Gráficos ---------------- */
 
   const mais1000 = (arr) => Float64Array.from(arr, (v) => v + B.NOMINAL);
-  const nomeAlinhamento = () => (B.ALINHAMENTO.find((a) => a.id === opcoes.alinhamento) || B.ALINHAMENTO[0]).nome;
+  const nomeAlinhamento = () => B.parametroGrafico(opcoes.alinhamento).nome;
 
   /** Definição dos gráficos (usada na tela e no laudo). Retorna [{ titulo, op, seletor }]. */
   function definirGraficos({ x0, x1, aoPassar }) {
@@ -3325,7 +3340,7 @@ window.App = window.App || {};
     return [
       { titulo: 'Curvatura (10000/R) — tangentes e curvas', op: { ...base, series: [{ nome: '10000/R', valores: d.curv, classe: 's1' }], referencias: [opcoes.limiarCurva, -opcoes.limiarCurva], eventos } },
       { titulo: `Bitolas (mm): ${nomesEscolhidas}${offsetTxt}`, seletor: 'bitolas', op: { ...base, ...fino, altura: 230, estilo: 'faixa', corteY: 0.01, series: escolhidas.map((k) => serieBitola[k]) } },
-      { titulo: `Alinhamento: ${nomeAlin}`, seletor: 'alinhamento', op: { ...base, ...fino, series: [{ nome: nomeAlin, valores: d[opcoes.alinhamento], classe: 's1' }] } },
+      { titulo: `${B.parametroGrafico(opcoes.alinhamento).grupo}: ${nomeAlin}`, seletor: 'alinhamento', op: { ...base, ...fino, series: [{ nome: nomeAlin, valores: d[opcoes.alinhamento], classe: 's1' }] } },
       { titulo: `Diferença Bitola F − Bitola T (mm) — perda acima de ±${fmt(lim, 0)} mm`, op: { ...base, ...fino, series: [{ nome: 'F − T', valores: r.difFT, classe: 's1' }, { nome: 'Perda', valores: alertas, classe: 's-alerta', tipo: 'pontos' }], referencias: [lim, -lim], legenda: false } },
       { titulo: `Variação rápida da bitola: desvio padrão em 1 m (mm) — limite ${fmt(opcoes.limiteVariacao, 1)} mm`, op: { ...base, ...fino, series: [{ nome: 'σ Bitola F', valores: r.varF, classe: 's1' }, { nome: 'σ Bitola T', valores: r.varT, classe: 's2' }], referencias: [opcoes.limiteVariacao] } },
       { titulo: 'Perda de bitola por elemento (%)', op: { ...base, series: [{ nome: '% perda', valores: pctPorPonto, classe: 's1' }], yFaixa: [0, 100] } }
@@ -3360,10 +3375,13 @@ window.App = window.App || {};
     };
 
     const seletorAlin = h('select', {
-      'aria-label': 'Parâmetro de alinhamento',
+      'aria-label': 'Parâmetro do gráfico (alinhamento, nivelamento, empeno, superelevação)',
       value: opcoes.alinhamento,
       onchange: (e) => { opcoes = { ...opcoes, alinhamento: e.target.value }; salvarOpcoes(); recalcular(); }
-    }, B.ALINHAMENTO.map((a) => h('option', { value: a.id, text: a.nome })));
+    }, B.GRUPOS_GRAFICO.map((g) => {
+      const itens = g.ids.filter((id) => arquivo.dados[id] && arquivo.dados[id].some((v) => !Number.isNaN(v)));
+      return itens.length ? h('optgroup', { label: g.grupo }, itens.map((id) => h('option', { value: id, text: B.parametroGrafico(id).nome }))) : null;
+    }));
 
     const atuais = opcoes.bitolas && opcoes.bitolas.length ? opcoes.bitolas : ['bitF', 'bitT'];
     const seletorBitolas = h('div', { class: 'bitolas-sel', role: 'group', 'aria-label': 'Bitolas no gráfico' },

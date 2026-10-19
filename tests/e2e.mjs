@@ -439,6 +439,12 @@ async function main() {
       await page.locator('.graf-km-item').filter({ hasText: 'Bitolas (mm): Bitola F, Bitola T e KLD' }).waitFor();
       await page.locator('.bitolas-sel').getByLabel('Bitola F').uncheck();
       await page.locator('.graf-km-item').filter({ hasText: 'Bitolas (mm): Bitola T e KLD' }).waitFor();
+      // Gráfico selecionável: empeno, nivelamento, superelevação além do alinhamento.
+      await page.getByLabel(/Parâmetro do gráfico/).selectOption('emp10');
+      await page.locator('.graf-km-item h3', { hasText: 'Empeno e torção: EMP_10 (empeno)' }).waitFor();
+      await page.getByLabel(/Parâmetro do gráfico/).selectOption('sup');
+      await page.locator('.graf-km-item h3', { hasText: 'Superelevação: SUPerABS' }).waitFor();
+      await page.getByLabel(/Parâmetro do gráfico/).selectOption('alr10');
       // Offset: o melhor valor na bitola T zera a perda.
       const cartaoOff = page.locator('details').filter({ hasText: 'Simulação de offset' });
       await cartaoOff.locator('summary').click();

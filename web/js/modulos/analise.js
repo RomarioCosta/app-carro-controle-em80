@@ -314,7 +314,7 @@
   /* ---------------- Gráficos ---------------- */
 
   const mais1000 = (arr) => Float64Array.from(arr, (v) => v + B.NOMINAL);
-  const nomeAlinhamento = () => (B.ALINHAMENTO.find((a) => a.id === opcoes.alinhamento) || B.ALINHAMENTO[0]).nome;
+  const nomeAlinhamento = () => B.parametroGrafico(opcoes.alinhamento).nome;
 
   /** Definição dos gráficos (usada na tela e no laudo). Retorna [{ titulo, op, seletor }]. */
   function definirGraficos({ x0, x1, aoPassar }) {
@@ -341,7 +341,7 @@
     return [
       { titulo: 'Curvatura (10000/R) — tangentes e curvas', op: { ...base, series: [{ nome: '10000/R', valores: d.curv, classe: 's1' }], referencias: [opcoes.limiarCurva, -opcoes.limiarCurva], eventos } },
       { titulo: `Bitolas (mm): ${nomesEscolhidas}${offsetTxt}`, seletor: 'bitolas', op: { ...base, ...fino, altura: 230, estilo: 'faixa', corteY: 0.01, series: escolhidas.map((k) => serieBitola[k]) } },
-      { titulo: `Alinhamento: ${nomeAlin}`, seletor: 'alinhamento', op: { ...base, ...fino, series: [{ nome: nomeAlin, valores: d[opcoes.alinhamento], classe: 's1' }] } },
+      { titulo: `${B.parametroGrafico(opcoes.alinhamento).grupo}: ${nomeAlin}`, seletor: 'alinhamento', op: { ...base, ...fino, series: [{ nome: nomeAlin, valores: d[opcoes.alinhamento], classe: 's1' }] } },
       { titulo: `Diferença Bitola F − Bitola T (mm) — perda acima de ±${fmt(lim, 0)} mm`, op: { ...base, ...fino, series: [{ nome: 'F − T', valores: r.difFT, classe: 's1' }, { nome: 'Perda', valores: alertas, classe: 's-alerta', tipo: 'pontos' }], referencias: [lim, -lim], legenda: false } },
       { titulo: `Variação rápida da bitola: desvio padrão em 1 m (mm) — limite ${fmt(opcoes.limiteVariacao, 1)} mm`, op: { ...base, ...fino, series: [{ nome: 'σ Bitola F', valores: r.varF, classe: 's1' }, { nome: 'σ Bitola T', valores: r.varT, classe: 's2' }], referencias: [opcoes.limiteVariacao] } },
       { titulo: 'Perda de bitola por elemento (%)', op: { ...base, series: [{ nome: '% perda', valores: pctPorPonto, classe: 's1' }], yFaixa: [0, 100] } }
@@ -376,10 +376,13 @@
     };
 
     const seletorAlin = h('select', {
-      'aria-label': 'Parâmetro de alinhamento',
+      'aria-label': 'Parâmetro do gráfico (alinhamento, nivelamento, empeno, superelevação)',
       value: opcoes.alinhamento,
       onchange: (e) => { opcoes = { ...opcoes, alinhamento: e.target.value }; salvarOpcoes(); recalcular(); }
-    }, B.ALINHAMENTO.map((a) => h('option', { value: a.id, text: a.nome })));
+    }, B.GRUPOS_GRAFICO.map((g) => {
+      const itens = g.ids.filter((id) => arquivo.dados[id] && arquivo.dados[id].some((v) => !Number.isNaN(v)));
+      return itens.length ? h('optgroup', { label: g.grupo }, itens.map((id) => h('option', { value: id, text: B.parametroGrafico(id).nome }))) : null;
+    }));
 
     const atuais = opcoes.bitolas && opcoes.bitolas.length ? opcoes.bitolas : ['bitF', 'bitT'];
     const seletorBitolas = h('div', { class: 'bitolas-sel', role: 'group', 'aria-label': 'Bitolas no gráfico' },
