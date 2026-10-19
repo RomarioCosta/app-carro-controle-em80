@@ -210,6 +210,7 @@
     console.error(erro);
     if (erro && erro.codigo) return; // erros de comunicação já são tratados na tela
     const msg = String((erro && erro.message) || erro || 'erro desconhecido');
+    if (/ResizeObserver loop/.test(msg)) return; // aviso inofensivo do navegador
     if (avisados.has(msg)) return;
     avisados.add(msg);
     try { ui.toast(`Erro inesperado: ${msg}`, 'erro', 8000); } catch (e) { /* ignora */ }

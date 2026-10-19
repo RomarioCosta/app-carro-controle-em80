@@ -106,6 +106,8 @@
           `${arquivo.pos.length.toLocaleString('pt-BR')} pontos`
         ].filter(Boolean).join(' · ') }),
         arquivo.avisos.length ? h('p', { class: 'aviso', text: arquivo.avisos.join(' ') }) : null,
+        h('div', { class: 'linha-acoes' },
+          h('button', { class: 'btn btn-primario', onclick: abrirLaudo }, ui.icone('documento'), 'Gerar laudo (PDF)')),
         h('button', {
           class: 'btn btn-fantasma',
           onclick: async () => {
@@ -171,6 +173,27 @@
 
   /* ---------------- Gráficos ---------------- */
 
+  /** Definição dos gráficos (usada na tela e no laudo). Retorna [[título, opções], ...]. */
+  function definirGraficos({ x0, x1, aoPassar }) {
+    const { pos, dados, eventos } = arquivo;
+    const r = resultado;
+    const lim = opcoes.limitePerda;
+    const faixas = r.elementos.map((e) => ({ ini: e.ini, fim: e.fim, classe: e.tipo === 'C' ? 'faixa-curva' : null, rotulo: e.sigla }));
+    const nomeAlin = (B.ALINHAMENTO.find((a) => a.id === opcoes.alinhamento) || B.ALINHAMENTO[0]).nome;
+    const alertas = Float64Array.from(r.difFT, (v) => (Math.abs(v) > lim ? v : NaN));
+    const base = { pos, x0, x1, fmtX: B.fmtKm, aoPassar, faixas };
+    const pctPorPonto = new Float64Array(pos.length).fill(NaN);
+    r.elementos.forEach((e) => { for (let i = e.i0; i <= e.i1; i++) pctPorPonto[i] = e.pctPerda === null ? NaN : e.pctPerda; });
+    return [
+      ['Curvatura (10000/R) — tangentes e curvas', { ...base, series: [{ nome: '10000/R', valores: dados.curv, classe: 's1' }], referencias: [opcoes.limiarCurva, -opcoes.limiarCurva], eventos }],
+      ['Bitola frontal e traseira (mm)', { ...base, series: [{ nome: 'Bitola F', valores: dados.bitF, classe: 's1' }, { nome: 'Bitola T', valores: dados.bitT, classe: 's2' }] }],
+      [`Diferença Bitola F − Bitola T (mm) — perda acima de ±${fmt(lim, 0)} mm`, { ...base, series: [{ nome: 'F − T', valores: r.difFT, classe: 's1' }, { nome: 'Perda', valores: alertas, classe: 's-alerta', tipo: 'pontos' }], referencias: [lim, -lim], legenda: false }],
+      ['Diferença OGMS − KLD (mm) — comparação entre sensores', { ...base, series: [{ nome: 'OGMS (F) − KLD', valores: r.difKld, classe: 's1' }] }],
+      [`Alinhamento: ${nomeAlin}`, { ...base, series: [{ nome: nomeAlin, valores: dados[opcoes.alinhamento], classe: 's1' }] }],
+      ['Perda de bitola por elemento (%)', { ...base, series: [{ nome: '% perda', valores: pctPorPonto, classe: 's1' }], yFaixa: [0, 100] }]
+    ];
+  }
+
   function renderGraficos() {
     graficos.forEach((g) => g.destruir());
     graficos = [];
@@ -179,12 +202,9 @@
     const r = resultado;
     const x0 = zoom ? zoom.x0 : pos[0];
     const x1 = zoom ? zoom.x1 : pos[pos.length - 1];
-    const lim = opcoes.limitePerda;
     const info = h('div', { class: 'info-km', 'aria-live': 'polite' }, 'Passe o dedo ou o mouse sobre um gráfico para ver os valores.');
 
-    const faixas = r.elementos.map((e) => ({ ini: e.ini, fim: e.fim, classe: e.tipo === 'C' ? 'faixa-curva' : null, rotulo: e.sigla }));
     const nomeAlin = (B.ALINHAMENTO.find((a) => a.id === opcoes.alinhamento) || B.ALINHAMENTO[0]).nome;
-    const alertas = Float64Array.from(r.difFT, (v) => (Math.abs(v) > lim ? v : NaN));
 
     const aoPassar = (p) => {
       graficos.forEach((g) => g.guia(p));
@@ -199,19 +219,7 @@
         h('span', { text: ` · 10000/R ${v(dados.curv)} · ${nomeAlin} ${v(dados[opcoes.alinhamento])}` }));
     };
 
-    const base = { pos, x0, x1, fmtX: B.fmtKm, aoPassar, faixas };
-    const blocos = [
-      ['Curvatura (10000/R) — tangentes e curvas', { ...base, series: [{ nome: '10000/R', valores: dados.curv, classe: 's1' }], referencias: [opcoes.limiarCurva, -opcoes.limiarCurva], eventos }],
-      ['Bitola frontal e traseira (mm)', { ...base, series: [{ nome: 'Bitola F', valores: dados.bitF, classe: 's1' }, { nome: 'Bitola T', valores: dados.bitT, classe: 's2' }] }],
-      [`Diferença Bitola F − Bitola T (mm) — perda acima de ±${fmt(lim, 0)} mm`, { ...base, series: [{ nome: 'F − T', valores: r.difFT, classe: 's1' }, { nome: 'Perda', valores: alertas, classe: 's-alerta', tipo: 'pontos' }], referencias: [lim, -lim], legenda: false }],
-      ['Diferença OGMS − KLD (mm) — comparação entre sensores', { ...base, series: [{ nome: 'OGMS (F) − KLD', valores: r.difKld, classe: 's1' }] }],
-      [`Alinhamento: ${nomeAlin}`, { ...base, series: [{ nome: nomeAlin, valores: dados[opcoes.alinhamento], classe: 's1' }] }]
-    ];
-
-    // Perda por elemento (degraus ao longo do km).
-    const pctPorPonto = new Float64Array(pos.length).fill(NaN);
-    r.elementos.forEach((e) => { for (let i = e.i0; i <= e.i1; i++) pctPorPonto[i] = e.pctPerda === null ? NaN : e.pctPerda; });
-    blocos.push(['Perda de bitola por elemento (%)', { ...base, series: [{ nome: '% perda', valores: pctPorPonto, classe: 's1' }], yFaixa: [0, 100] }]);
+    const blocos = definirGraficos({ x0, x1, aoPassar });
 
     const seletorAlin = h('select', {
       'aria-label': 'Parâmetro de alinhamento',
@@ -306,6 +314,168 @@
           h('td', { text: x.km }),
           h('td', { class: 'num', text: fmt(x.valor, 2) }),
           h('td', { text: x.elemento })))))) : h('p', { class: 'vazio', text: 'Sem dados para este parâmetro.' })));
+  }
+
+  /* ---------------- Laudo em PDF ---------------- */
+
+  const RESULTADOS = ['Aprovado', 'Aprovado com ressalvas', 'Reprovado'];
+
+  async function abrirLaudo() {
+    if (!resultado) return;
+    const checklists = await App.dados.listar('checklists');
+    const dataInspecao = arquivo.meta.data || '';
+    const responsavel = h('input', { type: 'text', maxlength: 80, value: U.pref.get('ultimoResponsavel', '') });
+    const res = h('select', null, RESULTADOS.map((r) => h('option', { value: r, text: r })));
+    const parecer = h('textarea', { rows: 4, maxlength: 2000, placeholder: 'Parecer técnico, ressalvas e recomendações' });
+    const doMesmoDia = checklists.find((c) => U.fmtData(c.data) === dataInspecao);
+    const ck = h('select', null,
+      h('option', { value: '', text: 'Não incluir' }),
+      checklists.slice(0, 20).map((c) => h('option', { value: c.id, text: `${U.fmtData(c.data)} · Ciclo ${c.ciclo} · ${c.responsavel}` })));
+    ck.value = doMesmoDia ? doMesmoDia.id : (checklists[0] ? checklists[0].id : '');
+
+    ui.modal({
+      titulo: 'Gerar laudo',
+      conteudo: h('div', { class: 'pilha' },
+        h('p', { class: 'sub', text: 'O laudo reúne a análise do arquivo, o checklist escolhido e o campo de aceite. Na janela de impressão, escolha "Salvar como PDF".' }),
+        ui.campo('Responsável pela análise', responsavel),
+        ui.campo('Resultado', res),
+        ui.campo('Parecer', parecer),
+        ui.campo('Checklist incluído', ck, { ajuda: checklists.length ? null : 'Nenhum checklist salvo ainda.' })),
+      acoes: [
+        { texto: 'Cancelar', classe: 'btn-secundario', onClick: (f) => f() },
+        {
+          texto: 'Gerar PDF',
+          classe: 'btn-primario',
+          onClick: async (fechar) => {
+            if (responsavel.value.trim()) U.pref.set('ultimoResponsavel', responsavel.value.trim());
+            let checklist = checklists.find((c) => c.id === ck.value) || null;
+            // Checklist feito em outro aparelho: busca as respostas na planilha.
+            if (checklist && !(Array.isArray(checklist.respostas) && checklist.respostas.length)) {
+              try {
+                checklist = await App.api.chamar('getChecklist', { id: checklist.id });
+              } catch (e) {
+                ui.toast(`Não foi possível buscar as respostas do checklist na planilha (${e.message}). O laudo sai só com o cabeçalho do checklist.`, 'erro', 8000);
+                checklist = { ...checklist, respostas: [], amostras: [] };
+              }
+            }
+            fechar();
+            imprimirLaudo({ responsavel: responsavel.value.trim(), resultado: res.value, parecer: parecer.value.trim(), checklist });
+          }
+        }
+      ]
+    });
+  }
+
+  function montarLaudo(info) {
+    const r = resultado;
+    const m = arquivo.meta;
+    const pos = arquivo.pos;
+    const agora = U.agora();
+    const tabela = (cab, linhas, classe = '') => h('table', { class: `laudo-tabela ${classe}` },
+      h('thead', null, h('tr', null, cab.map((t) => h('th', { text: t })))),
+      h('tbody', null, linhas.map((l) => h('tr', null, l.map((c) => (c instanceof Node ? h('td', null, c) : h('td', { text: c === null || c === undefined ? '' : String(c) })))))));
+    const secao = (titulo, ...filhos) => h('section', { class: 'laudo-secao' }, h('h2', { text: titulo }), filhos);
+    const foto = document.querySelector('.cab-foto');
+
+    // Gráficos com largura fixa (o PDF reduz para caber na página).
+    const graficosLaudo = definirGraficos({ x0: pos[0], x1: pos[pos.length - 1], aoPassar: null })
+      .map(([titulo, op]) => ({ titulo, g: charts.graficoKm({ ...op, titulo, altura: 150 }) }));
+
+    const nivel = B.NIVELAMENTO.filter((p) => arquivo.dados[p.id] && arquivo.dados[p.id].some((v) => !Number.isNaN(v)));
+    const nomeAlin = (B.ALINHAMENTO.find((a) => a.id === opcoes.alinhamento) || B.ALINHAMENTO[0]).nome;
+
+    const el = h('div', { id: 'laudo', class: 'laudo' },
+      h('header', { class: 'laudo-cab' },
+        foto ? h('img', { src: foto.src, alt: '', class: 'laudo-foto' }) : null,
+        h('div', null,
+          h('h1', { text: 'Laudo de Inspeção – Carro Controle EM80' }),
+          h('p', { text: 'Centro de Monitoramento de Ativos' })),
+        h('div', { class: 'laudo-emissao' }, h('span', { text: 'Emitido em' }), h('strong', { text: U.fmtDataHora(agora) }))),
+
+      secao('Identificação', tabela(['Campo', 'Valor'], [
+        ['Arquivo', nomeArquivo],
+        ['Ramal / Linha', [m.ramal, m.linha && `Linha ${m.linha}`].filter(Boolean).join(' · ')],
+        ['Data da inspeção', m.data],
+        ['Inspetor', m.inspetor],
+        ['Responsável pela análise', info.responsavel || '—'],
+        ['Trecho', `${B.fmtKm(pos[0])} → ${B.fmtKm(pos[pos.length - 1])} (${fmt(r.geral.extensao / 1000, 2)} km · ${pos.length.toLocaleString('pt-BR')} pontos)`]
+      ], 'laudo-id')),
+
+      h('section', { class: `laudo-resultado laudo-res-${RESULTADOS.indexOf(info.resultado)}` },
+        h('div', null, h('span', { text: 'Resultado' }), h('strong', { text: info.resultado })),
+        info.parecer ? h('p', { text: info.parecer }) : null),
+
+      secao('Indicadores',
+        h('div', { class: 'laudo-kpis' },
+          [['Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${r.geral.perdas.toLocaleString('pt-BR')} de ${r.geral.pontos.toLocaleString('pt-BR')} pontos`],
+            ['Em tangentes', `${fmt(r.tangentes.pctPerda)}%`, `${r.tangentes.quantidade} tangente(s) · ${fmt(r.tangentes.extensao / 1000, 2)} km`],
+            ['Em curvas', `${fmt(r.curvas.pctPerda)}%`, `${r.curvas.quantidade} curva(s) · ${fmt(r.curvas.extensao / 1000, 2)} km`],
+            ['OGMS − KLD', `${fmt(r.geral.difKldMedia, 2)} mm`, 'diferença média entre sensores']
+          ].map(([t, v, sub]) => h('div', { class: 'laudo-kpi' }, h('span', { text: t }), h('strong', { text: v }), h('small', { text: sub })))),
+        h('p', { class: 'laudo-nota', text: `Critérios: perda de bitola quando |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm. Curva quando |10000/R| ≥ ${fmt(opcoes.limiarCurva, 1)} (média móvel de ${fmt(opcoes.suavizacao, 0)} m; elementos com menos de ${fmt(opcoes.comprimentoMin, 0)} m unidos ao vizinho).` })),
+
+      secao('Gráficos ao longo do km', graficosLaudo.map(({ titulo, g }) => h('div', { class: 'laudo-grafico' }, h('h3', { text: titulo }), g.el))),
+
+      secao('Elementos: tangentes e curvas', tabela(
+        ['Elemento', 'Início', 'Fim', 'Ext. (m)', 'Raio (m)', '% perda', 'Máx F−T', 'OGMS−KLD', `Máx ${nomeAlin}`],
+        r.elementos.map((e) => [e.nome, B.fmtKm(e.ini), B.fmtKm(e.fim), Math.round(e.extensao).toLocaleString('pt-BR'),
+          e.tipo === 'C' && e.raioMedio ? Math.round(e.raioMedio).toLocaleString('pt-BR') : '—',
+          `${fmt(e.pctPerda)}%`, fmt(e.maxDif, 2), fmt(e.difKldMedia, 2), fmt(e.alinhMax, 2)]))),
+
+      secao('Ranking de nivelamento (5 maiores valores por parâmetro)',
+        h('div', { class: 'laudo-ranking' }, nivel.map((p) => h('div', { class: 'laudo-rank' },
+          h('h3', { text: p.nome }),
+          tabela(['#', 'km', 'Valor', 'Elemento'], B.ranking(arquivo, r.elementos, p.id, { limite: 5, separacao: 10 })
+            .map((x) => [x.posicao, x.km, fmt(x.valor, 2), x.elemento]), 'laudo-mini'))))),
+
+      info.checklist ? secao(`Checklist de inspeção – ${U.fmtData(info.checklist.data)} · Ciclo ${info.checklist.ciclo} · ${info.checklist.responsavel}`,
+        info.checklist.respostas.length ? null : h('p', { class: 'laudo-nota', text: `Respostas não disponíveis neste aparelho. Problemas registrados: ${info.checklist.qtdProblemas ?? '—'}.` }),
+        tabela(['Sistema', 'Pergunta', 'Resposta', 'Descrição'], info.checklist.respostas.map((x) => [
+          x.grupo, x.pergunta, h('span', { class: x.problema === 'Sim' ? 'laudo-problema' : '', text: x.resposta }), x.descricao || ''])),
+        (info.checklist.amostras || []).length ? tabela(['Sistema', 'Medição', 'Amostra', 'Valor', 'Referência'], info.checklist.amostras.map((a) => [
+          a.grupo, a.medicao, a.amostra, fmt(Number(a.valor), 2), a.rotulo2 ? `${a.rotulo2}: ${fmt(Number(a.valor2), 2)}` : ''])) : null) : null,
+
+      h('section', { class: 'laudo-secao laudo-assinaturas' },
+        h('h2', { text: 'Aceite' }),
+        h('div', { class: 'laudo-ass' },
+          h('div', null, h('div', { class: 'laudo-linha' }), h('strong', { text: info.responsavel || '\u00a0' }), h('span', { text: 'Responsável pela análise' })),
+          h('div', null, h('div', { class: 'laudo-linha' }), h('strong', { text: '\u00a0' }), h('span', { text: 'Aceite (nome e assinatura)' })),
+          h('div', null, h('div', { class: 'laudo-linha' }), h('strong', { text: '\u00a0' }), h('span', { text: 'Data' })))),
+
+      h('footer', { class: 'laudo-rodape', text: `Gerado pelo App Carro Controle EM80 · ${App.config.build || App.config.versao} · ${U.fmtDataHora(agora)}` }));
+
+    return { el, graficosLaudo };
+  }
+
+  function imprimirLaudo(info) {
+    const anterior = document.getElementById('laudo');
+    if (anterior) anterior.remove();
+    const temaAnterior = document.documentElement.getAttribute('data-theme');
+    const tituloAnterior = document.title;
+    const { el, graficosLaudo } = montarLaudo(info);
+    document.body.appendChild(el);
+    document.documentElement.setAttribute('data-theme', 'light'); // laudo sempre em fundo branco
+    const m = arquivo.meta;
+    document.title = `Laudo EM80 ${m.ramal || ''} ${(m.data || '').replace(/\//g, '-')}`.trim();
+
+    const restaurar = () => {
+      graficosLaudo.forEach(({ g }) => g.destruir());
+      el.remove();
+      document.title = tituloAnterior;
+      if (temaAnterior) document.documentElement.setAttribute('data-theme', temaAnterior);
+      window.removeEventListener('afterprint', restaurar);
+    };
+    window.addEventListener('afterprint', restaurar);
+    // Espera os gráficos serem desenhados antes de abrir a impressão.
+    setTimeout(() => {
+      graficosLaudo.forEach(({ g }) => g.destruir()); // congela o desenho (não redesenha durante a impressão)
+      try {
+        window.print();
+      } catch (e) {
+        restaurar();
+        ui.toast(`Não foi possível abrir a impressão: ${e.message}`, 'erro', 6000);
+      }
+    }, 400);
   }
 
   App.analise = { montar };

@@ -396,6 +396,25 @@ async function main() {
       await page.screenshot({ path: `${SAIDA}13-analise.png`, fullPage: true });
       await page.locator('.tabela').first().locator('tbody tr').nth(2).click();
       await page.getByRole('button', { name: 'Ver tudo' }).waitFor();
+
+      // Laudo em PDF: a janela de impressão é simulada; confere o conteúdo montado.
+      await page.evaluate(() => { window.__impressoes = 0; window.print = () => { window.__impressoes++; }; });
+      await page.getByRole('button', { name: 'Gerar laudo (PDF)' }).click();
+      const modalLaudo = page.locator('.modal');
+      await modalLaudo.locator('select').first().selectOption('Reprovado');
+      await modalLaudo.locator('textarea').fill('Teste de parecer');
+      await modalLaudo.getByRole('button', { name: 'Gerar PDF' }).click();
+      await page.waitForFunction(() => window.__impressoes === 1);
+      const laudo = page.locator('#laudo');
+      assert.equal(await laudo.locator('.laudo-resultado strong').textContent(), 'Reprovado');
+      assert.equal(await laudo.locator('.laudo-grafico svg').count(), 6);
+      assert.ok((await laudo.textContent()).includes('Checklist de inspeção'), 'checklist incluído no laudo');
+      assert.ok((await laudo.textContent()).includes('Tangente 02'));
+      await page.emulateMedia({ media: 'print' });
+      await page.pdf({ path: `${SAIDA}14-laudo.pdf`, format: 'A4', printBackground: true, preferCSSPageSize: true });
+      await page.emulateMedia({ media: 'screen' });
+      await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+      assert.equal(await page.locator('#laudo').count(), 0);
       // o arquivo fica guardado no aparelho
       await page.reload();
       await page.getByRole('tab', { name: 'Análise do arquivo' }).waitFor();

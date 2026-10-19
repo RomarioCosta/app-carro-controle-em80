@@ -351,7 +351,13 @@
       ui.trocar(caixa, svg);
     }
 
-    const ro = new ResizeObserver(() => desenhar());
+    // Redesenha no próximo quadro (evita o aviso "ResizeObserver loop" do navegador).
+    let agendado = false;
+    const ro = new ResizeObserver(() => {
+      if (agendado) return;
+      agendado = true;
+      requestAnimationFrame(() => { agendado = false; desenhar(); });
+    });
     ro.observe(caixa);
     requestAnimationFrame(desenhar);
 

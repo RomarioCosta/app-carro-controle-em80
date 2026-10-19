@@ -92,6 +92,13 @@ test('checklist grava cabeçalho, respostas e amostras sem duplicar no reenvio',
   assert.equal(s.aba('Checklist_Respostas').length, 2);
   assert.equal(s.aba('Checklist_Amostras').length, 2);
   assert.equal(s.aba('Checklist_Amostras')[1]['Valor'], -0.8);
+
+  const completo = s.post('getChecklist', { id: 'c1' }).dados;
+  assert.equal(completo.responsavel, 'Romário');
+  assert.equal(completo.respostas.length, 2);
+  assert.equal(completo.respostas[0].descricao, 'Demorou');
+  assert.equal(completo.amostras[1].valor2, 2);
+  assert.equal(s.post('getChecklist', { id: 'nao-existe' }).ok, false);
 });
 
 test('importação de OMs substitui o ciclo e preserva as realizações', () => {
