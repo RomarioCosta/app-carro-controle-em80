@@ -84,3 +84,90 @@ test('índice mais próximo em posições decrescentes', () => {
   assert.equal(B.indicePerto(pos, 20), 0);
   assert.equal(B.indicePerto(pos, 0), 3);
 });
+
+/* ---------------- Planta da linha (dados inventados) ---------------- */
+// Coordenadas da planta = posição do arquivo + 30 m. Lacuna (sem elemento) entre 1+730 e 1+760.
+function plantaSintetica() {
+  return [
+    ['PLANTA DA LINHA — TESTE'],
+    ['Ramal', 'Linha', 'Eh', 'C/T', 'Lado curva', 'Nº Elemento Eh', 'Quilometragem', '', 'Raio', 'Superelevação'],
+    ['', '', '', '', '', '', 'Inicial', 'Final', '', ''],
+    ['TST', 1, 11, 'C', 'E', 1, 1.530, 1.730, 667, 80],
+    ['TST', 1, 10, 'T', '', 2, 1.760, 2.030, '', ''],
+    ['TST', 1, 10, 'C', 'D', 1, 2.030, 2.230, 500, 100],
+    ['TST', 1, 10, 'T', '', 1, 2.230, 2.531, '', ''],
+    ['TST', 2, 10, 'T', '', 1, 2.000, 3.000, '', ''],
+    ['LT', 1, 50, 'T', '', 1, 'x', 1, '', ''] // km inválido: ignorada com aviso
+  ];
+}
+
+test('lê a planta: cabeçalho em duas linhas, km em metros, ramais e linhas', () => {
+  const p = B.lerPlanta(plantaSintetica());
+  assert.equal(p.elementos.length, 5);
+  assert.deepEqual(j(p.ramais), { TST: ['1', '2'] });
+  assert.equal(p.avisos.length, 1);
+  const c = p.elementos[0];
+  assert.equal(c.ini, 1530);
+  assert.equal(c.fim, 1730);
+  assert.equal(c.tipo, 'C');
+  assert.equal(c.lado, 'E');
+  assert.equal(c.eh, '11');
+  assert.equal(c.raio, 667);
+  assert.equal(B.ramalDaPlanta('RTST', p.ramais), 'TST');
+  assert.equal(B.elementosDaPlanta(p, 'TST', 1).length, 4);
+});
+
+test('planta sem cabeçalho dá erro claro', () => {
+  assert.throws(() => B.lerPlanta([['a', 'b'], [1, 2]]), /cabeçalho da planta/);
+});
+
+test('ajuste automático do km encontra o deslocamento da planta', () => {
+  const a = B.lerCSV(gerarCSV());
+  const els = B.elementosDaPlanta(B.lerPlanta(plantaSintetica()), 'TST', '1');
+  const r = B.ajusteAutomatico(a.pos, a.dados.curv, els);
+  assert.ok(Math.abs(r.ajuste - 30) <= 6, `ajuste = ${r.ajuste}`);
+  assert.ok(r.acerto > 95, `acerto = ${r.acerto}`);
+});
+
+test('elementos pela planta: EH, siglas e lacuna nomeada', () => {
+  const a = B.lerCSV(gerarCSV());
+  const els = B.elementosDaPlanta(B.lerPlanta(plantaSintetica()), 'TST', '1');
+  const r = B.analisar(a, { modo: 'planta', elementosPlanta: els, ajusteKm: 30 });
+  assert.equal(r.modo, 'planta');
+  assert.deepEqual(j(r.elementos.map((e) => e.sigla)), ['T01', 'C01', 'T02', '—', 'C01']);
+  assert.equal(r.elementos[1].nome, 'EH 10 · Curva 01');
+  assert.equal(r.elementos[3].nome, 'Entre EH 10 e EH 11');
+  assert.ok(Math.abs(r.elementos[3].extensao - 30) <= 0.5);
+  assert.deepEqual(j(r.porEh.map((g) => [g.eh, g.tangentes, g.curvas])), [['10', 2, 1], ['11', 0, 1]]);
+  // A perda (50 m dentro da T02) fica toda na T02.
+  assert.equal(r.elementos[2].perdas, 200);
+  assert.equal(r.elementos[0].perdas + r.elementos[1].perdas + r.elementos[4].perdas, 0);
+});
+
+test('desvio padrão em 1 m marca a variação rápida', () => {
+  const arr = Float64Array.from({ length: 40 }, (_, i) => (i === 20 ? 10 : 0));
+  const s = B.desvioMovel(arr, 5);
+  assert.equal(s[0], 0);
+  assert.ok(s[20] > 3.9 && s[20] < 4.1, `σ = ${s[20]}`); // 5 pontos: um com 10 → σ = 4
+  assert.equal(s[25], 0);
+  // Bitola T cai 3 mm em degrau: σ em 1 m (5 pontos) ≈ 1,47 mm — abaixo de 1,5, acima de 1.
+  const a = B.lerCSV(gerarCSV());
+  assert.equal(B.analisar(a).geral.pctVariacao, 0);
+  const r = B.analisar(a, { limiteVariacao: 1 });
+  assert.ok(r.geral.pctVariacao > 0 && r.geral.pctVariacao < 0.5, `var = ${r.geral.pctVariacao}`);
+});
+
+test('offset: aplicado numa bitola e melhor valor que zera a perda', () => {
+  const a = B.lerCSV(gerarCSV());
+  const ajustado = B.dadosComOffset(a.dados, { bitola: 'bitT', valor: 3 });
+  assert.equal(ajustado.bitT[0], 6);
+  assert.equal(a.dados.bitT[0], 3); // original não muda
+  assert.equal(B.dadosComOffset(a.dados, { bitola: 'bitT', valor: 0 }), a.dados);
+  const antes = B.perdaTotal(a.dados, 2);
+  assert.equal(antes.perdas, 200);
+  const m = B.melhorOffset(a.dados, 'bitT', 2);
+  assert.equal(m.valor, 1);
+  assert.equal(m.perdas, 0);
+  const r = B.analisar(a, { offset: { bitola: 'bitT', valor: 1.5, aplicar: true } });
+  assert.equal(r.geral.perdas, 0);
+});
