@@ -85,6 +85,19 @@ App para uso em campo no Carro Controle EM80, com cinco módulos:
 
 ---
 
+### Análise do arquivo do carro controle (aba "Análise do arquivo" dentro do Checklist)
+
+Lê o CSV gerado pelo carro (linhas `H` = cabeçalho, `D` = medições a cada 0,25 m, `E` = eventos como AMV e PSUP).
+Posição = `KM × 1000 + LOCALIZACAO` (metros). Tudo é calculado no aparelho; o último arquivo fica guardado até ser removido.
+
+- **Tangentes e curvas:** pela coluna `10000/R`, suavizada por média móvel (padrão 10 m). Ponto com |10000/R| ≥ 3 (raio ≈ 3.333 m) é curva; abaixo, tangente. Trechos menores que 20 m são unidos ao vizinho. Numeração na ordem da inspeção: Tangente 01 (T01), Curva 01 (C01), Tangente 02…
+- **Perda de bitola:** ponto em que |Bitola F − Bitola T| > 2 mm. Percentual por elemento = pontos com perda ÷ pontos medidos.
+- **OGMS × KLD:** diferença Bitola F − Bit_KLD (leituras do KLD acima de 60 mm em módulo são descartadas como erro de sensor).
+- **Gráficos (km no eixo X):** curvatura com os elementos e eventos, bitola F e T, diferença F − T com os pontos de perda, OGMS − KLD, alinhamento (ALR10_10, ALR10_20, AL10_B10, AL20_B10, ALmax_10 ou VAL_B2,5) e % de perda por elemento. Cursor sincronizado entre os gráficos; tocar num elemento ou no ranking aproxima o trecho.
+- **Tabela de elementos:** início, fim, extensão, raio médio, % perda, maior F − T, OGMS − KLD médio, maior alinhamento e eventos do trecho.
+- **Ranking de nivelamento:** 10 maiores valores (em módulo) de NLmax_5, NLmax_20, EMP_2/10/20, Warp, SUPerABS e VrBTmax5; picos a menos de 10 m contam como um só.
+- Os limites (curva, perda, suavização e comprimento mínimo) podem ser ajustados em "Critérios da análise".
+
 ## 4. Módulo 2 – Registro de Eventos
 
 Registro de falhas durante a inspeção.

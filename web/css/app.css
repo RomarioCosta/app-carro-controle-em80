@@ -28,6 +28,7 @@
   --pendente-fundo: #fff4cf;
   --serie-real: #2a78d6;
   --serie-meta: #8e99a2;
+  --serie-2: #eb6834;
   --grade: #e3e7eb;
   --foco: #2a78d6;
   --whats: #1c8f4e;
@@ -46,7 +47,7 @@
     --ativo: #d9e2e8; --ativo-texto: #141a1f;
     --ok: #57c886; --ok-fundo: #16301f; --alerta: #f0a648; --alerta-fundo: #33260f;
     --erro: #f07568; --erro-fundo: #3b1a17; --pendente: #f2c14e; --pendente-fundo: #34290c;
-    --serie-real: #3987e5; --serie-meta: #6f7c86; --grade: #27333b; --foco: #6aa7f0;
+    --serie-real: #3987e5; --serie-meta: #6f7c86; --serie-2: #d95926; --grade: #27333b; --foco: #6aa7f0;
     --whats: #25a35a;
     --sombra: 0 1px 2px rgba(0, 0, 0, .3);
   }
@@ -61,7 +62,7 @@
   --ativo: #d9e2e8; --ativo-texto: #141a1f;
   --ok: #57c886; --ok-fundo: #16301f; --alerta: #f0a648; --alerta-fundo: #33260f;
   --erro: #f07568; --erro-fundo: #3b1a17; --pendente: #f2c14e; --pendente-fundo: #34290c;
-  --serie-real: #3987e5; --serie-meta: #6f7c86; --grade: #27333b; --foco: #6aa7f0;
+  --serie-real: #3987e5; --serie-meta: #6f7c86; --serie-2: #d95926; --grade: #27333b; --foco: #6aa7f0;
   --whats: #25a35a;
   --sombra: 0 1px 2px rgba(0, 0, 0, .3);
 }
@@ -325,6 +326,49 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 }
 .graf-tip div:first-child { font-weight: 700; }
 
+/* ---------- Análise do arquivo do carro ---------- */
+.pilha-p { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.detalhes summary { cursor: pointer; list-style-position: inside; }
+.graf-km-topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.graf-km-topo h2 { margin: 0; }
+.graf-km-item { display: flex; flex-direction: column; gap: 6px; padding-top: 14px; margin-top: 10px; border-top: 1px solid var(--grade); }
+.graf-km-cab { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.graf-km-cab h3 { font-size: .92rem; color: var(--texto2); }
+.select-auto { width: auto; max-width: 100%; }
+.graf-km-cab select { width: auto; min-height: 38px; padding: 4px 10px; }
+.graf-km .graf { width: 100%; height: auto; }
+.info-km {
+  position: sticky; top: 60px; z-index: 4; margin-top: 10px;
+  background: var(--sup2); border: 1px solid var(--borda); border-radius: 8px; padding: 8px 10px;
+  font-size: .82rem; color: var(--texto2); font-variant-numeric: tabular-nums; line-height: 1.5;
+}
+.info-km strong { color: var(--texto); }
+.graf-serie { fill: none; stroke-width: 1.5; stroke-linejoin: round; }
+.graf-serie.s1 { stroke: var(--serie-real); }
+.graf-serie.s2 { stroke: var(--serie-2); }
+.s-alerta { fill: var(--erro); }
+.leg-chave.s1 { background: var(--serie-real); }
+.leg-chave.s2 { background: var(--serie-2); }
+.graf-limite { stroke: var(--erro); stroke-width: 1; stroke-dasharray: 4 3; opacity: .7; }
+.graf-zero { stroke: var(--texto3); stroke-width: 1; opacity: .5; }
+.graf-evento { stroke: var(--texto2); stroke-width: 2; }
+.faixa-curva { fill: var(--serie-real); opacity: .08; }
+.graf-rotulo-el { font-size: 10px; font-weight: 700; }
+.tabela-rolagem { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
+.tabela { width: 100%; border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
+.tabela th { text-align: left; color: var(--texto2); font-weight: 650; padding: 8px; border-bottom: 2px solid var(--borda); white-space: nowrap; }
+.tabela td { padding: 8px; border-bottom: 1px solid var(--grade); white-space: nowrap; }
+.tabela td.num { text-align: right; }
+.tabela td.ev { white-space: normal; min-width: 140px; color: var(--texto3); font-size: .8rem; }
+.tabela tbody tr { cursor: pointer; }
+.tabela tbody tr:hover, .tabela tbody tr:focus { background: var(--sup2); outline: none; }
+.el-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-weight: 700; font-size: .8rem; }
+.el-tangente { background: var(--sup2); color: var(--texto); border: 1px solid var(--borda); }
+.el-curva { background: color-mix(in srgb, var(--serie-real) 15%, transparent); color: var(--texto); }
+.barra-pct { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.barra-pct-fundo { width: 54px; height: 6px; border-radius: 3px; background: var(--grade); overflow: hidden; }
+.barra-pct-fundo span { display: block; height: 100%; background: var(--serie-real); }
+
 /* ---------- Gaveta de anomalia ---------- */
 .puxador {
   position: fixed; right: 0; top: 42%; z-index: 25;
@@ -397,6 +441,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
   .nav button[aria-current="page"]::before { top: auto; bottom: 0; left: 12px; right: 12px; height: 3px; border-radius: 3px 3px 0 0; }
   .principal { padding: 24px 56px 48px 24px; }
   .barra-fixa { bottom: 12px; }
+  .info-km { top: 96px; }
   .toasts { bottom: 24px; }
 }
 

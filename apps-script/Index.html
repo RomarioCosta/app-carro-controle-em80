@@ -46,6 +46,7 @@
   --pendente-fundo: #fff4cf;
   --serie-real: #2a78d6;
   --serie-meta: #8e99a2;
+  --serie-2: #eb6834;
   --grade: #e3e7eb;
   --foco: #2a78d6;
   --whats: #1c8f4e;
@@ -64,7 +65,7 @@
     --ativo: #d9e2e8; --ativo-texto: #141a1f;
     --ok: #57c886; --ok-fundo: #16301f; --alerta: #f0a648; --alerta-fundo: #33260f;
     --erro: #f07568; --erro-fundo: #3b1a17; --pendente: #f2c14e; --pendente-fundo: #34290c;
-    --serie-real: #3987e5; --serie-meta: #6f7c86; --grade: #27333b; --foco: #6aa7f0;
+    --serie-real: #3987e5; --serie-meta: #6f7c86; --serie-2: #d95926; --grade: #27333b; --foco: #6aa7f0;
     --whats: #25a35a;
     --sombra: 0 1px 2px rgba(0, 0, 0, .3);
   }
@@ -79,7 +80,7 @@
   --ativo: #d9e2e8; --ativo-texto: #141a1f;
   --ok: #57c886; --ok-fundo: #16301f; --alerta: #f0a648; --alerta-fundo: #33260f;
   --erro: #f07568; --erro-fundo: #3b1a17; --pendente: #f2c14e; --pendente-fundo: #34290c;
-  --serie-real: #3987e5; --serie-meta: #6f7c86; --grade: #27333b; --foco: #6aa7f0;
+  --serie-real: #3987e5; --serie-meta: #6f7c86; --serie-2: #d95926; --grade: #27333b; --foco: #6aa7f0;
   --whats: #25a35a;
   --sombra: 0 1px 2px rgba(0, 0, 0, .3);
 }
@@ -343,6 +344,49 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 }
 .graf-tip div:first-child { font-weight: 700; }
 
+/* ---------- Análise do arquivo do carro ---------- */
+.pilha-p { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.detalhes summary { cursor: pointer; list-style-position: inside; }
+.graf-km-topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.graf-km-topo h2 { margin: 0; }
+.graf-km-item { display: flex; flex-direction: column; gap: 6px; padding-top: 14px; margin-top: 10px; border-top: 1px solid var(--grade); }
+.graf-km-cab { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.graf-km-cab h3 { font-size: .92rem; color: var(--texto2); }
+.select-auto { width: auto; max-width: 100%; }
+.graf-km-cab select { width: auto; min-height: 38px; padding: 4px 10px; }
+.graf-km .graf { width: 100%; height: auto; }
+.info-km {
+  position: sticky; top: 60px; z-index: 4; margin-top: 10px;
+  background: var(--sup2); border: 1px solid var(--borda); border-radius: 8px; padding: 8px 10px;
+  font-size: .82rem; color: var(--texto2); font-variant-numeric: tabular-nums; line-height: 1.5;
+}
+.info-km strong { color: var(--texto); }
+.graf-serie { fill: none; stroke-width: 1.5; stroke-linejoin: round; }
+.graf-serie.s1 { stroke: var(--serie-real); }
+.graf-serie.s2 { stroke: var(--serie-2); }
+.s-alerta { fill: var(--erro); }
+.leg-chave.s1 { background: var(--serie-real); }
+.leg-chave.s2 { background: var(--serie-2); }
+.graf-limite { stroke: var(--erro); stroke-width: 1; stroke-dasharray: 4 3; opacity: .7; }
+.graf-zero { stroke: var(--texto3); stroke-width: 1; opacity: .5; }
+.graf-evento { stroke: var(--texto2); stroke-width: 2; }
+.faixa-curva { fill: var(--serie-real); opacity: .08; }
+.graf-rotulo-el { font-size: 10px; font-weight: 700; }
+.tabela-rolagem { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
+.tabela { width: 100%; border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
+.tabela th { text-align: left; color: var(--texto2); font-weight: 650; padding: 8px; border-bottom: 2px solid var(--borda); white-space: nowrap; }
+.tabela td { padding: 8px; border-bottom: 1px solid var(--grade); white-space: nowrap; }
+.tabela td.num { text-align: right; }
+.tabela td.ev { white-space: normal; min-width: 140px; color: var(--texto3); font-size: .8rem; }
+.tabela tbody tr { cursor: pointer; }
+.tabela tbody tr:hover, .tabela tbody tr:focus { background: var(--sup2); outline: none; }
+.el-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-weight: 700; font-size: .8rem; }
+.el-tangente { background: var(--sup2); color: var(--texto); border: 1px solid var(--borda); }
+.el-curva { background: color-mix(in srgb, var(--serie-real) 15%, transparent); color: var(--texto); }
+.barra-pct { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.barra-pct-fundo { width: 54px; height: 6px; border-radius: 3px; background: var(--grade); overflow: hidden; }
+.barra-pct-fundo span { display: block; height: 100%; background: var(--serie-real); }
+
 /* ---------- Gaveta de anomalia ---------- */
 .puxador {
   position: fixed; right: 0; top: 42%; z-index: 25;
@@ -415,6 +459,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
   .nav button[aria-current="page"]::before { top: auto; bottom: 0; left: 12px; right: 12px; height: 3px; border-radius: 3px 3px 0 0; }
   .principal { padding: 24px 56px 48px 24px; }
   .barra-fixa { bottom: 12px; }
+  .info-km { top: 96px; }
   .toasts { bottom: 24px; }
 }
 
@@ -1543,7 +1588,193 @@ window.App = window.App || {};
       extra ? ui.h('div', { class: 'kpi-extra', text: extra }) : null);
   }
 
-  App.charts = { barrasSemana, linhaMes, indicador };
+  /* ------------------------------------------------------------------ */
+  /* Gráfico com km no eixo X (análise do arquivo do carro controle)     */
+  /* ------------------------------------------------------------------ */
+
+  function passoKm(extensao) {
+    const alvo = extensao / 6;
+    return [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000, 10000].find((p) => p >= alvo) || 10000;
+  }
+
+  function faixaY(listas, extras) {
+    const vals = [];
+    listas.forEach((l) => l.forEach((v) => { if (Number.isFinite(v)) vals.push(v); }));
+    extras.forEach((v) => { if (Number.isFinite(v)) vals.push(v); });
+    if (!vals.length) return [-1, 1];
+    vals.sort((a, b) => a - b);
+    const corte = vals.length > 400 ? Math.floor(vals.length * 0.002) : 0; // ignora picos isolados de leitura
+    let lo = vals[corte];
+    let hi = vals[vals.length - 1 - corte];
+    extras.forEach((v) => { if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } });
+    if (lo === hi) { lo -= 1; hi += 1; }
+    const folga = (hi - lo) * 0.08;
+    return [lo - folga, hi + folga];
+  }
+
+  function passoY(lo, hi) {
+    const bruto = (hi - lo) / 4;
+    const mag = 10 ** Math.floor(Math.log10(bruto));
+    return [1, 2, 2.5, 5, 10].map((m) => m * mag).find((p) => p >= bruto) || mag * 10;
+  }
+
+  /**
+   * Gráfico de linhas ao longo da quilometragem.
+   * opcoes: { pos, x0, x1, series: [{ nome, valores, classe, tipo: 'linha'|'pontos' }],
+   *           faixas: [{ ini, fim, classe, rotulo }], referencias: [valores de y], eventos: [{ pos, texto }],
+   *           altura, unidade, legenda, aoPassar(pos|null), fmtX }
+   * Retorna { el, guia(pos|null) }.
+   */
+  function graficoKm(op) {
+    const caixa = ui.h('div', { class: 'graf-caixa graf-km' });
+    const H = op.altura || 170;
+    const m = { t: 18, r: 12, b: 26, l: 46 };
+    let guiaLinha = null;
+    let estado = null;
+    let ultimaLargura = 0;
+
+    function desenhar() {
+      const W = Math.max(280, Math.round(caixa.clientWidth || 0));
+      if (W === ultimaLargura && caixa.querySelector('svg')) return;
+      ultimaLargura = W;
+      const iw = W - m.l - m.r;
+      const ih = H - m.t - m.b;
+      const { pos, x0, x1 } = op;
+      const x = (p) => m.l + ((p - x0) / (x1 - x0)) * iw;
+      const lo = Math.min(x0, x1);
+      const hi = Math.max(x0, x1);
+
+      // Índices visíveis.
+      const vis = [];
+      for (let i = 0; i < pos.length; i++) if (pos[i] >= lo && pos[i] <= hi) vis.push(i);
+      const visiveis = op.series.map((s) => vis.map((i) => s.valores[i]));
+      const [y0, y1] = op.yFaixa || faixaY(visiveis, op.referencias || []);
+      const y = (v) => m.t + ih - ((Math.min(Math.max(v, y0), y1) - y0) / (y1 - y0)) * ih;
+
+      const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: 'graf', role: 'img', 'aria-label': op.titulo || 'Gráfico por km' });
+      const idClip = `clip-${Math.random().toString(36).slice(2, 8)}`;
+      svg.appendChild(s('defs', {}, s('clipPath', { id: idClip }, s('rect', { x: m.l, y: m.t, width: iw, height: ih }))));
+
+      // Faixas (curvas) e rótulos dos elementos.
+      (op.faixas || []).forEach((f) => {
+        const xa = Math.max(m.l, Math.min(x(f.ini), x(f.fim)));
+        const xb = Math.min(m.l + iw, Math.max(x(f.ini), x(f.fim)));
+        if (xb <= xa) return;
+        if (f.classe) svg.appendChild(s('rect', { x: xa, y: m.t, width: xb - xa, height: ih, class: f.classe }));
+        if (f.rotulo && xb - xa > 26) svg.appendChild(s('text', { x: (xa + xb) / 2, y: m.t - 5, class: 'graf-eixo graf-rotulo-el', 'text-anchor': 'middle' }, f.rotulo));
+      });
+
+      // Grade e eixo Y.
+      const py = passoY(y0, y1);
+      for (let v = Math.ceil(y0 / py) * py; v <= y1; v += py) {
+        const yy = y(v);
+        svg.appendChild(s('line', { x1: m.l, x2: m.l + iw, y1: yy, y2: yy, class: Math.abs(v) < 1e-9 ? 'graf-zero' : 'graf-grade' }));
+        svg.appendChild(s('text', { x: m.l - 6, y: yy + 4, class: 'graf-eixo', 'text-anchor': 'end' }, String(Math.round(v * 100) / 100)));
+      }
+      (op.referencias || []).forEach((v) => {
+        svg.appendChild(s('line', { x1: m.l, x2: m.l + iw, y1: y(v), y2: y(v), class: 'graf-limite' }));
+      });
+
+      // Eixo X (km).
+      const passo = passoKm(hi - lo);
+      for (let p = Math.ceil(lo / passo) * passo; p <= hi; p += passo) {
+        const xx = x(p);
+        svg.appendChild(s('line', { x1: xx, x2: xx, y1: m.t, y2: m.t + ih, class: 'graf-grade' }));
+        svg.appendChild(s('text', { x: xx, y: H - 8, class: 'graf-eixo', 'text-anchor': 'middle' }, (op.fmtX || String)(p)));
+      }
+
+      // Eventos (AMV, passagem superior…).
+      (op.eventos || []).forEach((e) => {
+        if (e.pos < lo || e.pos > hi) return;
+        const xx = x(e.pos);
+        svg.appendChild(s('line', { x1: xx, x2: xx, y1: m.t + ih - 8, y2: m.t + ih, class: 'graf-evento' }, s('title', {}, e.texto)));
+      });
+
+      // Séries (reduzidas a no máximo 2 pontos por pixel, preservando picos).
+      const g = s('g', { 'clip-path': `url(#${idClip})` });
+      op.series.forEach((serie) => {
+        const baldes = new Map();
+        vis.forEach((i) => {
+          const v = serie.valores[i];
+          if (!Number.isFinite(v)) return;
+          const px = Math.round(x(pos[i]));
+          const b = baldes.get(px);
+          if (!b) baldes.set(px, { min: v, max: v, iMin: i, iMax: i, primeiro: i, ultimo: i });
+          else {
+            if (v < b.min) { b.min = v; b.iMin = i; }
+            if (v > b.max) { b.max = v; b.iMax = i; }
+            b.ultimo = i;
+          }
+        });
+        const colunas = [...baldes.entries()].sort((a, b) => a[0] - b[0]);
+        if (serie.tipo === 'pontos') {
+          colunas.forEach(([px, b]) => {
+            const v = Math.abs(b.max) >= Math.abs(b.min) ? b.max : b.min;
+            g.appendChild(s('rect', { x: px - 1.5, y: y(v) - 1.5, width: 3, height: 3, class: serie.classe }));
+          });
+          return;
+        }
+        let d = '';
+        let ultimoIdx = null;
+        colunas.forEach(([px, b]) => {
+          // Interrompe a linha só onde faltam medições (mais de 4 pontos seguidos sem valor).
+          const quebra = ultimoIdx === null || Math.abs(b.primeiro - ultimoIdx) > 4;
+          const pontos = b.min === b.max ? [b.min] : (b.iMin < b.iMax ? [b.min, b.max] : [b.max, b.min]);
+          pontos.forEach((v, k) => {
+            d += `${quebra && k === 0 ? 'M' : 'L'}${px},${y(v).toFixed(1)} `;
+          });
+          ultimoIdx = b.ultimo;
+        });
+        if (d) g.appendChild(s('path', { d, class: `graf-serie ${serie.classe || ''}` }));
+      });
+      svg.appendChild(g);
+
+      // Guia e área de interação.
+      guiaLinha = s('line', { class: 'graf-guia', y1: m.t, y2: m.t + ih, visibility: 'hidden' });
+      svg.appendChild(guiaLinha);
+      const alvo = s('rect', { x: m.l, y: m.t, width: iw, height: ih, class: 'graf-alvo' });
+      const mover = (ev) => {
+        const r = svg.getBoundingClientRect();
+        const px = ((ev.clientX - r.left) / r.width) * W;
+        const p = x0 + ((px - m.l) / iw) * (x1 - x0);
+        if (op.aoPassar) op.aoPassar(p);
+      };
+      alvo.addEventListener('pointermove', mover);
+      alvo.addEventListener('pointerdown', mover);
+      alvo.addEventListener('pointerleave', () => op.aoPassar && op.aoPassar(null));
+      svg.appendChild(alvo);
+
+      estado = { x, lo, hi };
+      ui.trocar(caixa, svg);
+    }
+
+    const ro = new ResizeObserver(() => desenhar());
+    ro.observe(caixa);
+    requestAnimationFrame(desenhar);
+
+    const bloco = ui.h('div', { class: 'graf-bloco' },
+      op.legenda !== false && op.series.length > 1 ? ui.h('div', { class: 'graf-legenda' },
+        op.series.map((sr) => ui.h('span', { class: 'leg-item' }, ui.h('span', { class: `leg-chave ${sr.classe}` }), sr.nome))) : null,
+      caixa);
+
+    return {
+      el: bloco,
+      guia(p) {
+        if (!guiaLinha || !estado) return;
+        if (p === null || p < estado.lo || p > estado.hi) {
+          guiaLinha.setAttribute('visibility', 'hidden');
+          return;
+        }
+        const xx = estado.x(p);
+        guiaLinha.setAttribute('x1', xx);
+        guiaLinha.setAttribute('x2', xx);
+        guiaLinha.setAttribute('visibility', 'visible');
+      },
+      destruir() { ro.disconnect(); }
+    };
+  }
+
+  App.charts = { barrasSemana, linhaMes, indicador, graficoKm };
 })(window.App);
 
 </script>
@@ -1886,6 +2117,716 @@ window.App = window.App || {};
 
 </script>
   <script>
+/* js/bitola.js */
+/*
+ * Análise do arquivo CSV gerado pelo carro controle (bitola, curvatura, alinhamento e nivelamento).
+ * Funções puras (sem tela) para facilitar testes.
+ *
+ * Formato do arquivo (separado por ";"):
+ *  - linha "H": cabeçalho com os nomes das colunas;
+ *  - linhas "D": medições (uma a cada 0,25 m);
+ *  - linhas "E": eventos (AMV, passagem superior, etc.).
+ * Posição de cada ponto = KM × 1000 + LOCALIZACAO (em metros).
+ */
+'use strict';
+
+(function (App) {
+  const { U } = App;
+  const B = {};
+
+  /** Colunas usadas na análise, identificadas pelo título (sem espaços, acentos ou maiúsculas). */
+  B.COLUNAS = {
+    km: 'km',
+    loc: 'localizacao',
+    vel: 'speed',
+    bitF: 'bitolaf',
+    bitT: 'bitolat',
+    kld: 'bitkld',
+    curv: '10000r',
+    sup: 'superabs',
+    warp: 'warp',
+    emp2: 'emp2',
+    emp10: 'emp10',
+    emp20: 'emp20',
+    nl5: 'nlmax5',
+    nl20: 'nlmax20',
+    nlTqi: 'nltqi',
+    vrbt5: 'vrbtmax5',
+    alMax10: 'almax10',
+    al10: 'al10b10',
+    al20: 'al20b10',
+    alr10: 'alr1010',
+    alr20: 'alr1020',
+    val25: 'valb25'
+  };
+
+  /** Parâmetros de alinhamento que podem ser exibidos junto com a bitola. */
+  B.ALINHAMENTO = [
+    { id: 'alr10', nome: 'ALR10_10' },
+    { id: 'alr20', nome: 'ALR10_20' },
+    { id: 'al10', nome: 'AL10_B10' },
+    { id: 'al20', nome: 'AL20_B10' },
+    { id: 'alMax10', nome: 'ALmax_10' },
+    { id: 'val25', nome: 'VAL_B2,5' }
+  ];
+
+  /** Parâmetros de nivelamento para o ranking. */
+  B.NIVELAMENTO = [
+    { id: 'nl5', nome: 'NLmax_5' },
+    { id: 'nl20', nome: 'NLmax_20' },
+    { id: 'emp2', nome: 'EMP_2 (empeno)' },
+    { id: 'emp10', nome: 'EMP_10 (empeno)' },
+    { id: 'emp20', nome: 'EMP_20 (empeno)' },
+    { id: 'warp', nome: 'Warp (torção)' },
+    { id: 'sup', nome: 'SUPerABS (superelevação)' },
+    { id: 'vrbt5', nome: 'VrBTmax5' }
+  ];
+
+  B.PADRAO = {
+    limiarCurva: 3, // |10000/R| a partir do qual o trecho é curva (R ≈ 3.333 m)
+    suavizacao: 10, // metros (média móvel da curvatura)
+    comprimentoMin: 20, // metros: trechos menores são unidos ao vizinho
+    limitePerda: 2 // mm: |Bitola F − Bitola T| acima disso = perda de bitola
+  };
+
+  const num = (s) => {
+    const t = String(s ?? '').trim();
+    if (!t || t.includes('*')) return null;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  /** Formata a posição em metros como km+metros (ex.: 328+364). */
+  B.fmtKm = (m) => {
+    if (m === null || m === undefined || !Number.isFinite(m)) return '—';
+    const km = Math.floor(m / 1000);
+    const resto = Math.round(m - km * 1000);
+    return resto === 1000 ? `${km + 1}+000` : `${km}+${String(resto).padStart(3, '0')}`;
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Leitura do arquivo                                                  */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Lê o texto do CSV. Retorna { meta, pos, dados: {campo: Float64Array}, eventos, avisos }.
+   * Valores ausentes ("*******") ficam como NaN.
+   */
+  B.lerCSV = (texto) => {
+    const linhas = String(texto || '').split(/\r?\n/);
+    const avisos = [];
+    let cab = null;
+    const brutos = [];
+    const eventos = [];
+    let meta = null;
+
+    linhas.forEach((ln) => {
+      if (!ln) return;
+      const c = ln.split(';');
+      const tipo = c[0].trim();
+      if (tipo === 'H' && !cab) cab = c.map((x) => U.chaveTitulo(x));
+      else if (tipo === 'D') brutos.push(c);
+      else if (tipo === 'E') eventos.push(c);
+    });
+
+    if (!cab) throw new Error('Cabeçalho (linha "H") não encontrado. Confira se é o arquivo gerado pelo carro controle.');
+    const idx = {};
+    Object.entries(B.COLUNAS).forEach(([campo, chave]) => { idx[campo] = cab.indexOf(chave); });
+    ['km', 'loc', 'bitF', 'bitT'].forEach((c) => {
+      if (idx[c] < 0) throw new Error(`Coluna obrigatória não encontrada: ${c === 'loc' ? 'LOCALIZACAO' : c === 'bitF' ? 'Bitola F' : c === 'bitT' ? 'Bitola T' : 'KM'}.`);
+    });
+    Object.entries(idx).forEach(([campo, i]) => {
+      if (i < 0) avisos.push(`Coluna ${campo} não encontrada no arquivo.`);
+    });
+    if (!brutos.length) throw new Error('O arquivo não tem linhas de medição ("D").');
+
+    const iCampo = (nome) => cab.indexOf(nome);
+    const primeira = brutos[0];
+    const pega = (nome) => (iCampo(nome) >= 0 ? String(primeira[iCampo(nome)] || '').trim() : '');
+    meta = {
+      ramal: pega('ramal'),
+      linha: pega('linha'),
+      inspetor: pega('inspetor'),
+      carro: pega('car'),
+      data: pega('data'),
+      sentido: pega('sequncia') || pega('sequencia')
+    };
+
+    const n = brutos.length;
+    const pos = new Float64Array(n);
+    const dados = {};
+    Object.keys(B.COLUNAS).forEach((campo) => { dados[campo] = new Float64Array(n).fill(NaN); });
+    let validos = 0;
+    brutos.forEach((c, i) => {
+      const km = num(c[idx.km]);
+      const loc = num(c[idx.loc]);
+      pos[i] = km === null || loc === null ? NaN : km * 1000 + loc;
+      if (!Number.isNaN(pos[i])) validos++;
+      Object.keys(B.COLUNAS).forEach((campo) => {
+        if (idx[campo] >= 0) {
+          const v = num(c[idx[campo]]);
+          if (v !== null) dados[campo][i] = v;
+        }
+      });
+    });
+    if (validos < n) avisos.push(`${n - validos} linha(s) sem posição foram ignoradas.`);
+
+    // Mantém só pontos com posição.
+    const manter = [];
+    for (let i = 0; i < n; i++) if (!Number.isNaN(pos[i])) manter.push(i);
+    const filtrar = (arr) => Float64Array.from(manter, (i) => arr[i]);
+    const posF = filtrar(pos);
+    Object.keys(dados).forEach((k) => { dados[k] = filtrar(dados[k]); });
+
+    const evs = eventos.map((c) => {
+      const km = num(c[7]);
+      const loc = num(c[9]);
+      return { pos: km === null || loc === null ? NaN : km * 1000 + loc, codigo: String(c[13] || '').trim(), texto: String(c[14] || '').trim() };
+    }).filter((e) => !Number.isNaN(e.pos) && e.texto);
+
+    return { meta, pos: posF, dados, eventos: evs, avisos };
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Tangentes e curvas                                                  */
+  /* ------------------------------------------------------------------ */
+
+  /** Espaçamento típico entre pontos (mediana das diferenças), em metros. */
+  B.espacamento = (pos) => {
+    const d = [];
+    for (let i = 1; i < pos.length && d.length < 2000; i++) d.push(Math.abs(pos[i] - pos[i - 1]));
+    d.sort((a, b) => a - b);
+    return d.length ? d[Math.floor(d.length / 2)] || 0.25 : 0.25;
+  };
+
+  /** Média móvel centrada, ignorando valores ausentes. */
+  B.mediaMovel = (arr, janela) => {
+    const n = arr.length;
+    const out = new Float64Array(n).fill(NaN);
+    const meia = Math.max(0, Math.floor(janela / 2));
+    let soma = 0;
+    let cont = 0;
+    let ini = 0;
+    let fim = -1;
+    for (let i = 0; i < n; i++) {
+      const a = Math.max(0, i - meia);
+      const b = Math.min(n - 1, i + meia);
+      while (fim < b) { fim++; if (!Number.isNaN(arr[fim])) { soma += arr[fim]; cont++; } }
+      while (ini < a) { if (!Number.isNaN(arr[ini])) { soma -= arr[ini]; cont--; } ini++; }
+      out[i] = cont ? soma / cont : NaN;
+    }
+    return out;
+  };
+
+  /**
+   * Divide o trecho em elementos (tangentes e curvas), na ordem de inspeção.
+   * Retorna [{ tipo: 'T'|'C', nome: 'Tangente 01', sigla: 'T01', i0, i1, ini, fim, extensao }].
+   */
+  B.segmentar = (pos, curv, opcoes = {}) => {
+    const o = { ...B.PADRAO, ...opcoes };
+    const n = pos.length;
+    if (!n) return [];
+    const esp = B.espacamento(pos) || 0.25;
+    const suave = B.mediaMovel(curv, Math.max(1, Math.round(o.suavizacao / esp)));
+
+    // Classificação ponto a ponto (sem dado: mantém a classe anterior).
+    const classe = new Array(n);
+    let anterior = 'T';
+    for (let i = 0; i < n; i++) {
+      const v = suave[i];
+      classe[i] = Number.isNaN(v) ? anterior : (Math.abs(v) >= o.limiarCurva ? 'C' : 'T');
+      anterior = classe[i];
+    }
+
+    // Trechos contínuos.
+    let seg = [];
+    let ini = 0;
+    for (let i = 1; i <= n; i++) {
+      if (i === n || classe[i] !== classe[ini]) {
+        seg.push({ tipo: classe[ini], i0: ini, i1: i - 1 });
+        ini = i;
+      }
+    }
+    const ext = (s) => Math.abs(pos[s.i1] - pos[s.i0]) + esp;
+
+    // Une trechos curtos ao vizinho (repete até não sobrar nenhum curto).
+    for (let guarda = 0; guarda < 10000 && seg.length > 1; guarda++) {
+      let menor = -1;
+      seg.forEach((s, k) => { if (ext(s) < o.comprimentoMin && (menor < 0 || ext(s) < ext(seg[menor]))) menor = k; });
+      if (menor < 0) break;
+      const s = seg[menor];
+      const ant = seg[menor - 1];
+      const prox = seg[menor + 1];
+      if (ant && prox && ant.tipo === prox.tipo) {
+        seg.splice(menor - 1, 3, { tipo: ant.tipo, i0: ant.i0, i1: prox.i1 });
+      } else {
+        const alvo = !ant ? prox : !prox ? ant : (ext(ant) >= ext(prox) ? ant : prox);
+        alvo.i0 = Math.min(alvo.i0, s.i0);
+        alvo.i1 = Math.max(alvo.i1, s.i1);
+        seg.splice(menor, 1);
+      }
+      // junta vizinhos que ficaram do mesmo tipo
+      seg = seg.reduce((acc, x) => {
+        const u = acc[acc.length - 1];
+        if (u && u.tipo === x.tipo) u.i1 = x.i1;
+        else acc.push({ ...x });
+        return acc;
+      }, []);
+    }
+
+    const cont = { T: 0, C: 0 };
+    return seg.map((s) => {
+      cont[s.tipo]++;
+      const numero = String(cont[s.tipo]).padStart(2, '0');
+      return {
+        ...s,
+        sigla: `${s.tipo}${numero}`,
+        nome: `${s.tipo === 'T' ? 'Tangente' : 'Curva'} ${numero}`,
+        ini: pos[s.i0],
+        fim: pos[s.i1],
+        extensao: ext(s)
+      };
+    });
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Indicadores                                                         */
+  /* ------------------------------------------------------------------ */
+
+  const abs = Math.abs;
+
+  /** Diferença ponto a ponto (NaN quando falta algum dos dois). */
+  B.diferenca = (a, b) => Float64Array.from(a, (v, i) => v - b[i]);
+
+  function resumoTrecho(d, i0, i1, opcoes, alinhamento) {
+    let validos = 0; let perdas = 0; let maxDif = 0; let somaDif = 0;
+    let nK = 0; let somaK = 0; let perdasK = 0;
+    let nC = 0; let somaC = 0;
+    let nA = 0; let somaA = 0; let maxA = 0;
+    for (let i = i0; i <= i1; i++) {
+      const f = d.bitF[i]; const t = d.bitT[i];
+      if (!Number.isNaN(f) && !Number.isNaN(t)) {
+        const dif = f - t;
+        validos++;
+        somaDif += abs(dif);
+        if (abs(dif) > opcoes.limitePerda) perdas++;
+        if (abs(dif) > abs(maxDif)) maxDif = dif;
+      }
+      const k = d.kld[i];
+      if (!Number.isNaN(f) && !Number.isNaN(k) && abs(k) < 60) {
+        nK++;
+        somaK += f - k;
+        if (abs(f - k) > opcoes.limitePerda) perdasK++;
+      }
+      if (!Number.isNaN(d.curv[i])) { nC++; somaC += d.curv[i]; }
+      const a = alinhamento ? alinhamento[i] : NaN;
+      if (!Number.isNaN(a)) { nA++; somaA += abs(a); if (abs(a) > abs(maxA)) maxA = a; }
+    }
+    const curvMedia = nC ? somaC / nC : NaN;
+    return {
+      pontos: validos,
+      perdas,
+      pctPerda: validos ? (perdas / validos) * 100 : null,
+      maxDif: validos ? maxDif : null,
+      difMedia: validos ? somaDif / validos : null,
+      difKldMedia: nK ? somaK / nK : null,
+      pctKld: nK ? (perdasK / nK) * 100 : null,
+      curvMedia,
+      raioMedio: Number.isNaN(curvMedia) || abs(curvMedia) < 0.01 ? null : 10000 / abs(curvMedia),
+      alinhMedio: nA ? somaA / nA : null,
+      alinhMax: nA ? maxA : null
+    };
+  }
+
+  /**
+   * Análise completa: elementos, indicadores por elemento e gerais.
+   * opcoes: limiarCurva, suavizacao, comprimentoMin, limitePerda, alinhamento (id).
+   */
+  B.analisar = (arquivo, opcoes = {}) => {
+    const o = { ...B.PADRAO, alinhamento: 'alr10', ...opcoes };
+    const { pos, dados } = arquivo;
+    const alin = dados[o.alinhamento];
+    const elementos = B.segmentar(pos, dados.curv, o).map((e) => ({ ...e, ...resumoTrecho(dados, e.i0, e.i1, o, alin) }));
+    const geral = resumoTrecho(dados, 0, pos.length - 1, o, alin);
+
+    const porTipo = (tipo) => {
+      const els = elementos.filter((e) => e.tipo === tipo);
+      const pontos = els.reduce((s, e) => s + e.pontos, 0);
+      const perdas = els.reduce((s, e) => s + e.perdas, 0);
+      return { quantidade: els.length, extensao: els.reduce((s, e) => s + e.extensao, 0), pontos, perdas, pctPerda: pontos ? (perdas / pontos) * 100 : null };
+    };
+
+    return {
+      opcoes: o,
+      elementos,
+      geral: { ...geral, extensao: Math.abs(pos[pos.length - 1] - pos[0]) + B.espacamento(pos) },
+      tangentes: porTipo('T'),
+      curvas: porTipo('C'),
+      difFT: B.diferenca(dados.bitF, dados.bitT),
+      difKld: Float64Array.from(dados.bitF, (f, i) => (abs(dados.kld[i]) < 60 ? f - dados.kld[i] : NaN))
+    };
+  };
+
+  /** Elemento que contém o ponto i. */
+  B.elementoDo = (elementos, i) => elementos.find((e) => i >= e.i0 && i <= e.i1) || null;
+
+  /**
+   * Ranking dos maiores valores (em módulo) de um parâmetro.
+   * Picos a menos de "separacao" metros de um já escolhido são considerados o mesmo defeito.
+   */
+  B.ranking = (arquivo, elementos, campo, { limite = 10, separacao = 10 } = {}) => {
+    const v = arquivo.dados[campo];
+    const pos = arquivo.pos;
+    if (!v) return [];
+    const ordem = [];
+    for (let i = 0; i < v.length; i++) if (!Number.isNaN(v[i])) ordem.push(i);
+    ordem.sort((a, b) => abs(v[b]) - abs(v[a]));
+    const escolhidos = [];
+    for (const i of ordem) {
+      if (escolhidos.length >= limite) break;
+      if (escolhidos.some((j) => abs(pos[j] - pos[i]) < separacao)) continue;
+      escolhidos.push(i);
+    }
+    return escolhidos.map((i, k) => {
+      const el = B.elementoDo(elementos, i);
+      return { posicao: k + 1, i, pos: pos[i], km: B.fmtKm(pos[i]), valor: v[i], elemento: el ? el.sigla : '—' };
+    });
+  };
+
+  /** Índice do ponto mais próximo de uma posição (pos é monotônico, crescente ou decrescente). */
+  B.indicePerto = (pos, alvo) => {
+    const n = pos.length;
+    if (!n) return -1;
+    const crescente = pos[n - 1] >= pos[0];
+    let lo = 0; let hi = n - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if ((pos[mid] < alvo) === crescente) lo = mid; else hi = mid;
+    }
+    return abs(pos[lo] - alvo) <= abs(pos[hi] - alvo) ? lo : hi;
+  };
+
+  App.bitola = B;
+})(window.App);
+
+</script>
+  <script>
+/* js/modulos/analise.js */
+/*
+ * Análise do arquivo CSV do carro controle (aba dentro do Checklist):
+ * bitola frontal × traseira, OGMS × KLD, tangentes e curvas, perda de bitola,
+ * alinhamento e ranking de nivelamento. Sempre com o km no eixo X.
+ */
+'use strict';
+
+(function (App) {
+  const { U, ui, store, charts } = App;
+  const B = App.bitola;
+  const { h } = ui;
+  const CHAVE = 'bitola:ultimo';
+
+  let raiz;
+  let arquivo = null; // resultado de B.lerCSV
+  let nomeArquivo = '';
+  let resultado = null; // resultado de B.analisar
+  let opcoes = { ...B.PADRAO, alinhamento: 'alr10', ...(U.pref.get('bitola:opcoes', {}) || {}) };
+  let rankingCampo = 'nl20';
+  let zoom = null; // { x0, x1 } ou null (trecho todo)
+  let graficos = [];
+
+  const secoes = {};
+
+  function montar(el) {
+    raiz = el;
+    ['arquivo', 'parametros', 'kpis', 'graficos', 'elementos', 'ranking'].forEach((k) => { secoes[k] = h('div'); });
+    raiz.append(
+      h('div', { class: 'tela-cab' },
+        h('h1', { text: 'Análise do arquivo do carro controle' }),
+        h('p', { class: 'sub', text: 'Bitola frontal × traseira, OGMS × KLD, tangentes e curvas, alinhamento e nivelamento.' })),
+      secoes.arquivo, secoes.parametros, secoes.kpis, secoes.graficos, secoes.elementos, secoes.ranking);
+    renderArquivo();
+    carregarUltimo();
+  }
+
+  /* ---------------- Arquivo ---------------- */
+
+  async function carregarUltimo() {
+    try {
+      const salvo = await store.get(CHAVE);
+      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false });
+    } catch (e) { /* sem arquivo salvo */ }
+  }
+
+  async function lerArquivo(f) {
+    const buf = await f.arrayBuffer();
+    let texto;
+    try {
+      texto = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+    } catch (e) {
+      texto = new TextDecoder('windows-1252').decode(buf); // arquivos do carro costumam vir em ANSI
+    }
+    processar(texto, f.name, { salvar: true });
+  }
+
+  function processar(texto, nome, { salvar }) {
+    try {
+      arquivo = B.lerCSV(texto);
+    } catch (e) {
+      arquivo = null;
+      resultado = null;
+      renderTudo();
+      ui.toast(`Não foi possível ler o arquivo: ${e.message}`, 'erro', 7000);
+      return;
+    }
+    nomeArquivo = nome || 'arquivo.csv';
+    zoom = null;
+    recalcular();
+    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto }).catch(() => {});
+  }
+
+  function recalcular() {
+    resultado = arquivo ? B.analisar(arquivo, opcoes) : null;
+    renderTudo();
+  }
+
+  function renderTudo() {
+    renderArquivo();
+    renderParametros();
+    renderKpis();
+    renderGraficos();
+    renderElementos();
+    renderRanking();
+  }
+
+  function renderArquivo() {
+    const input = h('input', {
+      type: 'file',
+      accept: '.csv,.txt',
+      onchange: (e) => { const f = e.target.files[0]; if (f) lerArquivo(f); }
+    });
+    const meta = arquivo && arquivo.meta;
+    ui.trocar(secoes.arquivo, h('section', { class: 'cartao' },
+      h('h2', { text: 'Arquivo' }),
+      ui.campo('Arquivo CSV gerado pelo carro controle', input),
+      arquivo ? h('div', { class: 'pilha-p' },
+        h('p', null, h('strong', { text: nomeArquivo })),
+        h('p', { class: 'sub', text: [
+          meta.ramal && `Ramal ${meta.ramal}`,
+          meta.linha && `Linha ${meta.linha}`,
+          meta.data,
+          meta.inspetor,
+          `${B.fmtKm(arquivo.pos[0])} → ${B.fmtKm(arquivo.pos[arquivo.pos.length - 1])}`,
+          `${(resultado.geral.extensao / 1000).toFixed(2).replace('.', ',')} km`,
+          `${arquivo.pos.length.toLocaleString('pt-BR')} pontos`
+        ].filter(Boolean).join(' · ') }),
+        arquivo.avisos.length ? h('p', { class: 'aviso', text: arquivo.avisos.join(' ') }) : null,
+        h('button', {
+          class: 'btn btn-fantasma',
+          onclick: async () => {
+            arquivo = null; resultado = null; nomeArquivo = '';
+            await store.del(CHAVE).catch(() => {});
+            renderTudo();
+          }
+        }, ui.icone('lixo'), 'Remover arquivo')) : h('p', { class: 'sub', text: 'O arquivo fica guardado neste aparelho até você remover ou abrir outro.' })));
+  }
+
+  /* ---------------- Parâmetros ---------------- */
+
+  function renderParametros() {
+    if (!arquivo) return ui.limpar(secoes.parametros);
+    const numero = (campo, rotulo, ajuda) => ui.campo(rotulo, h('input', {
+      type: 'text',
+      inputmode: 'decimal',
+      value: String(opcoes[campo]).replace('.', ','),
+      onchange: (e) => {
+        const v = U.numero(e.target.value);
+        if (v === null || v <= 0) { e.target.value = String(opcoes[campo]).replace('.', ','); return; }
+        opcoes = { ...opcoes, [campo]: v };
+        U.pref.set('bitola:opcoes', opcoes);
+        recalcular();
+      }
+    }), { ajuda });
+
+    ui.trocar(secoes.parametros, h('details', { class: 'cartao detalhes' },
+      h('summary', null, h('strong', { text: 'Critérios da análise' }),
+        h('span', { class: 'sub', text: ` · curva a partir de |10000/R| ${opcoes.limiarCurva} · perda acima de ${opcoes.limitePerda} mm` })),
+      h('div', { class: 'grade-2', style: { marginTop: '12px' } },
+        numero('limiarCurva', 'Limite de curva (|10000/R|)', 'Abaixo disso é tangente. 3 ≈ raio de 3.333 m.'),
+        numero('limitePerda', 'Limite de perda de bitola (mm)', '|Bitola F − Bitola T| acima disso = perda.'),
+        numero('suavizacao', 'Suavização da curvatura (m)', 'Média móvel para evitar oscilações.'),
+        numero('comprimentoMin', 'Comprimento mínimo do elemento (m)', 'Trechos menores são unidos ao vizinho.')),
+      h('button', {
+        class: 'btn btn-fantasma',
+        onclick: () => {
+          opcoes = { ...B.PADRAO, alinhamento: opcoes.alinhamento };
+          U.pref.set('bitola:opcoes', opcoes);
+          recalcular();
+        }
+      }, 'Restaurar padrão')));
+  }
+
+  /* ---------------- Indicadores ---------------- */
+
+  const fmt = (v, casas = 1) => (v === null || v === undefined || Number.isNaN(v) ? '—' : v.toFixed(casas).replace('.', ','));
+
+  function renderKpis() {
+    if (!resultado) return ui.limpar(secoes.kpis);
+    const r = resultado;
+    const kpi = (titulo, valor, sub) => h('div', { class: 'kpi' },
+      h('div', { class: 'kpi-titulo', text: titulo }),
+      h('div', { class: 'kpi-valor', text: valor }),
+      h('div', { class: 'kpi-sub', text: sub }));
+    ui.trocar(secoes.kpis, h('div', { class: 'kpis' },
+      kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${r.geral.perdas.toLocaleString('pt-BR')} de ${r.geral.pontos.toLocaleString('pt-BR')} pontos`),
+      kpi('Em tangentes', `${fmt(r.tangentes.pctPerda)}%`, `${r.tangentes.quantidade} tangente(s) · ${fmt(r.tangentes.extensao / 1000, 2)} km`),
+      kpi('Em curvas', `${fmt(r.curvas.pctPerda)}%`, `${r.curvas.quantidade} curva(s) · ${fmt(r.curvas.extensao / 1000, 2)} km`),
+      kpi('OGMS − KLD', `${fmt(r.geral.difKldMedia, 2)} mm`, `diferença média · ${fmt(r.geral.pctKld)}% acima de ${fmt(opcoes.limitePerda, 0)} mm`)));
+  }
+
+  /* ---------------- Gráficos ---------------- */
+
+  function renderGraficos() {
+    graficos.forEach((g) => g.destruir());
+    graficos = [];
+    if (!resultado) return ui.limpar(secoes.graficos);
+    const { pos, dados, eventos } = arquivo;
+    const r = resultado;
+    const x0 = zoom ? zoom.x0 : pos[0];
+    const x1 = zoom ? zoom.x1 : pos[pos.length - 1];
+    const lim = opcoes.limitePerda;
+    const info = h('div', { class: 'info-km', 'aria-live': 'polite' }, 'Passe o dedo ou o mouse sobre um gráfico para ver os valores.');
+
+    const faixas = r.elementos.map((e) => ({ ini: e.ini, fim: e.fim, classe: e.tipo === 'C' ? 'faixa-curva' : null, rotulo: e.sigla }));
+    const nomeAlin = (B.ALINHAMENTO.find((a) => a.id === opcoes.alinhamento) || B.ALINHAMENTO[0]).nome;
+    const alertas = Float64Array.from(r.difFT, (v) => (Math.abs(v) > lim ? v : NaN));
+
+    const aoPassar = (p) => {
+      graficos.forEach((g) => g.guia(p));
+      if (p === null) return;
+      const i = B.indicePerto(pos, p);
+      const el = B.elementoDo(r.elementos, i);
+      const v = (a) => fmt(a[i], 2);
+      ui.trocar(info,
+        h('strong', { text: `${B.fmtKm(pos[i])}` }), el ? ` · ${el.nome}` : '',
+        h('span', { text: ` · F ${v(dados.bitF)} · T ${v(dados.bitT)} · F−T ${v(r.difFT)}` }),
+        h('span', { text: ` · KLD ${v(dados.kld)} · OGMS−KLD ${v(r.difKld)}` }),
+        h('span', { text: ` · 10000/R ${v(dados.curv)} · ${nomeAlin} ${v(dados[opcoes.alinhamento])}` }));
+    };
+
+    const base = { pos, x0, x1, fmtX: B.fmtKm, aoPassar, faixas };
+    const blocos = [
+      ['Curvatura (10000/R) — tangentes e curvas', { ...base, series: [{ nome: '10000/R', valores: dados.curv, classe: 's1' }], referencias: [opcoes.limiarCurva, -opcoes.limiarCurva], eventos }],
+      ['Bitola frontal e traseira (mm)', { ...base, series: [{ nome: 'Bitola F', valores: dados.bitF, classe: 's1' }, { nome: 'Bitola T', valores: dados.bitT, classe: 's2' }] }],
+      [`Diferença Bitola F − Bitola T (mm) — perda acima de ±${fmt(lim, 0)} mm`, { ...base, series: [{ nome: 'F − T', valores: r.difFT, classe: 's1' }, { nome: 'Perda', valores: alertas, classe: 's-alerta', tipo: 'pontos' }], referencias: [lim, -lim], legenda: false }],
+      ['Diferença OGMS − KLD (mm)', { ...base, series: [{ nome: 'OGMS (F) − KLD', valores: r.difKld, classe: 's1' }], referencias: [lim, -lim] }],
+      [`Alinhamento: ${nomeAlin}`, { ...base, series: [{ nome: nomeAlin, valores: dados[opcoes.alinhamento], classe: 's1' }] }]
+    ];
+
+    // Perda por elemento (degraus ao longo do km).
+    const pctPorPonto = new Float64Array(pos.length).fill(NaN);
+    r.elementos.forEach((e) => { for (let i = e.i0; i <= e.i1; i++) pctPorPonto[i] = e.pctPerda === null ? NaN : e.pctPerda; });
+    blocos.push(['Perda de bitola por elemento (%)', { ...base, series: [{ nome: '% perda', valores: pctPorPonto, classe: 's1' }], yFaixa: [0, 100] }]);
+
+    const seletorAlin = h('select', {
+      'aria-label': 'Parâmetro de alinhamento',
+      value: opcoes.alinhamento,
+      onchange: (e) => { opcoes = { ...opcoes, alinhamento: e.target.value }; U.pref.set('bitola:opcoes', opcoes); recalcular(); }
+    }, B.ALINHAMENTO.map((a) => h('option', { value: a.id, text: a.nome })));
+
+    const conteudo = blocos.map(([titulo, op], k) => {
+      const g = charts.graficoKm({ ...op, titulo });
+      graficos.push(g);
+      return h('div', { class: 'graf-km-item' },
+        h('div', { class: 'graf-km-cab' }, h('h3', { text: titulo }), k === 4 ? seletorAlin : null),
+        g.el);
+    });
+
+    ui.trocar(secoes.graficos, h('section', { class: 'cartao' },
+      h('div', { class: 'graf-km-topo' },
+        h('h2', { text: 'Gráficos ao longo do km' }),
+        h('div', { class: 'linha-campo' },
+          h('span', { class: 'sub', text: zoom ? `Trecho: ${B.fmtKm(x0)} → ${B.fmtKm(x1)}` : 'Trecho completo' }),
+          zoom ? h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => { zoom = null; renderGraficos(); } }, 'Ver tudo') : null)),
+      h('p', { class: 'sub', text: 'Faixas sombreadas = curvas. Toque numa linha da tabela de elementos ou do ranking para aproximar.' }),
+      info,
+      conteudo));
+  }
+
+  function aproximar(ini, fim, margem = 0.1) {
+    const ext = Math.abs(fim - ini) || 50;
+    const sentido = arquivo.pos[arquivo.pos.length - 1] >= arquivo.pos[0] ? 1 : -1;
+    const a = Math.min(ini, fim) - ext * margem;
+    const b = Math.max(ini, fim) + ext * margem;
+    zoom = sentido > 0 ? { x0: a, x1: b } : { x0: b, x1: a };
+    renderGraficos();
+    secoes.graficos.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /* ---------------- Elementos ---------------- */
+
+  function renderElementos() {
+    if (!resultado) return ui.limpar(secoes.elementos);
+    const evs = arquivo.eventos;
+    const linhas = resultado.elementos.map((e) => {
+      const lo = Math.min(e.ini, e.fim); const hi = Math.max(e.ini, e.fim);
+      const nomesEv = [...new Set(evs.filter((v) => v.pos >= lo && v.pos <= hi).map((v) => v.texto))].join(', ');
+      const pct = e.pctPerda;
+      return h('tr', { tabindex: '0', onclick: () => aproximar(e.ini, e.fim), onkeydown: (ev) => { if (ev.key === 'Enter') aproximar(e.ini, e.fim); } },
+        h('td', null, h('span', { class: `el-tag ${e.tipo === 'C' ? 'el-curva' : 'el-tangente'}`, text: e.sigla })),
+        h('td', { text: B.fmtKm(e.ini) }),
+        h('td', { text: B.fmtKm(e.fim) }),
+        h('td', { class: 'num', text: Math.round(e.extensao).toLocaleString('pt-BR') }),
+        h('td', { class: 'num', text: e.tipo === 'C' && e.raioMedio ? Math.round(e.raioMedio).toLocaleString('pt-BR') : '—' }),
+        h('td', { class: 'num' }, h('div', { class: 'barra-pct' },
+          h('span', { class: 'barra-pct-fundo' }, h('span', { style: { width: `${Math.min(pct || 0, 100)}%` } })),
+          h('span', { text: `${fmt(pct)}%` }))),
+        h('td', { class: 'num', text: fmt(e.maxDif, 2) }),
+        h('td', { class: 'num', text: fmt(e.difKldMedia, 2) }),
+        h('td', { class: 'num', text: fmt(e.alinhMax, 2) }),
+        h('td', { class: 'ev', text: nomesEv || '' }));
+    });
+    const nomeAlin = (B.ALINHAMENTO.find((a) => a.id === opcoes.alinhamento) || B.ALINHAMENTO[0]).nome;
+    ui.trocar(secoes.elementos, h('section', { class: 'cartao' },
+      h('h2', { text: 'Elementos: tangentes e curvas' }),
+      h('p', { class: 'sub', text: `Numerados na ordem da inspeção. % perda = pontos com |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm ÷ pontos medidos no elemento.` }),
+      h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela' },
+        h('thead', null, h('tr', null,
+          ['Elemento', 'Início', 'Fim', 'Ext. (m)', 'Raio (m)', '% perda', 'Máx F−T', 'OGMS−KLD', `Máx ${nomeAlin}`, 'Eventos'].map((t) => h('th', { text: t })))),
+        h('tbody', null, linhas)))));
+  }
+
+  /* ---------------- Ranking de nivelamento ---------------- */
+
+  function renderRanking() {
+    if (!resultado) return ui.limpar(secoes.ranking);
+    const disponiveis = B.NIVELAMENTO.filter((p) => arquivo.dados[p.id] && arquivo.dados[p.id].some((v) => !Number.isNaN(v)));
+    if (!disponiveis.some((p) => p.id === rankingCampo) && disponiveis.length) rankingCampo = disponiveis[0].id;
+    const lista = B.ranking(arquivo, resultado.elementos, rankingCampo, { limite: 10, separacao: 10 });
+    const nome = (B.NIVELAMENTO.find((p) => p.id === rankingCampo) || {}).nome || rankingCampo;
+    ui.trocar(secoes.ranking, h('section', { class: 'cartao' },
+      h('h2', { text: 'Ranking de nivelamento' }),
+      h('p', { class: 'sub', text: 'Os 10 maiores valores (em módulo) do teste. Picos a menos de 10 m entre si contam como um só ponto.' }),
+      h('div', { style: { marginBottom: '10px' } },
+        h('select', {
+          class: 'select-auto',
+          'aria-label': 'Parâmetro de nivelamento',
+          value: rankingCampo,
+          onchange: (e) => { rankingCampo = e.target.value; renderRanking(); }
+        }, disponiveis.map((p) => h('option', { value: p.id, text: p.nome })))),
+      lista.length ? h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela' },
+        h('thead', null, h('tr', null, ['#', 'km', nome, 'Elemento'].map((t) => h('th', { text: t })))),
+        h('tbody', null, lista.map((x) => h('tr', { tabindex: '0', onclick: () => aproximar(x.pos - 50, x.pos + 50, 0) },
+          h('td', { text: String(x.posicao) }),
+          h('td', { text: x.km }),
+          h('td', { class: 'num', text: fmt(x.valor, 2) }),
+          h('td', { text: x.elemento })))))) : h('p', { class: 'vazio', text: 'Sem dados para este parâmetro.' })));
+  }
+
+  App.analise = { montar };
+})(window.App);
+
+</script>
+  <script>
 /* js/modulos/checklist.js */
 /* Módulo 1 – Check List de Inspeção. */
 'use strict';
@@ -1943,14 +2884,38 @@ window.App = window.App || {};
     if (!temRespostas) estado.cab.data = U.hoje(); // rascunho vazio de outro dia
     formEl = h('form', { class: 'pilha', novalidate: true, onsubmit: (e) => { e.preventDefault(); salvar(); } });
     listaEl = h('div', { class: 'lista' });
-    raiz.append(
+    const parteChecklist = h('div', { class: 'tela' },
       h('div', { class: 'tela-cab' },
         h('h1', { text: 'Check List de Inspeção' }),
         h('p', { class: 'sub', text: 'Responda Sim ou Não. Quando houver problema, descreva o que houve.' })),
       formEl,
-      h('section', { class: 'cartao' }, h('h2', { text: 'Checklists recentes' }), listaEl)
-    );
+      h('section', { class: 'cartao' }, h('h2', { text: 'Checklists recentes' }), listaEl));
+    const parteAnalise = h('div', { class: 'tela', hidden: true });
+    let analiseMontada = false;
+
+    // Duas abas: o checklist e a análise do arquivo gerado pelo carro.
+    const abas = h('div', { class: 'seg seg-abas', role: 'tablist', 'aria-label': 'Checklist ou análise' });
+    const mostrar = (qual) => {
+      U.pref.set('checklist:aba', qual);
+      parteChecklist.hidden = qual !== 'checklist';
+      parteAnalise.hidden = qual !== 'analise';
+      if (qual === 'analise' && !analiseMontada) {
+        App.analise.montar(parteAnalise);
+        analiseMontada = true;
+      }
+      abas.querySelectorAll('button').forEach((b) => {
+        const ativo = b.dataset.aba === qual;
+        b.classList.toggle('ativo', ativo);
+        b.setAttribute('aria-selected', ativo ? 'true' : 'false');
+      });
+    };
+    [['checklist', 'Checklist'], ['analise', 'Análise do arquivo']].forEach(([id, rotulo]) => {
+      abas.appendChild(h('button', { type: 'button', role: 'tab', class: 'seg-opcao', dataset: { aba: id }, onclick: () => mostrar(id) }, rotulo));
+    });
+
+    raiz.append(abas, parteChecklist, parteAnalise);
     renderForm();
+    mostrar(U.pref.get('checklist:aba', 'checklist') === 'analise' ? 'analise' : 'checklist');
   }
 
   function renderForm() {

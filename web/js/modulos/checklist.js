@@ -54,14 +54,38 @@
     if (!temRespostas) estado.cab.data = U.hoje(); // rascunho vazio de outro dia
     formEl = h('form', { class: 'pilha', novalidate: true, onsubmit: (e) => { e.preventDefault(); salvar(); } });
     listaEl = h('div', { class: 'lista' });
-    raiz.append(
+    const parteChecklist = h('div', { class: 'tela' },
       h('div', { class: 'tela-cab' },
         h('h1', { text: 'Check List de Inspeção' }),
         h('p', { class: 'sub', text: 'Responda Sim ou Não. Quando houver problema, descreva o que houve.' })),
       formEl,
-      h('section', { class: 'cartao' }, h('h2', { text: 'Checklists recentes' }), listaEl)
-    );
+      h('section', { class: 'cartao' }, h('h2', { text: 'Checklists recentes' }), listaEl));
+    const parteAnalise = h('div', { class: 'tela', hidden: true });
+    let analiseMontada = false;
+
+    // Duas abas: o checklist e a análise do arquivo gerado pelo carro.
+    const abas = h('div', { class: 'seg seg-abas', role: 'tablist', 'aria-label': 'Checklist ou análise' });
+    const mostrar = (qual) => {
+      U.pref.set('checklist:aba', qual);
+      parteChecklist.hidden = qual !== 'checklist';
+      parteAnalise.hidden = qual !== 'analise';
+      if (qual === 'analise' && !analiseMontada) {
+        App.analise.montar(parteAnalise);
+        analiseMontada = true;
+      }
+      abas.querySelectorAll('button').forEach((b) => {
+        const ativo = b.dataset.aba === qual;
+        b.classList.toggle('ativo', ativo);
+        b.setAttribute('aria-selected', ativo ? 'true' : 'false');
+      });
+    };
+    [['checklist', 'Checklist'], ['analise', 'Análise do arquivo']].forEach(([id, rotulo]) => {
+      abas.appendChild(h('button', { type: 'button', role: 'tab', class: 'seg-opcao', dataset: { aba: id }, onclick: () => mostrar(id) }, rotulo));
+    });
+
+    raiz.append(abas, parteChecklist, parteAnalise);
     renderForm();
+    mostrar(U.pref.get('checklist:aba', 'checklist') === 'analise' ? 'analise' : 'checklist');
   }
 
   function renderForm() {

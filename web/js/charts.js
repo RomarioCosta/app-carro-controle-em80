@@ -191,5 +191,191 @@
       extra ? ui.h('div', { class: 'kpi-extra', text: extra }) : null);
   }
 
-  App.charts = { barrasSemana, linhaMes, indicador };
+  /* ------------------------------------------------------------------ */
+  /* Gráfico com km no eixo X (análise do arquivo do carro controle)     */
+  /* ------------------------------------------------------------------ */
+
+  function passoKm(extensao) {
+    const alvo = extensao / 6;
+    return [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000, 10000].find((p) => p >= alvo) || 10000;
+  }
+
+  function faixaY(listas, extras) {
+    const vals = [];
+    listas.forEach((l) => l.forEach((v) => { if (Number.isFinite(v)) vals.push(v); }));
+    extras.forEach((v) => { if (Number.isFinite(v)) vals.push(v); });
+    if (!vals.length) return [-1, 1];
+    vals.sort((a, b) => a - b);
+    const corte = vals.length > 400 ? Math.floor(vals.length * 0.002) : 0; // ignora picos isolados de leitura
+    let lo = vals[corte];
+    let hi = vals[vals.length - 1 - corte];
+    extras.forEach((v) => { if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } });
+    if (lo === hi) { lo -= 1; hi += 1; }
+    const folga = (hi - lo) * 0.08;
+    return [lo - folga, hi + folga];
+  }
+
+  function passoY(lo, hi) {
+    const bruto = (hi - lo) / 4;
+    const mag = 10 ** Math.floor(Math.log10(bruto));
+    return [1, 2, 2.5, 5, 10].map((m) => m * mag).find((p) => p >= bruto) || mag * 10;
+  }
+
+  /**
+   * Gráfico de linhas ao longo da quilometragem.
+   * opcoes: { pos, x0, x1, series: [{ nome, valores, classe, tipo: 'linha'|'pontos' }],
+   *           faixas: [{ ini, fim, classe, rotulo }], referencias: [valores de y], eventos: [{ pos, texto }],
+   *           altura, unidade, legenda, aoPassar(pos|null), fmtX }
+   * Retorna { el, guia(pos|null) }.
+   */
+  function graficoKm(op) {
+    const caixa = ui.h('div', { class: 'graf-caixa graf-km' });
+    const H = op.altura || 170;
+    const m = { t: 18, r: 12, b: 26, l: 46 };
+    let guiaLinha = null;
+    let estado = null;
+    let ultimaLargura = 0;
+
+    function desenhar() {
+      const W = Math.max(280, Math.round(caixa.clientWidth || 0));
+      if (W === ultimaLargura && caixa.querySelector('svg')) return;
+      ultimaLargura = W;
+      const iw = W - m.l - m.r;
+      const ih = H - m.t - m.b;
+      const { pos, x0, x1 } = op;
+      const x = (p) => m.l + ((p - x0) / (x1 - x0)) * iw;
+      const lo = Math.min(x0, x1);
+      const hi = Math.max(x0, x1);
+
+      // Índices visíveis.
+      const vis = [];
+      for (let i = 0; i < pos.length; i++) if (pos[i] >= lo && pos[i] <= hi) vis.push(i);
+      const visiveis = op.series.map((s) => vis.map((i) => s.valores[i]));
+      const [y0, y1] = op.yFaixa || faixaY(visiveis, op.referencias || []);
+      const y = (v) => m.t + ih - ((Math.min(Math.max(v, y0), y1) - y0) / (y1 - y0)) * ih;
+
+      const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: 'graf', role: 'img', 'aria-label': op.titulo || 'Gráfico por km' });
+      const idClip = `clip-${Math.random().toString(36).slice(2, 8)}`;
+      svg.appendChild(s('defs', {}, s('clipPath', { id: idClip }, s('rect', { x: m.l, y: m.t, width: iw, height: ih }))));
+
+      // Faixas (curvas) e rótulos dos elementos.
+      (op.faixas || []).forEach((f) => {
+        const xa = Math.max(m.l, Math.min(x(f.ini), x(f.fim)));
+        const xb = Math.min(m.l + iw, Math.max(x(f.ini), x(f.fim)));
+        if (xb <= xa) return;
+        if (f.classe) svg.appendChild(s('rect', { x: xa, y: m.t, width: xb - xa, height: ih, class: f.classe }));
+        if (f.rotulo && xb - xa > 26) svg.appendChild(s('text', { x: (xa + xb) / 2, y: m.t - 5, class: 'graf-eixo graf-rotulo-el', 'text-anchor': 'middle' }, f.rotulo));
+      });
+
+      // Grade e eixo Y.
+      const py = passoY(y0, y1);
+      for (let v = Math.ceil(y0 / py) * py; v <= y1; v += py) {
+        const yy = y(v);
+        svg.appendChild(s('line', { x1: m.l, x2: m.l + iw, y1: yy, y2: yy, class: Math.abs(v) < 1e-9 ? 'graf-zero' : 'graf-grade' }));
+        svg.appendChild(s('text', { x: m.l - 6, y: yy + 4, class: 'graf-eixo', 'text-anchor': 'end' }, String(Math.round(v * 100) / 100)));
+      }
+      (op.referencias || []).forEach((v) => {
+        svg.appendChild(s('line', { x1: m.l, x2: m.l + iw, y1: y(v), y2: y(v), class: 'graf-limite' }));
+      });
+
+      // Eixo X (km).
+      const passo = passoKm(hi - lo);
+      for (let p = Math.ceil(lo / passo) * passo; p <= hi; p += passo) {
+        const xx = x(p);
+        svg.appendChild(s('line', { x1: xx, x2: xx, y1: m.t, y2: m.t + ih, class: 'graf-grade' }));
+        svg.appendChild(s('text', { x: xx, y: H - 8, class: 'graf-eixo', 'text-anchor': 'middle' }, (op.fmtX || String)(p)));
+      }
+
+      // Eventos (AMV, passagem superior…).
+      (op.eventos || []).forEach((e) => {
+        if (e.pos < lo || e.pos > hi) return;
+        const xx = x(e.pos);
+        svg.appendChild(s('line', { x1: xx, x2: xx, y1: m.t + ih - 8, y2: m.t + ih, class: 'graf-evento' }, s('title', {}, e.texto)));
+      });
+
+      // Séries (reduzidas a no máximo 2 pontos por pixel, preservando picos).
+      const g = s('g', { 'clip-path': `url(#${idClip})` });
+      op.series.forEach((serie) => {
+        const baldes = new Map();
+        vis.forEach((i) => {
+          const v = serie.valores[i];
+          if (!Number.isFinite(v)) return;
+          const px = Math.round(x(pos[i]));
+          const b = baldes.get(px);
+          if (!b) baldes.set(px, { min: v, max: v, iMin: i, iMax: i, primeiro: i, ultimo: i });
+          else {
+            if (v < b.min) { b.min = v; b.iMin = i; }
+            if (v > b.max) { b.max = v; b.iMax = i; }
+            b.ultimo = i;
+          }
+        });
+        const colunas = [...baldes.entries()].sort((a, b) => a[0] - b[0]);
+        if (serie.tipo === 'pontos') {
+          colunas.forEach(([px, b]) => {
+            const v = Math.abs(b.max) >= Math.abs(b.min) ? b.max : b.min;
+            g.appendChild(s('rect', { x: px - 1.5, y: y(v) - 1.5, width: 3, height: 3, class: serie.classe }));
+          });
+          return;
+        }
+        let d = '';
+        let ultimoIdx = null;
+        colunas.forEach(([px, b]) => {
+          // Interrompe a linha só onde faltam medições (mais de 4 pontos seguidos sem valor).
+          const quebra = ultimoIdx === null || Math.abs(b.primeiro - ultimoIdx) > 4;
+          const pontos = b.min === b.max ? [b.min] : (b.iMin < b.iMax ? [b.min, b.max] : [b.max, b.min]);
+          pontos.forEach((v, k) => {
+            d += `${quebra && k === 0 ? 'M' : 'L'}${px},${y(v).toFixed(1)} `;
+          });
+          ultimoIdx = b.ultimo;
+        });
+        if (d) g.appendChild(s('path', { d, class: `graf-serie ${serie.classe || ''}` }));
+      });
+      svg.appendChild(g);
+
+      // Guia e área de interação.
+      guiaLinha = s('line', { class: 'graf-guia', y1: m.t, y2: m.t + ih, visibility: 'hidden' });
+      svg.appendChild(guiaLinha);
+      const alvo = s('rect', { x: m.l, y: m.t, width: iw, height: ih, class: 'graf-alvo' });
+      const mover = (ev) => {
+        const r = svg.getBoundingClientRect();
+        const px = ((ev.clientX - r.left) / r.width) * W;
+        const p = x0 + ((px - m.l) / iw) * (x1 - x0);
+        if (op.aoPassar) op.aoPassar(p);
+      };
+      alvo.addEventListener('pointermove', mover);
+      alvo.addEventListener('pointerdown', mover);
+      alvo.addEventListener('pointerleave', () => op.aoPassar && op.aoPassar(null));
+      svg.appendChild(alvo);
+
+      estado = { x, lo, hi };
+      ui.trocar(caixa, svg);
+    }
+
+    const ro = new ResizeObserver(() => desenhar());
+    ro.observe(caixa);
+    requestAnimationFrame(desenhar);
+
+    const bloco = ui.h('div', { class: 'graf-bloco' },
+      op.legenda !== false && op.series.length > 1 ? ui.h('div', { class: 'graf-legenda' },
+        op.series.map((sr) => ui.h('span', { class: 'leg-item' }, ui.h('span', { class: `leg-chave ${sr.classe}` }), sr.nome))) : null,
+      caixa);
+
+    return {
+      el: bloco,
+      guia(p) {
+        if (!guiaLinha || !estado) return;
+        if (p === null || p < estado.lo || p > estado.hi) {
+          guiaLinha.setAttribute('visibility', 'hidden');
+          return;
+        }
+        const xx = estado.x(p);
+        guiaLinha.setAttribute('x1', xx);
+        guiaLinha.setAttribute('x2', xx);
+        guiaLinha.setAttribute('visibility', 'visible');
+      },
+      destruir() { ro.disconnect(); }
+    };
+  }
+
+  App.charts = { barrasSemana, linhaMes, indicador, graficoKm };
 })(window.App);

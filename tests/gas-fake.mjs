@@ -132,7 +132,7 @@ export function carregarServidor(caminho, { emailUsuario = '' } = {}) {
   const ss = new FakeSpreadsheet();
   const props = new Map();
   const ctx = {
-    console,
+    console: { ...console, log: () => {} }, // silencia mensagens do setup()
     SpreadsheetApp: { getActiveSpreadsheet: () => ss, openById: () => ss },
     PropertiesService: {
       getScriptProperties: () => ({
