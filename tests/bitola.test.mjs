@@ -144,6 +144,8 @@ test('elementos pela planta: trechos EH x/y, RH entre eles e linha', () => {
   assert.equal(r.elementos[2].perdas, 200);
   assert.equal(r.elementos[0].perdas + r.elementos[1].perdas + r.elementos[4].perdas, 0);
   assert.equal(r.porEh[0].perdas, 200);
+  assert.equal(r.porEh[0].pior.sigla, 'T01'); // elemento com maior perda do trecho
+  assert.equal(r.porEh[1].pior.sigla, 'RH');
 });
 
 test('nomes dos trechos: EH com o próximo da planta e RH pelo EH acima', () => {

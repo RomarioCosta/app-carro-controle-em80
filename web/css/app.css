@@ -152,6 +152,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   padding: 16px 40px calc(var(--nav-alt) + 32px + env(safe-area-inset-bottom)) 16px;
 }
 .tela { display: flex; flex-direction: column; gap: 14px; }
+/* Análise do arquivo: área maior no computador, para as tabelas caberem sem rolagem lateral. */
+.principal:has(> .tela:not([hidden]) .tela-larga:not([hidden])) { max-width: 1500px; }
 .tela-cab { padding: 4px 2px 0; display: flex; flex-direction: column; gap: 4px; }
 .pilha { display: flex; flex-direction: column; gap: 14px; }
 .cartao {

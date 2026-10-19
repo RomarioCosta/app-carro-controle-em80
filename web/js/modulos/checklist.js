@@ -60,7 +60,7 @@
         h('p', { class: 'sub', text: 'Responda Sim ou Não. Quando houver problema, descreva o que houve.' })),
       formEl,
       h('section', { class: 'cartao' }, h('h2', { text: 'Checklists recentes' }), listaEl));
-    const parteAnalise = h('div', { class: 'tela', hidden: true });
+    const parteAnalise = h('div', { class: 'tela tela-larga', hidden: true });
     let analiseMontada = false;
 
     // Duas abas: o checklist e a análise do arquivo gerado pelo carro.

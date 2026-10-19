@@ -443,8 +443,9 @@
     };
     const pct = (v) => (paraLaudo ? `${fmt(v)}%` : barraPct(v));
     const cols = [];
+    // Sempre: trecho (EH/RH) primeiro, depois a linha.
+    if (planta) cols.push({ t: 'EH / RH', v: (e) => e.trecho || '—' });
     cols.push({ t: 'Linha', v: () => linhaAtual() });
-    if (planta) cols.push({ t: 'Trecho', v: (e) => e.trecho || '—' });
     cols.push({ t: 'Elemento', v: (e) => (paraLaudo ? (e.tipo === 'X' ? 'Pátio' : `${e.tipo === 'C' ? 'Curva' : 'Tangente'} ${e.sigla.slice(1)}`) : h('span', { class: `el-tag ${e.tipo === 'C' ? 'el-curva' : e.tipo === 'X' ? 'el-fora' : 'el-tangente'}`, text: e.sigla, title: e.nome })) });
     if (planta) cols.push({ t: 'Lado', v: (e) => (e.tipo === 'C' ? (e.lado === 'D' ? 'Dir.' : e.lado === 'E' ? 'Esq.' : '—') : '') });
     cols.push(
@@ -474,16 +475,23 @@
     }).map(([x]) => x);
   }
 
-  function colunasEh() {
+  /** Resumo por trecho: EH/RH, linha e o elemento com a maior perda de bitola. */
+  function colunasEh(paraLaudo) {
+    const nomeEl = (p) => {
+      if (!p) return '—';
+      if (p.tipo === 'X') return 'Pátio';
+      const texto = `${p.tipo === 'C' ? 'Curva' : 'Tangente'} ${p.sigla.slice(1)}`;
+      return paraLaudo ? texto : h('span', { class: `el-tag ${p.tipo === 'C' ? 'el-curva' : 'el-tangente'}`, text: p.sigla, title: texto });
+    };
     return [
+      { t: 'EH / RH', v: (g) => g.eh },
       { t: 'Linha', v: () => linhaAtual() },
-      { t: 'Trecho', v: (g) => g.eh },
       { t: 'Início', v: (g) => B.fmtKm(g.ini) },
       { t: 'Fim', v: (g) => B.fmtKm(g.fim) },
       { t: 'Ext. (m)', n: true, v: (g) => Math.round(g.extensao).toLocaleString('pt-BR') },
-      { t: 'Tangentes', n: true, v: (g) => String(g.tangentes) },
-      { t: 'Curvas', n: true, v: (g) => String(g.curvas) },
-      { t: '% perda', n: true, v: (g) => `${fmt(g.pctPerda)}%` },
+      { t: '% perda do trecho', n: true, v: (g) => `${fmt(g.pctPerda)}%` },
+      { t: 'Elemento com maior perda', v: (g) => nomeEl(g.pior) },
+      { t: '% perda do elemento', n: true, v: (g) => (g.pior ? `${fmt(g.pior.pctPerda)}%` : '—') },
       { t: '% var. rápida', n: true, v: (g) => `${fmt(g.pctVariacao)}%` }
     ];
   }
@@ -508,8 +516,8 @@
     ui.trocar(secoes.elementos,
       planta && r.porEh.length ? h('section', { class: 'cartao' },
         h('h2', { text: 'Resumo por trecho (EH e RH)' }),
-        h('p', { class: 'sub', text: `Ramal ${infoPlanta.ramal} · linha ${linhaAtual()}. Do trecho com maior perda para o com menor. Toque num trecho para aproximar.` }),
-        tabelaTela(colunasEh(), porPerda(r.porEh), (g) => aproximar(g.ini, g.fim))) : null,
+        h('p', { class: 'sub', text: `Ramal ${infoPlanta.ramal} · linha ${linhaAtual()}. Do trecho com maior perda para o com menor, com o elemento de maior perda em cada um. Toque para aproximar esse elemento.` }),
+        tabelaTela(colunasEh(false), porPerda(r.porEh), (g) => (g.pior ? aproximar(g.pior.ini, g.pior.fim) : aproximar(g.ini, g.fim)))) : null,
       h('section', { class: 'cartao' },
         h('h2', { text: planta ? 'Elementos da planta: tangentes e curvas' : 'Elementos: tangentes e curvas' }),
         h('p', { class: 'sub', text: `Linha ${linhaAtual()}. Do elemento com maior perda para o com menor. ${planta ? 'Elementos e numeração da planta, por trecho (EH x/y; RH = pátio).' : 'Identificados pela curvatura e numerados na ordem da inspeção.'} Perda de bitola considera só a frontal e a traseira: % perda = pontos com |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm ÷ pontos medidos no elemento.` }),
@@ -724,7 +732,7 @@
 
       secao('Gráficos ao longo do km', graficosLaudo.map(({ titulo, g }) => h('div', { class: 'laudo-grafico' }, h('h3', { text: titulo }), g.el))),
 
-      r.modo === 'planta' && r.porEh.length ? secao('Resumo por trecho (EH e RH) — maior perda primeiro', tabelaCols(colunasEh(), porPerda(r.porEh))) : null,
+      r.modo === 'planta' && r.porEh.length ? secao('Resumo por trecho (EH e RH) — maior perda primeiro', tabelaCols(colunasEh(true), porPerda(r.porEh))) : null,
 
       secao(`${r.modo === 'planta' ? 'Elementos da planta: tangentes e curvas' : 'Elementos: tangentes e curvas'} — maior perda primeiro`, tabelaCols(colunasElementos(true), porPerda(r.elementos))),
 
