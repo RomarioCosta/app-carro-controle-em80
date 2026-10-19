@@ -1,0 +1,3483 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#33434e">
+  <title>Carro Controle EM80</title>
+  <script>
+    // Aplica o tema salvo antes de desenhar a tela (evita piscar).
+    (function () {
+      try {
+        var t = JSON.parse(localStorage.getItem('em80:tema'));
+        if (t !== 'claro' && t !== 'escuro') t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'escuro' : 'claro';
+        document.documentElement.setAttribute('data-theme', t === 'escuro' ? 'dark' : 'light');
+      } catch (e) { /* ignora */ }
+    })();
+  </script>
+  <style>
+/* App Carro Controle EM80 – estilos. Cores definidas por tema (claro/escuro). */
+
+:root {
+  color-scheme: light;
+  --bg: #eef1f4;
+  --sup: #ffffff;
+  --sup2: #f4f6f8;
+  --borda: #d6dce1;
+  --texto: #1b2329;
+  --texto2: #4f5d67;
+  --texto3: #6f7c86;
+  --cab: #33434e;
+  --cab2: #2a3841;
+  --cab-texto: #ffffff;
+  --cab-texto2: #c9d3da;
+  --acento: #f2c200;
+  --acento-forte: #d9ad00;
+  --acento-texto: #1b2329;
+  --ativo: #33434e;
+  --ativo-texto: #ffffff;
+  --ok: #1d7f46;
+  --ok-fundo: #e2f3e8;
+  --alerta: #9a5800;
+  --alerta-fundo: #fcefd9;
+  --erro: #c0392b;
+  --erro-fundo: #fbe6e3;
+  --pendente: #8a6100;
+  --pendente-fundo: #fff4cf;
+  --serie-real: #2a78d6;
+  --serie-meta: #8e99a2;
+  --grade: #e3e7eb;
+  --foco: #2a78d6;
+  --whats: #1c8f4e;
+  --sombra: 0 1px 2px rgba(20, 30, 40, .06), 0 2px 8px rgba(20, 30, 40, .06);
+  --raio: 12px;
+  --nav-alt: 64px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1519; --sup: #182127; --sup2: #1f2a31; --borda: #2e3b45;
+    --texto: #e7edf1; --texto2: #aab7c0; --texto3: #86939d;
+    --cab: #141d23; --cab2: #10171c; --cab-texto: #f0f4f6; --cab-texto2: #9fadb7;
+    --acento: #f5c518; --acento-forte: #ffd84a; --acento-texto: #141a1f;
+    --ativo: #d9e2e8; --ativo-texto: #141a1f;
+    --ok: #57c886; --ok-fundo: #16301f; --alerta: #f0a648; --alerta-fundo: #33260f;
+    --erro: #f07568; --erro-fundo: #3b1a17; --pendente: #f2c14e; --pendente-fundo: #34290c;
+    --serie-real: #3987e5; --serie-meta: #6f7c86; --grade: #27333b; --foco: #6aa7f0;
+    --whats: #25a35a;
+    --sombra: 0 1px 2px rgba(0, 0, 0, .3);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1519; --sup: #182127; --sup2: #1f2a31; --borda: #2e3b45;
+  --texto: #e7edf1; --texto2: #aab7c0; --texto3: #86939d;
+  --cab: #141d23; --cab2: #10171c; --cab-texto: #f0f4f6; --cab-texto2: #9fadb7;
+  --acento: #f5c518; --acento-forte: #ffd84a; --acento-texto: #141a1f;
+  --ativo: #d9e2e8; --ativo-texto: #141a1f;
+  --ok: #57c886; --ok-fundo: #16301f; --alerta: #f0a648; --alerta-fundo: #33260f;
+  --erro: #f07568; --erro-fundo: #3b1a17; --pendente: #f2c14e; --pendente-fundo: #34290c;
+  --serie-real: #3987e5; --serie-meta: #6f7c86; --grade: #27333b; --foco: #6aa7f0;
+  --whats: #25a35a;
+  --sombra: 0 1px 2px rgba(0, 0, 0, .3);
+}
+
+/* ---------- Base ---------- */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--texto);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+body.sem-rolagem { overflow: hidden; }
+h1, h2, h3 { margin: 0; line-height: 1.25; }
+h1 { font-size: 1.35rem; }
+h2 { font-size: 1.05rem; margin-bottom: 12px; }
+p { margin: 0; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--foco); outline-offset: 2px; }
+.sub { color: var(--texto2); font-size: .9rem; }
+.vazio { color: var(--texto3); padding: 12px 0; text-align: center; }
+.ico { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- Cabeçalho ---------- */
+.cab {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 12px; padding-top: max(8px, env(safe-area-inset-top));
+  background: linear-gradient(180deg, var(--cab), var(--cab2));
+  color: var(--cab-texto);
+  border-bottom: 3px solid var(--acento);
+}
+.cab-marca { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cab-foto { width: 56px; height: 36px; object-fit: cover; border-radius: 6px; flex: none; }
+.cab-titulos { display: flex; flex-direction: column; min-width: 0; }
+.cab-titulo { font-weight: 700; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cab-sub { color: var(--cab-texto2); font-size: .75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cab-logo:empty { display: none; }
+.cab-acoes { display: flex; align-items: center; gap: 4px; flex: none; }
+.cab .btn-icone { color: var(--cab-texto); }
+.cab .btn-icone:hover { background: rgba(255, 255, 255, .1); }
+.sync-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 36px; padding: 0 10px; border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, .25); background: rgba(255, 255, 255, .08);
+  color: var(--cab-texto); font-size: .8rem; font-weight: 600;
+}
+.sync-badge .ico { width: 18px; height: 18px; }
+.sync-badge.pendente { background: var(--pendente-fundo); color: var(--pendente); border-color: transparent; }
+.sync-badge.erro { background: var(--erro-fundo); color: var(--erro); border-color: transparent; }
+.sync-badge.girando .ico { animation: girar 1s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
+@media (max-width: 420px) {
+  .cab-sub { display: none; }
+  .sync-badge .b-txt { display: none; }
+  .cab-titulo { font-size: .95rem; }
+}
+
+/* ---------- Navegação ---------- */
+.nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  height: calc(var(--nav-alt) + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--sup); border-top: 1px solid var(--borda);
+}
+.nav button {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  border: 0; background: none; color: var(--texto3); font-size: .72rem; font-weight: 600;
+  position: relative;
+}
+.nav button .ico { width: 22px; height: 22px; }
+.nav button[aria-current="page"] { color: var(--texto); }
+.nav button[aria-current="page"]::before {
+  content: ""; position: absolute; top: 0; left: 25%; right: 25%; height: 3px; border-radius: 0 0 3px 3px; background: var(--acento-forte);
+}
+
+/* ---------- Conteúdo ---------- */
+.principal {
+  max-width: 1000px; margin: 0 auto;
+  padding: 16px 40px calc(var(--nav-alt) + 32px + env(safe-area-inset-bottom)) 16px;
+}
+.tela { display: flex; flex-direction: column; gap: 14px; }
+.tela-cab { padding: 4px 2px 0; display: flex; flex-direction: column; gap: 4px; }
+.pilha { display: flex; flex-direction: column; gap: 14px; }
+.cartao {
+  background: var(--sup); border: 1px solid var(--borda); border-radius: var(--raio);
+  padding: 16px; box-shadow: var(--sombra);
+}
+.grade-2, .grade-3 { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 640px) {
+  .grade-2 { grid-template-columns: 1fr 1fr; }
+  .grade-3 { grid-template-columns: 2fr 1fr 1fr; }
+  .grade-2 > .campo-largo { grid-column: 1 / -1; }
+}
+
+/* ---------- Campos ---------- */
+.campo { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.campo > label { font-size: .85rem; font-weight: 600; color: var(--texto2); }
+.obrig { color: var(--erro); }
+.ajuda { color: var(--texto3); font-size: .8rem; }
+input[type="text"], input[type="date"], input[type="datetime-local"], input[type="url"], input[type="search"], input[type="file"], select, textarea {
+  width: 100%; min-height: 46px; padding: 10px 12px;
+  background: var(--sup); border: 1px solid var(--borda); border-radius: 10px;
+  font-size: 16px;
+}
+input[type="file"] { padding: 9px; }
+textarea { resize: vertical; min-height: 80px; }
+input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--foco) 25%, transparent); }
+.com-erro input, .com-erro textarea, .com-erro select, input.com-erro, textarea.com-erro { border-color: var(--erro); }
+.pergunta.com-erro { background: var(--erro-fundo); border-radius: 10px; padding-left: 10px; padding-right: 10px; }
+.msg-erro { color: var(--erro); font-size: .85rem; font-weight: 600; }
+.linha-campo { display: flex; align-items: center; gap: 8px; }
+.linha-campo > input, .linha-campo > select { flex: 1; min-width: 0; }
+
+/* ---------- Botões ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 46px; padding: 0 16px; border-radius: 10px; border: 1px solid transparent;
+  font-weight: 650; text-decoration: none; white-space: nowrap;
+}
+.btn-primario { background: var(--acento); color: var(--acento-texto); }
+.btn-primario:hover:not(:disabled) { background: var(--acento-forte); }
+.btn-secundario { background: var(--sup2); border-color: var(--borda); color: var(--texto); }
+.btn-fantasma { background: none; color: var(--texto2); padding: 0 10px; align-self: flex-start; }
+.btn-perigo { background: var(--erro); color: #fff; }
+.btn-whats { background: var(--whats); color: #fff; }
+.btn-pequeno { min-height: 38px; padding: 0 12px; font-size: .88rem; }
+.btn-pequeno .ico { width: 18px; height: 18px; }
+.btn-icone {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; flex: none; border: 0; border-radius: 10px; background: none; color: var(--texto2);
+}
+.btn-icone:hover:not(:disabled) { background: color-mix(in srgb, var(--texto) 8%, transparent); }
+.barra-acoes { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.barra-acoes .progresso { margin-right: auto; color: var(--texto2); font-size: .9rem; font-weight: 600; }
+.linha-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.barra-fixa {
+  position: sticky; bottom: calc(var(--nav-alt) + env(safe-area-inset-bottom) + 8px); z-index: 5;
+  background: var(--sup); border: 1px solid var(--borda); border-radius: var(--raio); padding: 10px 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, .12);
+}
+
+/* ---------- Seletor segmentado (Sim/Não, abas) ---------- */
+.seg { display: inline-flex; border: 1px solid var(--borda); border-radius: 10px; overflow: hidden; background: var(--sup2); align-self: flex-start; }
+.seg-opcao {
+  display: inline-flex; align-items: center; gap: 6px; justify-content: center;
+  min-height: 44px; min-width: 76px; padding: 0 16px; border: 0; background: none; color: var(--texto2); font-weight: 650;
+}
+.seg-opcao + .seg-opcao { border-left: 1px solid var(--borda); }
+.seg-opcao.ativo { background: var(--ativo); color: var(--ativo-texto); }
+.seg-opcao.ativo.problema { background: var(--erro); color: #fff; }
+.seg-abas { display: flex; width: 100%; }
+.seg-abas .seg-opcao { flex: 1; min-width: 0; padding: 0 8px; font-size: .88rem; }
+
+/* ---------- Checklist ---------- */
+.pergunta { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-top: 1px solid var(--grade); }
+.cartao h2 + .pergunta { border-top: 0; padding-top: 2px; }
+.pergunta-texto { font-weight: 550; }
+.amostras { display: flex; flex-direction: column; gap: 8px; }
+.amostra { display: flex; align-items: center; gap: 8px; }
+.amostra-num { width: 92px; flex: none; color: var(--texto2); font-size: .88rem; font-weight: 600; }
+.amostra input.num { flex: 1; min-width: 0; min-height: 44px; padding: 8px 10px; border: 1px solid var(--borda); border-radius: 10px; background: var(--sup); font-size: 16px; }
+.descricao textarea { min-height: 70px; }
+
+/* ---------- Listas ---------- */
+.lista { display: flex; flex-direction: column; }
+.item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--grade); }
+.item:first-child { border-top: 0; }
+.item-coluna { flex-direction: column; align-items: stretch; }
+.item-aberto { background: color-mix(in srgb, var(--alerta-fundo) 70%, transparent); margin: 0 -16px; padding: 12px 16px; }
+.item-principal { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.item-sub { color: var(--texto2); font-size: .88rem; }
+.item-obs { color: var(--texto3); font-size: .85rem; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.item-obs.erro { color: var(--erro); }
+.item-lado { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; flex: none; max-width: 60%; }
+.etiqueta { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .75rem; font-weight: 700; white-space: nowrap; }
+.etiqueta-ok { background: var(--ok-fundo); color: var(--ok); }
+.etiqueta-alerta { background: var(--alerta-fundo); color: var(--alerta); }
+.etiqueta-pendente { background: var(--pendente-fundo); color: var(--pendente); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -6px; }
+.chip { border: 1px solid var(--borda); background: var(--sup2); border-radius: 999px; padding: 6px 12px; font-size: .85rem; color: var(--texto2); }
+@media (max-width: 560px) {
+  .item { flex-direction: column; align-items: stretch; }
+  .item-lado { max-width: none; justify-content: flex-start; }
+}
+
+/* ---------- Produção ---------- */
+.barra-topo { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
+.barra-topo > .linha-campo { flex: 1 1 300px; }
+.barra-topo select { min-width: 110px; }
+.nav-data input { text-align: center; }
+.kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (min-width: 900px) { .kpis { grid-template-columns: repeat(4, 1fr); } }
+.kpi { background: var(--sup); border: 1px solid var(--borda); border-radius: var(--raio); padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; box-shadow: var(--sombra); }
+.kpi-titulo { color: var(--texto2); font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; }
+.kpi-valor { font-size: 1.9rem; font-weight: 750; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.kpi-barra { height: 8px; border-radius: 4px; background: var(--grade); overflow: hidden; margin: 4px 0 2px; }
+.kpi-barra span { display: block; height: 100%; border-radius: 4px; background: var(--serie-real); }
+.kpi-ok .kpi-barra span { background: var(--ok); }
+.kpi-sub { color: var(--texto2); font-size: .85rem; font-variant-numeric: tabular-nums; }
+.kpi-extra { color: var(--texto3); font-size: .8rem; }
+.grade-graficos { display: grid; grid-template-columns: 1fr; gap: 14px; }
+@media (min-width: 760px) { .grade-graficos { grid-template-columns: 1fr 1fr; } }
+.lista-cab { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+.filtros select { flex: 0 0 42%; width: 42%; }
+.lista-om { display: flex; flex-direction: column; gap: 8px; }
+.om { display: flex; align-items: stretch; border: 1px solid var(--borda); border-radius: 12px; background: var(--sup); overflow: hidden; }
+.om-botao {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left;
+  padding: 10px 12px; min-height: 68px; border: 0; background: none;
+}
+.om-botao:active { background: var(--sup2); }
+.om-marca {
+  width: 30px; height: 30px; flex: none; border-radius: 50%; border: 2px solid var(--borda);
+  display: inline-flex; align-items: center; justify-content: center; color: #fff;
+}
+.om-marca .ico { width: 18px; height: 18px; stroke-width: 3; }
+.om-texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.om-texto strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.om-sub { color: var(--texto3); font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.om-info { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.chip-info { font-size: .74rem; font-weight: 650; color: var(--texto2); background: var(--sup2); border-radius: 6px; padding: 1px 6px; }
+.chip-info.atrasada { color: var(--alerta); background: var(--alerta-fundo); }
+.chip-info.feita { color: var(--ok); background: var(--ok-fundo); }
+.om-status { flex: none; font-size: .75rem; font-weight: 700; color: var(--texto3); white-space: nowrap; }
+.om-status.ok { color: var(--ok); }
+.om-feita { border-color: color-mix(in srgb, var(--ok) 45%, var(--borda)); background: color-mix(in srgb, var(--ok-fundo) 60%, var(--sup)); }
+.om-feita .om-marca { background: var(--ok); border-color: var(--ok); }
+.om-mais { height: auto; width: 46px; border-radius: 0; border-left: 1px solid var(--grade); }
+@media (max-width: 420px) { .om-status { display: none; } }
+.vazio-grande { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 28px 16px; }
+
+/* ---------- Gráficos ---------- */
+.graf-bloco { display: flex; flex-direction: column; gap: 8px; }
+.graf-legenda { display: flex; gap: 16px; font-size: .8rem; color: var(--texto2); }
+.leg-item { display: inline-flex; align-items: center; gap: 6px; }
+.leg-chave { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.leg-real { background: var(--serie-real); }
+.leg-meta { height: 3px; border-radius: 2px; background: var(--serie-meta); width: 16px; }
+.graf-caixa { position: relative; }
+.graf { width: 100%; height: auto; display: block; overflow: visible; }
+.graf-grade { stroke: var(--grade); stroke-width: 1; }
+.graf-eixo { fill: var(--texto3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.graf-eixo-forte { fill: var(--texto); font-weight: 700; }
+.graf-barra { fill: var(--serie-real); }
+.graf-meta { stroke: var(--serie-meta); stroke-width: 3; stroke-linecap: round; }
+.graf-linha-meta { fill: none; stroke: var(--serie-meta); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.graf-linha-real { fill: none; stroke: var(--serie-real); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.graf-ponto { fill: var(--serie-real); stroke: var(--sup); stroke-width: 2; }
+.graf-alvo { fill: transparent; }
+.graf-guia { stroke: var(--texto3); stroke-width: 1; }
+.graf-hoje-linha { stroke: var(--borda); stroke-width: 1; }
+.graf-tip {
+  position: absolute; z-index: 2; pointer-events: none;
+  background: var(--texto); color: var(--bg); border-radius: 8px; padding: 6px 10px;
+  font-size: .78rem; line-height: 1.4; white-space: nowrap; box-shadow: 0 4px 12px rgba(0, 0, 0, .2);
+}
+.graf-tip div:first-child { font-weight: 700; }
+
+/* ---------- Gaveta de anomalia ---------- */
+.puxador {
+  position: fixed; right: 0; top: 42%; z-index: 25;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 12px 6px; border: 0; border-radius: 10px 0 0 10px;
+  background: var(--acento); color: var(--acento-texto); font-weight: 750; font-size: .78rem;
+  box-shadow: -2px 2px 10px rgba(0, 0, 0, .2);
+}
+.puxador span { writing-mode: vertical-rl; transform: rotate(180deg); letter-spacing: .04em; }
+.puxador .ico { width: 18px; height: 18px; }
+.gaveta-fundo { position: fixed; inset: 0; z-index: 40; background: rgba(10, 15, 20, .45); }
+.gaveta {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 41;
+  width: min(520px, 100%); display: flex; flex-direction: column;
+  background: var(--bg); box-shadow: -8px 0 24px rgba(0, 0, 0, .25);
+  transform: translateX(105%); transition: transform .22s ease-out; visibility: hidden;
+}
+.gaveta.aberta { transform: none; visibility: visible; }
+.gaveta-cab {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 8px 10px 16px; padding-top: max(10px, env(safe-area-inset-top));
+  background: var(--cab); color: var(--cab-texto); border-bottom: 3px solid var(--acento);
+}
+.gaveta-cab h2 { margin: 0; }
+.gaveta-cab .btn-icone { color: var(--cab-texto); }
+.gaveta-corpo { flex: 1; overflow-y: auto; padding: 16px; padding-bottom: calc(24px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 14px; -webkit-overflow-scrolling: touch; }
+.titulo-secao { font-size: .95rem; color: var(--texto2); margin-top: 8px; }
+.resultado { display: flex; flex-direction: column; gap: 12px; background: var(--sup); border: 1px solid var(--borda); border-radius: var(--raio); padding: 14px; }
+.mensagem { margin: 0; white-space: pre-wrap; word-break: break-word; font: .92rem/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--sup2); border-radius: 8px; padding: 12px; }
+.gaveta .lista .item { border-top: 1px solid var(--borda); }
+
+/* ---------- Avisos ---------- */
+.aviso { background: var(--alerta-fundo); color: var(--alerta); padding: 8px 12px; border-radius: 8px; font-size: .88rem; font-weight: 550; }
+.aviso-erro { background: var(--erro-fundo); color: var(--erro); }
+.toasts {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 60;
+  bottom: calc(var(--nav-alt) + 16px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 8px; width: min(440px, calc(100% - 32px)); pointer-events: none;
+}
+.toast {
+  padding: 12px 16px; border-radius: 10px; background: var(--texto); color: var(--bg);
+  font-weight: 600; font-size: .92rem; box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+  transition: opacity .3s, transform .3s;
+}
+.toast-ok { background: var(--ok); color: #fff; }
+.toast-erro { background: var(--erro); color: #fff; }
+.toast.saindo { opacity: 0; transform: translateY(8px); }
+
+/* ---------- Janela modal ---------- */
+.modal-fundo { position: fixed; inset: 0; z-index: 50; background: rgba(10, 15, 20, .5); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.modal { width: min(520px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: var(--sup); border-radius: 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, .35); }
+.modal-cab { display: flex; align-items: center; justify-content: space-between; padding: 12px 8px 4px 16px; }
+.modal-cab h2 { margin: 0; }
+.modal-corpo { padding: 8px 16px 16px; }
+.modal-acoes { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px 16px; border-top: 1px solid var(--grade); }
+
+/* ---------- Telas largas (computador) ---------- */
+@media (min-width: 900px) {
+  :root { --nav-alt: 0px; }
+  .cab { padding: 10px 24px; }
+  .cab-foto { width: 112px; height: 64px; border-radius: 8px; }
+  .cab-titulo { font-size: 1.25rem; }
+  .cab-sub { font-size: .85rem; }
+  .nav {
+    position: static; height: auto; padding: 0 24px;
+    display: flex; justify-content: center; gap: 4px; border-top: 0; border-bottom: 1px solid var(--borda);
+  }
+  .nav button { flex-direction: row; gap: 8px; padding: 12px 18px; font-size: .92rem; }
+  .nav button[aria-current="page"]::before { top: auto; bottom: 0; left: 12px; right: 12px; height: 3px; border-radius: 3px 3px 0 0; }
+  .principal { padding: 24px 56px 48px 24px; }
+  .barra-fixa { bottom: 12px; }
+  .toasts { bottom: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+</style>
+</head>
+<body>
+  <div id="app">
+    <noscript>Este app precisa de JavaScript ativado.</noscript>
+  </div>
+
+  <script>
+/* js/util.js */
+/* Utilitários gerais: datas, formatação e identificadores. Sem dependências. */
+'use strict';
+window.App = window.App || {};
+
+(function (App) {
+  const U = {};
+
+  const pad = (n, l = 2) => String(n).padStart(l, '0');
+  U.pad = pad;
+
+  /* ---------- Datas (sempre no horário local do aparelho) ---------- */
+  // Formatos internos: data "aaaa-mm-dd" e data/hora "aaaa-mm-ddThh:mm:ss".
+
+  U.dataISO = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  U.dataHoraISO = (d = new Date()) =>
+    `${U.dataISO(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  U.hoje = () => U.dataISO(new Date());
+  U.agora = () => U.dataHoraISO(new Date());
+
+  U.ehData = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+  U.ehDataHora = (s) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(String(s || ''));
+
+  /** Converte "aaaa-mm-dd" em Date ao meio-dia (evita problemas de fuso). */
+  U.parseData = (s) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3], 12, 0, 0);
+    return d.getMonth() === +m[2] - 1 ? d : null; // rejeita 31/02 etc.
+  };
+
+  U.parseDataHora = (s) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/.exec(String(s || ''));
+    return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)) : null;
+  };
+
+  U.somarDias = (iso, n) => {
+    const d = U.parseData(iso);
+    d.setDate(d.getDate() + n);
+    return U.dataISO(d);
+  };
+
+  /** Segunda-feira da semana vigente (sábado e domingo pertencem à semana iniciada na segunda anterior). */
+  U.inicioSemana = (iso) => {
+    const d = U.parseData(iso);
+    const dia = d.getDay(); // 0 = domingo
+    d.setDate(d.getDate() + (dia === 0 ? -6 : 1 - dia));
+    return U.dataISO(d);
+  };
+
+  U.inicioMes = (iso) => `${iso.slice(0, 7)}-01`;
+  U.fimMes = (iso) => {
+    const d = U.parseData(U.inicioMes(iso));
+    d.setMonth(d.getMonth() + 1, 0);
+    return U.dataISO(d);
+  };
+
+  U.diaSemanaCurto = (iso) => ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][U.parseData(iso).getDay()];
+  U.ehFimDeSemana = (iso) => {
+    const d = U.parseData(iso).getDay();
+    return d === 0 || d === 6;
+  };
+
+  U.fmtData = (iso) => (U.ehData(String(iso).slice(0, 10)) ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '');
+  U.fmtHora = (iso) => (U.ehDataHora(iso) ? iso.slice(11, 16) : '');
+  U.fmtDataHora = (iso) => (U.ehDataHora(iso) ? `${U.fmtData(iso)} ${U.fmtHora(iso)}` : '');
+  U.fmtMesAno = (iso) => {
+    const meses = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto',
+      'setembro', 'outubro', 'novembro', 'dezembro'];
+    return `${meses[+iso.slice(5, 7) - 1]} de ${iso.slice(0, 4)}`;
+  };
+
+  /** Valor para <input type="datetime-local"> (sem segundos). */
+  U.paraInputDataHora = (iso) => (U.ehDataHora(iso) ? iso.slice(0, 16) : '');
+  U.deInputDataHora = (v) => (v && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) ? `${v}:00` : (U.ehDataHora(v) ? v : ''));
+
+  U.minutosEntre = (a, b) => {
+    const da = U.parseDataHora(a);
+    const db = U.parseDataHora(b);
+    return da && db ? Math.round((db - da) / 60000) : null;
+  };
+
+  U.fmtDuracao = (min) => {
+    if (min === null || min === undefined || min < 0) return '';
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return h ? `${h}h ${pad(m)}min` : `${m}min`;
+  };
+
+  /* ---------- Textos e números ---------- */
+
+  U.normalizar = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  U.chaveTitulo = (s) => U.normalizar(s).replace(/[^a-z0-9]/g, '');
+
+  /** Converte texto numérico com vírgula ou ponto. Retorna null se inválido. */
+  U.numero = (s) => {
+    const t = String(s ?? '').trim().replace(/\s/g, '').replace(',', '.');
+    if (t === '' || !/^[-+]?\d*\.?\d+$/.test(t)) return null;
+    return Number(t);
+  };
+
+  /**
+   * Formata quilometragem no padrão 000+000.
+   * Aceita "109440", "109+440", "109.440", "109,44", "0+3".
+   */
+  U.formatarKm = (s) => {
+    const t = String(s ?? '').trim();
+    if (!t) return '';
+    let km;
+    let m;
+    const sep = /^(\d+)\s*([+.,])\s*(\d+)$/.exec(t);
+    if (sep) {
+      km = sep[1];
+      // "0+3" => metros (000+003); "109,44" => km decimal (109+440)
+      m = sep[2] === '+' ? sep[3].padStart(3, '0') : sep[3].padEnd(3, '0');
+      if (m.length > 3) return t.toUpperCase();
+    } else if (/^\d+$/.test(t)) {
+      if (t.length <= 3) {
+        km = '0';
+        m = t.padStart(3, '0');
+      } else {
+        km = t.slice(0, -3);
+        m = t.slice(-3);
+      }
+    } else {
+      return t.toUpperCase(); // formato desconhecido: mantém como digitado
+    }
+    return `${km.padStart(3, '0')}+${m.slice(0, 3)}`;
+  };
+
+  /** Normaliza coordenada (aceita vírgula). Retorna '' se vazio, null se inválida. */
+  U.coordenada = (s, limite) => {
+    const t = String(s ?? '').trim();
+    if (!t) return '';
+    const n = U.numero(t);
+    if (n === null || Math.abs(n) > limite) return null;
+    return String(n);
+  };
+
+  U.uuid = () => {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    const b = new Uint8Array(16);
+    (window.crypto || {}).getRandomValues ? crypto.getRandomValues(b) : b.forEach((_, i) => { b[i] = Math.random() * 256; });
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  };
+
+  U.debounce = (fn, ms) => {
+    let t = null;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), ms);
+    };
+  };
+
+  U.pct = (valor, total) => (total > 0 ? (valor / total) * 100 : null);
+  U.fmtPct = (p) => (p === null || p === undefined ? '—' : `${Math.round(p)}%`);
+
+  /** Mais frequentes primeiro (para sugestões). */
+  U.maisFrequentes = (lista, limite) => {
+    const cont = new Map();
+    lista.forEach((v) => {
+      const t = String(v || '').trim();
+      if (t) cont.set(t, (cont.get(t) || 0) + 1);
+    });
+    return [...cont.entries()].sort((a, b) => b[1] - a[1]).slice(0, limite).map((e) => e[0]);
+  };
+
+  /* ---------- Preferências locais (pequenas, síncronas) ---------- */
+  U.pref = {
+    get(k, padrao = null) {
+      try {
+        const v = localStorage.getItem(`em80:${k}`);
+        return v === null ? padrao : JSON.parse(v);
+      } catch (e) {
+        return padrao;
+      }
+    },
+    set(k, v) {
+      try {
+        localStorage.setItem(`em80:${k}`, JSON.stringify(v));
+      } catch (e) { /* armazenamento indisponível: ignora */ }
+    },
+    del(k) {
+      try { localStorage.removeItem(`em80:${k}`); } catch (e) { /* ignora */ }
+    }
+  };
+
+  App.U = U;
+})(window.App);
+
+</script>
+  <script>
+/* js/config.js */
+/*
+ * Configuração do app: perguntas do checklist e listas.
+ * Para incluir/alterar perguntas, edite apenas este arquivo.
+ * Os "id" identificam cada pergunta na planilha: não altere ids já usados.
+ *
+ * Tipos de item do checklist:
+ *  - sn:       pergunta Sim/Não. "problemaEm" indica qual resposta exige descrição.
+ *  - amostras: lista de valores numéricos (quantos forem necessários).
+ *  - pares:    lista de pares de valores (ex.: KLD × vampiro).
+ */
+'use strict';
+
+(function (App) {
+  App.config = {
+    versao: '1.0.0',
+
+    checklist: [
+      {
+        id: 'ogms',
+        titulo: 'OGMS',
+        itens: [
+          { tipo: 'sn', id: 'ogms_conexao', texto: 'O sistema OGMS apresentou dificuldades para conectar?', problemaEm: 'Sim' },
+          { tipo: 'sn', id: 'ogms_falha', texto: 'O sistema OGMS apresentou falhas ou desconectou durante a inspeção?', problemaEm: 'Sim' },
+          { tipo: 'amostras', id: 'ogms_bitola', texto: 'Diferença entre a bitola medida em campo e a medida pelo sensor' },
+          { tipo: 'sn', id: 'ogms_leds', texto: 'Os LEDs da controladora apresentaram alguma instabilidade?', problemaEm: 'Sim' }
+        ]
+      },
+      {
+        id: 'kld',
+        titulo: 'KLD',
+        itens: [
+          { tipo: 'sn', id: 'kld_conexao', texto: 'O sistema KLD apresentou dificuldades para conectar?', problemaEm: 'Sim' },
+          { tipo: 'sn', id: 'kld_falha', texto: 'O sistema KLD apresentou falhas ou desconectou durante a inspeção?', problemaEm: 'Sim' },
+          { tipo: 'amostras', id: 'kld_bitola', texto: 'Diferença entre a bitola do KLD e a medida pelo OGMS' },
+          { tipo: 'pares', id: 'kld_desgaste', texto: 'Desgaste do trilho: medida do KLD × medida em campo (vampiro)', rotulos: ['KLD', 'Vampiro'] },
+          { tipo: 'sn', id: 'kld_leds', texto: 'Os LEDs do KLD apresentaram alguma instabilidade ou sinal anômalo de erro?', problemaEm: 'Sim' }
+        ]
+      },
+      {
+        id: 'aplanix',
+        titulo: 'Aplanix',
+        itens: [
+          { tipo: 'sn', id: 'aplanix_conexao', texto: 'O sistema Aplanix apresentou dificuldades para conectar?', problemaEm: 'Sim' },
+          { tipo: 'sn', id: 'aplanix_falha', texto: 'O sistema Aplanix apresentou falhas ou desconectou durante a inspeção?', problemaEm: 'Sim' },
+          { tipo: 'sn', id: 'aplanix_leds', texto: 'Os LEDs do POS/TG apresentaram alguma instabilidade?', problemaEm: 'Sim' },
+          { tipo: 'sn', id: 'aplanix_nivelamento', texto: 'Os parâmetros de nivelamento apresentaram alguma perturbação inesperada?', problemaEm: 'Sim' }
+        ]
+      },
+      {
+        id: 'computadores',
+        titulo: 'Computadores M1, M2 e M3',
+        itens: [
+          { tipo: 'sn', id: 'comp_falha', texto: 'Os computadores apresentaram alguma falha ou sinistro durante os testes?', problemaEm: 'Sim' },
+          { tipo: 'sn', id: 'comp_m1_salvou', texto: 'O M1 salvou os dados conforme esperado?', problemaEm: 'Não' },
+          { tipo: 'sn', id: 'comp_perifericos', texto: 'Os dispositivos de conexão (Bluetooth, teclado e mouse) funcionaram corretamente?', problemaEm: 'Não' }
+        ]
+      }
+    ],
+
+    /** Equipamentos do Registro de Eventos. "Outro" abre um campo de texto. */
+    equipamentos: ['OGMS', 'KLD', 'Aplanix', 'M1', 'M2', 'M3', 'Outro']
+  };
+})(window.App);
+
+</script>
+  <script>
+/* js/store.js */
+/*
+ * Armazenamento local no aparelho (IndexedDB), com alternativa em localStorage.
+ * Todas as gravações passam por uma fila única, para que duas alterações
+ * rápidas seguidas nunca sobrescrevam uma à outra.
+ */
+'use strict';
+
+(function (App) {
+  const DB_NOME = 'em80';
+  const STORE = 'kv';
+  let dbPromise = null;
+
+  function abrir() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve) => {
+      try {
+        if (!window.indexedDB) return resolve(null);
+        const req = indexedDB.open(DB_NOME, 1);
+        req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+        req.onblocked = () => resolve(null);
+      } catch (e) {
+        resolve(null);
+      }
+    });
+    return dbPromise;
+  }
+
+  const ls = {
+    get(k) {
+      try {
+        const v = localStorage.getItem(`em80db:${k}`);
+        return v === null ? null : JSON.parse(v);
+      } catch (e) {
+        return null;
+      }
+    },
+    set(k, v) {
+      localStorage.setItem(`em80db:${k}`, JSON.stringify(v));
+    },
+    del(k) {
+      localStorage.removeItem(`em80db:${k}`);
+    }
+  };
+
+  function req(db, modo, fn) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, modo);
+      const store = tx.objectStore(STORE);
+      let resultado;
+      const r = fn(store);
+      if (r) r.onsuccess = () => { resultado = r.result; };
+      tx.oncomplete = () => resolve(resultado);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Transação cancelada'));
+    });
+  }
+
+  async function get(k) {
+    const db = await abrir();
+    if (!db) return ls.get(k);
+    const v = await req(db, 'readonly', (s) => s.get(k));
+    return v === undefined ? null : v;
+  }
+
+  async function setDireto(k, v) {
+    const db = await abrir();
+    if (!db) return ls.set(k, v);
+    await req(db, 'readwrite', (s) => s.put(v, k));
+  }
+
+  async function delDireto(k) {
+    const db = await abrir();
+    if (!db) return ls.del(k);
+    await req(db, 'readwrite', (s) => s.delete(k));
+  }
+
+  // Fila única de gravações (exclusão mútua).
+  let cadeia = Promise.resolve();
+  function exclusivo(fn) {
+    const p = cadeia.then(fn, fn);
+    cadeia = p.catch(() => {});
+    return p;
+  }
+
+  App.store = {
+    get,
+    set: (k, v) => exclusivo(() => setDireto(k, v)),
+    del: (k) => exclusivo(() => delDireto(k)),
+    /** Lê, altera e grava de forma atômica. fn recebe o valor atual e devolve o novo. */
+    atualizar: (k, fn) => exclusivo(async () => {
+      const atual = await get(k);
+      const novo = await fn(atual);
+      await setDireto(k, novo);
+      return novo;
+    }),
+    async limparTudo() {
+      return exclusivo(async () => {
+        const db = await abrir();
+        if (db) await req(db, 'readwrite', (s) => s.clear());
+        try {
+          Object.keys(localStorage).filter((k) => k.startsWith('em80db:')).forEach((k) => localStorage.removeItem(k));
+        } catch (e) { /* ignora */ }
+      });
+    }
+  };
+})(window.App);
+
+</script>
+  <script>
+/* js/api.js */
+/*
+ * Comunicação com o servidor (Google Apps Script).
+ * - Modo "appsscript": app aberto pelo link do Apps Script -> usa google.script.run.
+ * - Modo "web": app hospedado como site (PWA) -> usa fetch para a URL do Apps Script.
+ */
+'use strict';
+
+(function (App) {
+  const { U } = App;
+  const TIMEOUT_MS = 45000;
+
+  class ErroApi extends Error {
+    constructor(codigo, mensagem) {
+      super(mensagem);
+      this.codigo = codigo;
+    }
+  }
+
+  function modo() {
+    return window.google && google.script && google.script.run ? 'appsscript' : 'web';
+  }
+
+  const config = {
+    url: () => U.pref.get('apiUrl', ''),
+    token: () => U.pref.get('apiToken', ''),
+    setUrl: (v) => U.pref.set('apiUrl', String(v || '').trim()),
+    setToken: (v) => U.pref.set('apiToken', String(v || '').trim().toUpperCase())
+  };
+
+  function configurado() {
+    return modo() === 'appsscript' || /^(https:\/\/|http:\/\/(localhost|127\.0\.0\.1)[:/])/.test(config.url());
+  }
+
+  function viaAppsScript(pedido) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new ErroApi('REDE', 'Tempo esgotado ao falar com o servidor.')), TIMEOUT_MS);
+      google.script.run
+        .withSuccessHandler((r) => {
+          clearTimeout(timer);
+          resolve(r);
+        })
+        .withFailureHandler((e) => {
+          clearTimeout(timer);
+          reject(new ErroApi('REDE', (e && e.message) || 'Falha de comunicação com o servidor.'));
+        })
+        .apiCall(pedido);
+    });
+  }
+
+  async function viaFetch(pedido) {
+    const url = config.url();
+    if (!url) throw new ErroApi('CONFIG', 'Informe a URL do servidor em Ajustes.');
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        // text/plain evita a verificação prévia (CORS) que o Apps Script não suporta.
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(pedido),
+        redirect: 'follow',
+        signal: ctrl.signal
+      });
+      if (!resp.ok) throw new ErroApi('REDE', `Servidor respondeu com erro ${resp.status}.`);
+      const texto = await resp.text();
+      try {
+        return JSON.parse(texto);
+      } catch (e) {
+        throw new ErroApi('CONFIG', 'Resposta inesperada do servidor. Confira a URL e a implantação (acesso "Qualquer pessoa").');
+      }
+    } catch (e) {
+      if (e instanceof ErroApi) throw e;
+      throw new ErroApi('REDE', e.name === 'AbortError' ? 'Tempo esgotado ao falar com o servidor.' : 'Sem conexão com o servidor.');
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function chamar(acao, dados = {}) {
+    const pedido = { acao, dados, token: config.token() };
+    const r = modo() === 'appsscript' ? await viaAppsScript(pedido) : await viaFetch(pedido);
+    if (!r || typeof r !== 'object') throw new ErroApi('ERRO', 'Resposta vazia do servidor.');
+    if (!r.ok) {
+      const err = new ErroApi(r.codigo || 'ERRO', r.erro || 'Erro no servidor.');
+      if (err.codigo === 'AUTH') document.dispatchEvent(new CustomEvent('em80:auth'));
+      throw err;
+    }
+    return r.dados;
+  }
+
+  App.api = { chamar, modo, configurado, config, ErroApi };
+})(window.App);
+
+</script>
+  <script>
+/* js/sync.js */
+/*
+ * Fila de sincronização.
+ * Cada registro salvo entra na fila com uma chave única (tipo:id).
+ * Salvar o mesmo registro de novo substitui o item da fila (não duplica).
+ * O servidor grava de forma idempotente, então reenviar é sempre seguro.
+ */
+'use strict';
+
+(function (App) {
+  const { U, store, api } = App;
+  const CHAVE_FILA = 'fila';
+  const LOTE = 50;
+  const INTERVALO_MS = 60000;
+
+  const estado = {
+    pendentes: 0,
+    comErro: 0,
+    sincronizando: false,
+    ultimoSucesso: U.pref.get('ultimoSync', null),
+    erro: null
+  };
+
+  let emAndamento = null;
+
+  function notificar() {
+    document.dispatchEvent(new CustomEvent('em80:sync', { detail: { ...estado } }));
+  }
+
+  async function lerFila() {
+    return (await store.get(CHAVE_FILA)) || {};
+  }
+
+  async function atualizarContagem() {
+    const itens = Object.values(await lerFila());
+    estado.pendentes = itens.length;
+    estado.comErro = itens.filter((i) => i.erro).length;
+    notificar();
+  }
+
+  async function enfileirar(tipo, id, dados) {
+    const key = `${tipo}:${id}`;
+    await store.atualizar(CHAVE_FILA, (fila) => {
+      const f = fila || {};
+      const anterior = f[key];
+      f[key] = {
+        key,
+        tipo,
+        dados: JSON.parse(JSON.stringify(dados)),
+        seq: (anterior ? anterior.seq : 0) + 1,
+        tentativas: 0,
+        erro: null,
+        em: U.agora()
+      };
+      return f;
+    });
+    await atualizarContagem();
+    agendar();
+  }
+
+  /** Dados pendentes de um tipo, indexados pelo id (para mesclar com o servidor). */
+  async function pendentesDoTipo(tipo) {
+    const mapa = new Map();
+    Object.values(await lerFila()).forEach((i) => {
+      if (i.tipo === tipo) mapa.set(i.key.slice(tipo.length + 1), i.dados);
+    });
+    return mapa;
+  }
+
+  async function listar() {
+    return Object.values(await lerFila()).sort((a, b) => a.em.localeCompare(b.em));
+  }
+
+  async function executar(forcar) {
+    if (!api.configurado()) {
+      estado.erro = 'Servidor não configurado (veja Ajustes).';
+      return notificar();
+    }
+    if (!forcar && navigator.onLine === false) return;
+
+    const itens = await listar();
+    if (!itens.length) {
+      estado.erro = null;
+      return atualizarContagem();
+    }
+
+    estado.sincronizando = true;
+    notificar();
+    try {
+      for (let i = 0; i < itens.length; i += LOTE) {
+        const lote = itens.slice(i, i + LOTE);
+        const resp = await api.chamar('sync', {
+          itens: lote.map((it) => ({ key: it.key, tipo: it.tipo, dados: it.dados }))
+        });
+        const enviados = new Map(lote.map((it) => [it.key, it.seq]));
+        await store.atualizar(CHAVE_FILA, (fila) => {
+          const f = fila || {};
+          (resp.resultados || []).forEach((r) => {
+            const atual = f[r.key];
+            // Se o registro mudou durante o envio, mantém na fila para enviar a versão nova.
+            if (!atual || atual.seq !== enviados.get(r.key)) return;
+            if (r.ok) {
+              delete f[r.key];
+            } else {
+              atual.erro = r.erro || 'Erro ao gravar';
+              atual.tentativas = (atual.tentativas || 0) + 1;
+            }
+          });
+          return f;
+        });
+      }
+      estado.erro = null;
+      estado.ultimoSucesso = U.agora();
+      U.pref.set('ultimoSync', estado.ultimoSucesso);
+      document.dispatchEvent(new CustomEvent('em80:sincronizado'));
+    } catch (e) {
+      estado.erro = e.message || 'Falha ao sincronizar.';
+    } finally {
+      estado.sincronizando = false;
+      await atualizarContagem();
+    }
+  }
+
+  /** Sincroniza agora. Chamadas simultâneas reaproveitam a mesma execução. */
+  function sincronizar({ forcar = false } = {}) {
+    if (!emAndamento) {
+      emAndamento = executar(forcar).finally(() => {
+        emAndamento = null;
+      });
+    }
+    return emAndamento;
+  }
+
+  const agendar = U.debounce(() => sincronizar(), 1500);
+
+  function iniciar() {
+    window.addEventListener('online', () => sincronizar());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') sincronizar();
+    });
+    setInterval(() => {
+      if (estado.pendentes > 0) sincronizar();
+    }, INTERVALO_MS);
+    atualizarContagem().then(() => sincronizar());
+  }
+
+  App.sync = { enfileirar, sincronizar, iniciar, listar, pendentesDoTipo, estado, atualizarContagem };
+})(window.App);
+
+</script>
+  <script>
+/* js/dados.js */
+/*
+ * Repositório local dos registros (checklists, eventos, anomalias).
+ * Salva no aparelho primeiro e coloca na fila de sincronização.
+ */
+'use strict';
+
+(function (App) {
+  const { U, store, sync, api } = App;
+  const LIMITE = 200;
+
+  const ordenar = (lista) => lista.sort((a, b) => String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')));
+
+  async function listar(colecao) {
+    return (await store.get(colecao)) || [];
+  }
+
+  async function salvar(tipo, colecao, obj) {
+    const agora = U.agora();
+    const reg = { ...obj, criadoEm: obj.criadoEm || agora, atualizadoEm: agora };
+    await store.atualizar(colecao, (atual) => {
+      const lista = (atual || []).filter((x) => x.id !== reg.id);
+      lista.push(reg);
+      return ordenar(lista).slice(0, LIMITE);
+    });
+    await sync.enfileirar(tipo, reg.id, reg);
+    document.dispatchEvent(new CustomEvent('em80:dados', { detail: { colecao } }));
+    return reg;
+  }
+
+  /**
+   * Atualiza a lista local com o que está na planilha.
+   * Registros ainda não sincronizados (ou salvos durante a consulta) têm prioridade.
+   */
+  async function atualizarDoServidor(tipo, colecao) {
+    if (!api.configurado() || navigator.onLine === false) return null;
+    const inicio = U.agora();
+    const doServidor = await api.chamar('getRecentes', { tipo, limite: LIMITE });
+    const resultado = await store.atualizar(colecao, async (atual) => {
+      const pendentes = await sync.pendentesDoTipo(tipo);
+      const mapa = new Map();
+      (doServidor || []).forEach((r) => mapa.set(r.id, r));
+      (atual || []).forEach((r) => {
+        if (!mapa.has(r.id) && String(r.atualizadoEm || '') >= inicio) mapa.set(r.id, r);
+      });
+      pendentes.forEach((d, id) => mapa.set(id, d));
+      return ordenar([...mapa.values()]).slice(0, LIMITE);
+    });
+    document.dispatchEvent(new CustomEvent('em80:dados', { detail: { colecao } }));
+    return resultado;
+  }
+
+  App.dados = { listar, salvar, atualizarDoServidor };
+})(window.App);
+
+</script>
+  <script>
+/* js/ui.js */
+/* Componentes de interface: criação de elementos, ícones, avisos, janelas e tema. */
+'use strict';
+
+(function (App) {
+  const { U } = App;
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  /**
+   * Cria um elemento. Textos são sempre inseridos como texto (nunca como HTML),
+   * o que evita problemas com caracteres especiais digitados pelo usuário.
+   * h('button', { class: 'btn', onclick: fn, text: 'Salvar' })
+   */
+  function h(tag, attrs, ...filhos) {
+    const el = document.createElement(tag);
+    const a = attrs || {};
+    aplicarAttrs(el, a);
+    anexar(el, filhos);
+    // "value" depois dos filhos, para funcionar em <select> com <option>.
+    if (a.value !== undefined && a.value !== null) el.value = a.value;
+    return el;
+  }
+
+  function aplicarAttrs(el, attrs) {
+    Object.entries(attrs).forEach(([k, v]) => {
+      if (v === null || v === undefined || v === false) return;
+      if (k === 'class') el.className = v;
+      else if (k === 'text') el.textContent = v;
+      else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+      else if (k === 'dataset') Object.assign(el.dataset, v);
+      else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
+      else if (k === 'value') { /* aplicado depois dos filhos */ }
+      else if (k === 'checked' || k === 'disabled' || k === 'selected' || k === 'hidden') el[k] = !!v;
+      else el.setAttribute(k, v === true ? '' : String(v));
+    });
+  }
+
+  function anexar(el, filhos) {
+    filhos.flat(Infinity).forEach((f) => {
+      if (f === null || f === undefined || f === false) return;
+      el.appendChild(f instanceof Node ? f : document.createTextNode(String(f)));
+    });
+  }
+
+  function limpar(el) {
+    while (el.firstChild) el.removeChild(el.firstChild);
+    return el;
+  }
+
+  function trocar(el, ...filhos) {
+    limpar(el);
+    anexar(el, filhos);
+    return el;
+  }
+
+  /* ---------- Ícones (traço simples, 24×24) ---------- */
+  const ICONES = {
+    check: 'M5 12.5l4.5 4.5L19 7.5',
+    x: 'M6 6l12 12M18 6L6 18',
+    plus: 'M12 5v14M5 12h14',
+    minus: 'M5 12h14',
+    sync: 'M20 11a8 8 0 0 0-14.6-4.5M4 13a8 8 0 0 0 14.6 4.5M5 3v4h4M19 21v-4h-4',
+    sol: 'M12 7.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9zM12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8',
+    lua: 'M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z',
+    checklist: 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2',
+    alerta: 'M12 3l10 18H2L12 3zM12 10v4.5M12 17.5v.5',
+    grafico: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+    ajustes: 'M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6',
+    esquerda: 'M15 5l-7 7 7 7',
+    direita: 'M9 5l7 7-7 7',
+    copiar: 'M8 8h11v12H8zM5 16V4h11',
+    editar: 'M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4',
+    relogio: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18zM12 7v5l3.5 2',
+    play: 'M8 5v14l11-7z',
+    parar: 'M7 7h10v10H7z',
+    lixo: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
+    upload: 'M12 16V4M7 9l5-5 5 5M4 20h16',
+    calendario: 'M4 6h16v14H4zM4 10h16M8 3v5M16 3v5',
+    mais: 'M5 12h.01M12 12h.01M19 12h.01',
+    duplicar: 'M8 8h11v12H8zM5 16V4h11M13.5 11v6M10.5 14h6',
+    enviar: 'M4 12l16-8-6 16-3-7-7-1z',
+    nuvem: 'M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z',
+    semNuvem: 'M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18zM4 4l16 16',
+    busca: 'M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13zM20 20l-4.8-4.8',
+    pino: 'M12 21s-6-5.5-6-11a6 6 0 0 1 12 0c0 5.5-6 11-6 11zM12 8a2 2 0 1 0 0 4a2 2 0 1 0 0-4z'
+  };
+
+  function icone(nome, classe = '') {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('class', `ico ${classe}`.trim());
+    svg.setAttribute('aria-hidden', 'true');
+    const p = document.createElementNS(SVG_NS, 'path');
+    p.setAttribute('d', ICONES[nome] || ICONES.mais);
+    svg.appendChild(p);
+    return svg;
+  }
+
+  /* ---------- Avisos rápidos ---------- */
+  function toast(msg, tipo = 'info', ms = 3200) {
+    let area = document.getElementById('toasts');
+    if (!area) {
+      area = h('div', { id: 'toasts', class: 'toasts', role: 'status', 'aria-live': 'polite' });
+      document.body.appendChild(area);
+    }
+    const t = h('div', { class: `toast toast-${tipo}` }, msg);
+    area.appendChild(t);
+    setTimeout(() => {
+      t.classList.add('saindo');
+      setTimeout(() => t.remove(), 300);
+    }, ms);
+  }
+
+  /* ---------- Janela (modal) ---------- */
+  function modal({ titulo, conteudo, acoes = [], aoFechar }) {
+    const anterior = document.activeElement;
+    const fundo = h('div', { class: 'modal-fundo' });
+    const fechar = () => {
+      fundo.remove();
+      document.removeEventListener('keydown', teclas);
+      if (aoFechar) aoFechar();
+      if (anterior && anterior.focus) anterior.focus();
+    };
+    const teclas = (e) => {
+      if (e.key === 'Escape') fechar();
+    };
+    const caixa = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': titulo },
+      h('div', { class: 'modal-cab' },
+        h('h2', { text: titulo }),
+        h('button', { class: 'btn-icone', 'aria-label': 'Fechar', onclick: fechar }, icone('x'))),
+      h('div', { class: 'modal-corpo' }, conteudo),
+      acoes.length ? h('div', { class: 'modal-acoes' }, acoes.map((a) => h('button', {
+        class: `btn ${a.classe || ''}`,
+        text: a.texto,
+        onclick: () => a.onClick(fechar)
+      }))) : null);
+    fundo.addEventListener('click', (e) => {
+      if (e.target === fundo) fechar();
+    });
+    fundo.appendChild(caixa);
+    document.body.appendChild(fundo);
+    document.addEventListener('keydown', teclas);
+    const foco = caixa.querySelector('input, select, textarea, .modal-acoes .btn');
+    if (foco) setTimeout(() => foco.focus(), 30);
+    return { fechar, caixa };
+  }
+
+  function confirmar(titulo, texto, { ok = 'Confirmar', perigo = false } = {}) {
+    return new Promise((resolve) => {
+      let resposta = false;
+      modal({
+        titulo,
+        conteudo: h('p', { text: texto }),
+        acoes: [
+          { texto: 'Cancelar', classe: 'btn-secundario', onClick: (f) => f() },
+          { texto: ok, classe: perigo ? 'btn-perigo' : 'btn-primario', onClick: (f) => { resposta = true; f(); } }
+        ],
+        aoFechar: () => resolve(resposta)
+      });
+    });
+  }
+
+  /* ---------- Copiar texto ---------- */
+  async function copiar(texto) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(texto);
+        return true;
+      }
+    } catch (e) { /* tenta o método alternativo */ }
+    try {
+      const ta = h('textarea', { value: texto, readonly: true, style: { position: 'fixed', top: '-1000px', opacity: '0' } });
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /* ---------- Tema claro/escuro ---------- */
+  const tema = {
+    atual() {
+      const salvo = U.pref.get('tema', null);
+      if (salvo === 'claro' || salvo === 'escuro') return salvo;
+      return window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'escuro' : 'claro';
+    },
+    aplicar(t) {
+      document.documentElement.setAttribute('data-theme', t === 'escuro' ? 'dark' : 'light');
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', t === 'escuro' ? '#0f1519' : '#33434e');
+      document.dispatchEvent(new CustomEvent('em80:tema', { detail: t }));
+    },
+    alternar() {
+      const novo = tema.atual() === 'escuro' ? 'claro' : 'escuro';
+      U.pref.set('tema', novo);
+      tema.aplicar(novo);
+      return novo;
+    }
+  };
+
+  /* ---------- Formulário ---------- */
+  function campo(rotulo, controle, { ajuda, obrigatorio, classe } = {}) {
+    const id = controle.id || `c-${U.uuid().slice(0, 8)}`;
+    controle.id = id;
+    return h('div', { class: `campo ${classe || ''}` },
+      h('label', { for: id }, rotulo, obrigatorio ? h('span', { class: 'obrig', 'aria-hidden': 'true', text: ' *' }) : null),
+      controle,
+      ajuda ? h('small', { class: 'ajuda', text: ajuda }) : null);
+  }
+
+  function marcarErro(el, msg) {
+    const c = el.closest('.campo, .pergunta') || el;
+    c.classList.add('com-erro');
+    let m = c.querySelector(':scope > .msg-erro');
+    if (!m) {
+      m = h('div', { class: 'msg-erro', role: 'alert' });
+      c.appendChild(m);
+    }
+    m.textContent = msg;
+  }
+
+  function limparErros(raiz) {
+    raiz.querySelectorAll('.com-erro').forEach((c) => c.classList.remove('com-erro'));
+    raiz.querySelectorAll('.msg-erro').forEach((m) => m.remove());
+  }
+
+  function rolarAte(el) {
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const foco = el.matches('input, textarea, select, button') ? el : el.querySelector('input, textarea, select, button');
+    if (foco) setTimeout(() => foco.focus({ preventScroll: true }), 300);
+  }
+
+  App.ui = { h, limpar, trocar, icone, toast, modal, confirmar, copiar, tema, campo, marcarErro, limparErros, rolarAte };
+})(window.App);
+
+</script>
+  <script>
+/* js/charts.js */
+/*
+ * Gráficos em SVG puro (funcionam offline, sem bibliotecas).
+ * Série "Realizado" = cor de destaque; "Meta" = cinza de referência.
+ */
+'use strict';
+
+(function (App) {
+  const { U, ui } = App;
+  const NS = 'http://www.w3.org/2000/svg';
+
+  function s(tag, attrs = {}, ...filhos) {
+    const el = document.createElementNS(NS, tag);
+    Object.entries(attrs).forEach(([k, v]) => {
+      if (v !== null && v !== undefined) el.setAttribute(k, String(v));
+    });
+    filhos.flat().forEach((f) => {
+      if (f) el.appendChild(typeof f === 'string' ? document.createTextNode(f) : f);
+    });
+    return el;
+  }
+
+  function escalaY(max) {
+    if (max <= 4) return { max: 4, passo: 1 };
+    const brutos = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
+    const passo = brutos.find((p) => max / p <= 4) || Math.ceil(max / 4);
+    return { max: Math.ceil(max / passo) * passo, passo };
+  }
+
+  function legenda() {
+    return ui.h('div', { class: 'graf-legenda' },
+      ui.h('span', { class: 'leg-item' }, ui.h('span', { class: 'leg-chave leg-real' }), 'Realizado'),
+      ui.h('span', { class: 'leg-item' }, ui.h('span', { class: 'leg-chave leg-meta' }), 'Meta'));
+  }
+
+  /** Tooltip compartilhado dentro do contêiner do gráfico. */
+  function criarTooltip(caixa) {
+    const tip = ui.h('div', { class: 'graf-tip', hidden: true });
+    caixa.appendChild(tip);
+    return {
+      mostrar(linhas, x, y) {
+        ui.trocar(tip, linhas.map((l) => ui.h('div', null, l)));
+        tip.hidden = false;
+        const largura = caixa.clientWidth;
+        const w = tip.offsetWidth;
+        tip.style.left = `${Math.min(Math.max(x - w / 2, 0), largura - w)}px`;
+        tip.style.top = `${Math.max(y - tip.offsetHeight - 10, 0)}px`;
+      },
+      esconder() { tip.hidden = true; }
+    };
+  }
+
+  /**
+   * Colunas por dia (Realizado) com marca de meta.
+   * serie: [{ dia, meta, realizado|null }]
+   */
+  function barrasSemana(serie, { hoje } = {}) {
+    const W = 340; const H = 190;
+    const m = { t: 16, r: 8, b: 30, l: 28 };
+    const iw = W - m.l - m.r; const ih = H - m.t - m.b;
+    const maxV = Math.max(1, ...serie.map((d) => Math.max(d.meta, d.realizado || 0)));
+    const esc = escalaY(maxV);
+    const y = (v) => m.t + ih - (v / esc.max) * ih;
+    const banda = iw / serie.length;
+    const larg = Math.min(24, banda * 0.55);
+
+    const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, class: 'graf', role: 'img', 'aria-label': 'Realizado por dia na semana, comparado à meta' });
+    for (let v = 0; v <= esc.max; v += esc.passo) {
+      svg.appendChild(s('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: 'graf-grade' }));
+      svg.appendChild(s('text', { x: m.l - 6, y: y(v) + 4, class: 'graf-eixo', 'text-anchor': 'end' }, String(v)));
+    }
+
+    const caixa = ui.h('div', { class: 'graf-caixa' });
+    const tip = criarTooltip(caixa);
+
+    serie.forEach((d, i) => {
+      const cx = m.l + banda * i + banda / 2;
+      const g = s('g', { class: d.dia === hoje ? 'graf-hoje' : '' });
+      if (d.realizado) {
+        const topo = y(d.realizado);
+        const alt = m.t + ih - topo;
+        const r = Math.min(4, alt / 2, larg / 2);
+        // Coluna com topo arredondado e base reta.
+        g.appendChild(s('path', {
+          class: 'graf-barra',
+          d: `M${cx - larg / 2},${m.t + ih} V${topo + r} Q${cx - larg / 2},${topo} ${cx - larg / 2 + r},${topo} H${cx + larg / 2 - r} Q${cx + larg / 2},${topo} ${cx + larg / 2},${topo + r} V${m.t + ih} Z`
+        }));
+      }
+      if (d.meta) {
+        g.appendChild(s('line', { class: 'graf-meta', x1: cx - larg / 2 - 5, x2: cx + larg / 2 + 5, y1: y(d.meta), y2: y(d.meta) }));
+      }
+      g.appendChild(s('text', { x: cx, y: H - 10, class: `graf-eixo${d.dia === hoje ? ' graf-eixo-forte' : ''}`, 'text-anchor': 'middle' }, U.diaSemanaCurto(d.dia)));
+      const alvo = s('rect', { x: m.l + banda * i, y: m.t, width: banda, height: ih + m.b, class: 'graf-alvo' });
+      const mostrar = () => {
+        const r = caixa.getBoundingClientRect();
+        const escala = r.width / W;
+        tip.mostrar([
+          `${U.diaSemanaCurto(d.dia)} ${U.fmtData(d.dia).slice(0, 5)}`,
+          `Realizado: ${d.realizado === null ? '—' : d.realizado}`,
+          `Meta: ${d.meta}`
+        ], cx * escala, y(Math.max(d.meta, d.realizado || 0)) * escala);
+      };
+      alvo.addEventListener('pointerenter', mostrar);
+      alvo.addEventListener('pointerdown', mostrar);
+      alvo.addEventListener('pointerleave', () => tip.esconder());
+      g.appendChild(alvo);
+      svg.appendChild(g);
+    });
+
+    caixa.insertBefore(svg, caixa.firstChild);
+    return ui.h('div', { class: 'graf-bloco' }, legenda(), caixa);
+  }
+
+  /** Linhas acumuladas do mês: meta x realizado. serie: [{ dia, meta, realizado|null }] */
+  function linhaMes(serie, { hoje } = {}) {
+    const W = 340; const H = 190;
+    const m = { t: 16, r: 12, b: 30, l: 34 };
+    const iw = W - m.l - m.r; const ih = H - m.t - m.b;
+    const maxV = Math.max(1, ...serie.map((d) => Math.max(d.meta, d.realizado || 0)));
+    const esc = escalaY(maxV);
+    const n = serie.length;
+    const x = (i) => m.l + (n > 1 ? (i / (n - 1)) * iw : iw / 2);
+    const y = (v) => m.t + ih - (v / esc.max) * ih;
+
+    const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, class: 'graf', role: 'img', 'aria-label': 'Produção acumulada no mês, comparada à meta acumulada' });
+    for (let v = 0; v <= esc.max; v += esc.passo) {
+      svg.appendChild(s('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: 'graf-grade' }));
+      svg.appendChild(s('text', { x: m.l - 6, y: y(v) + 4, class: 'graf-eixo', 'text-anchor': 'end' }, String(v)));
+    }
+    [0, 9, 19, n - 1].filter((i, k, arr) => i < n && arr.indexOf(i) === k).forEach((i) => {
+      svg.appendChild(s('text', { x: x(i), y: H - 10, class: 'graf-eixo', 'text-anchor': i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle') }, serie[i].dia.slice(8, 10)));
+    });
+
+    const caminho = (campo) => serie
+      .map((d, i) => (d[campo] === null ? null : `${x(i)},${y(d[campo])}`))
+      .filter(Boolean)
+      .map((p, i) => `${i ? 'L' : 'M'}${p}`)
+      .join(' ');
+
+    svg.appendChild(s('path', { d: caminho('meta'), class: 'graf-linha-meta' }));
+    const reais = serie.map((d, i) => ({ d, i })).filter((p) => p.d.realizado !== null);
+    if (reais.length) {
+      svg.appendChild(s('path', { d: caminho('realizado'), class: 'graf-linha-real' }));
+      const ult = reais[reais.length - 1];
+      svg.appendChild(s('circle', { cx: x(ult.i), cy: y(ult.d.realizado), r: 4.5, class: 'graf-ponto' }));
+    }
+
+    const caixa = ui.h('div', { class: 'graf-caixa' });
+    const tip = criarTooltip(caixa);
+    const guia = s('line', { class: 'graf-guia', y1: m.t, y2: m.t + ih, visibility: 'hidden' });
+    svg.appendChild(guia);
+    const alvo = s('rect', { x: m.l, y: m.t, width: iw, height: ih, class: 'graf-alvo' });
+    const mover = (ev) => {
+      const r = svg.getBoundingClientRect();
+      const px = ((ev.clientX - r.left) / r.width) * W;
+      const i = Math.max(0, Math.min(n - 1, Math.round(((px - m.l) / iw) * (n - 1))));
+      const d = serie[i];
+      guia.setAttribute('x1', x(i));
+      guia.setAttribute('x2', x(i));
+      guia.setAttribute('visibility', 'visible');
+      const escala = r.width / W;
+      tip.mostrar([
+        U.fmtData(d.dia),
+        `Realizado acumulado: ${d.realizado === null ? '—' : d.realizado}`,
+        `Meta acumulada: ${d.meta}`
+      ], x(i) * escala, y(Math.max(d.meta, d.realizado || 0)) * escala);
+    };
+    alvo.addEventListener('pointermove', mover);
+    alvo.addEventListener('pointerdown', mover);
+    alvo.addEventListener('pointerleave', () => {
+      guia.setAttribute('visibility', 'hidden');
+      tip.esconder();
+    });
+    svg.appendChild(alvo);
+    if (hoje) {
+      const iHoje = serie.findIndex((d) => d.dia === hoje);
+      if (iHoje >= 0) svg.insertBefore(s('line', { class: 'graf-hoje-linha', x1: x(iHoje), x2: x(iHoje), y1: m.t, y2: m.t + ih }), svg.firstChild);
+    }
+    caixa.insertBefore(svg, caixa.firstChild);
+    return ui.h('div', { class: 'graf-bloco' }, legenda(), caixa);
+  }
+
+  /** Cartão de indicador: percentual em destaque + barra de progresso. */
+  function indicador({ titulo, pct, realizado, meta, extra }) {
+    const largura = pct === null ? 0 : Math.min(pct, 100);
+    return ui.h('div', { class: `kpi${pct !== null && pct >= 100 ? ' kpi-ok' : ''}` },
+      ui.h('div', { class: 'kpi-titulo', text: titulo }),
+      ui.h('div', { class: 'kpi-valor', text: U.fmtPct(pct) }),
+      ui.h('div', { class: 'kpi-barra', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Math.round(largura) },
+        ui.h('span', { style: { width: `${largura}%` } })),
+      ui.h('div', { class: 'kpi-sub', text: meta ? `${realizado} de ${meta} OMs` : `${realizado} realizadas · sem meta` }),
+      extra ? ui.h('div', { class: 'kpi-extra', text: extra }) : null);
+  }
+
+  App.charts = { barrasSemana, linhaMes, indicador };
+})(window.App);
+
+</script>
+  <script>
+/* js/om.js */
+/*
+ * Regras da Produção de OMs: leitura da planilha do SAP, dados do ciclo e metas.
+ * Funções puras (sem tela) para facilitar testes.
+ */
+'use strict';
+
+(function (App) {
+  const { U, store, api, sync } = App;
+  const OM = {};
+
+  OM.REALIZADO = 'Realizado';
+  OM.NAO_REALIZADO = 'Não realizado';
+
+  OM.chave = (ciclo, nOrdem) => `${String(ciclo).trim()}|${String(nOrdem).trim()}`;
+
+  /** Ramal = letras iniciais do texto breve (ex.: "LPR 12/13 L1" -> "LPR"). */
+  OM.ramal = (texto) => {
+    const m = /^\s*([A-Za-z]{2,4})/.exec(texto || '');
+    return m ? m[1].toUpperCase() : 'OUTROS';
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Importação da planilha                                              */
+  /* ------------------------------------------------------------------ */
+
+  // Reconhece as colunas pelo título (sem acento, maiúsculas ou espaços).
+  const COLUNAS = [
+    ['nOrdem', (k) => k === 'nordem' || k === 'numeroordem' || k === 'numerodaordem' || k === 'ordem'],
+    ['textoBreve', (k) => k === 'textobreve'],
+    ['denominacao', (k) => k.startsWith('denominacao')],
+    ['localInstalacao', (k) => k === 'localdeinstalacao'],
+    ['instalacao', (k) => k === 'instalacao' || k === 'instalcao'],
+    ['plano', (k) => k.startsWith('planodemanutencao')],
+    ['item', (k) => k.startsWith('itemdemanutencao')],
+    ['statusUsuario', (k) => k === 'statusdousuario'],
+    ['statusOrdem', (k) => k === 'statusdaordem'],
+    ['dataPlanejada', (k) => k === 'dataplanejada'],
+    ['tolMin', (k) => k.includes('toleranciamin')],
+    ['tolMax', (k) => k.includes('toleranciamax')],
+    ['km', (k) => k === 'km'],
+    ['km2', (k) => k === 'km2'],
+    ['status', (k) => k === 'status'],
+    ['dataProgramada', (k) => k.includes('programad')]
+  ];
+  const DATAS = ['dataPlanejada', 'tolMin', 'tolMax', 'dataProgramada'];
+
+  /** Converte o valor de uma célula de data em "aaaa-mm-dd". '' se vazio, null se inválido. */
+  OM.lerData = (v) => {
+    if (v === null || v === undefined || v === '') return '';
+    if (v instanceof Date) return isNaN(v) ? null : U.dataISO(v);
+    if (typeof v === 'number') {
+      if (v < 20000 || v > 80000) return null; // fora de 1954–2119: não é data do Excel
+      const d = new Date(Math.round((Math.floor(v) - 25569) * 86400000));
+      return `${d.getUTCFullYear()}-${U.pad(d.getUTCMonth() + 1)}-${U.pad(d.getUTCDate())}`;
+    }
+    const s = String(v).trim();
+    if (!s) return '';
+    let m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/.exec(s);
+    if (m) {
+      const ano = m[3].length === 2 ? `20${m[3]}` : m[3];
+      const iso = `${ano}-${U.pad(m[2])}-${U.pad(m[1])}`;
+      return U.parseData(iso) ? iso : null;
+    }
+    m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    if (m) return U.parseData(m[0]) ? m[0] : null;
+    return null;
+  };
+
+  const texto = (v) => (v === null || v === undefined ? '' : String(v).trim());
+  const numeroOuVazio = (v) => {
+    if (v === '' || v === null || v === undefined) return '';
+    const n = typeof v === 'number' ? v : U.numero(v);
+    return n === null ? '' : n;
+  };
+
+  /**
+   * Processa as linhas de uma planilha (matriz de células).
+   * Retorna { oms, avisos, erros, semDataProgramada, temColunaProgramada }.
+   */
+  OM.processarLinhas = (linhas) => {
+    const resultado = { oms: [], avisos: [], erros: [], semDataProgramada: 0, temColunaProgramada: false };
+    const idxCab = linhas.slice(0, 20).findIndex((l) => (l || []).some((c) => {
+      const k = U.chaveTitulo(c);
+      return k === 'nordem' || k === 'numeroordem' || k === 'numerodaordem';
+    }));
+    if (idxCab < 0) {
+      resultado.erros.push('Não encontrei a coluna "Nº Ordem". Confira se o arquivo é a exportação do SAP.');
+      return resultado;
+    }
+
+    const cab = linhas[idxCab].map((c) => U.chaveTitulo(c));
+    const pos = {};
+    COLUNAS.forEach(([campo, teste]) => {
+      const i = cab.findIndex((k) => k && teste(k));
+      if (i >= 0) pos[campo] = i;
+    });
+    if (pos.textoBreve === undefined) resultado.avisos.push('Coluna "Texto breve" não encontrada.');
+    resultado.temColunaProgramada = pos.dataProgramada !== undefined;
+    if (!resultado.temColunaProgramada) {
+      resultado.avisos.push('Coluna "Data Programada" não encontrada: as OMs entram no ciclo, mas sem meta diária.');
+    }
+
+    const vistos = new Set();
+    let datasInvalidas = 0;
+    linhas.slice(idxCab + 1).forEach((l, i) => {
+      if (!l) return;
+      const bruto = l[pos.nOrdem];
+      const nOrdem = typeof bruto === 'number' ? String(Math.round(bruto)) : texto(bruto);
+      if (!nOrdem) return;
+      if (vistos.has(nOrdem)) {
+        resultado.avisos.push(`OM ${nOrdem} repetida (linha ${idxCab + i + 2}): mantida só a primeira.`);
+        return;
+      }
+      vistos.add(nOrdem);
+      const om = { nOrdem };
+      COLUNAS.forEach(([campo]) => {
+        if (campo === 'nOrdem' || pos[campo] === undefined) return;
+        const v = l[pos[campo]];
+        if (DATAS.includes(campo)) {
+          const d = OM.lerData(v);
+          if (d === null) {
+            datasInvalidas++;
+            if (campo === 'dataProgramada') {
+              resultado.avisos.push(`OM ${nOrdem}: data programada inválida ("${texto(v)}").`);
+            }
+            om[campo] = '';
+          } else {
+            om[campo] = d;
+          }
+        } else if (campo === 'km' || campo === 'km2') {
+          om[campo] = numeroOuVazio(v);
+        } else {
+          om[campo] = texto(typeof v === 'number' && Number.isInteger(v) ? String(v) : v);
+        }
+      });
+      om.textoBreve = om.textoBreve || nOrdem;
+      if (!om.dataProgramada) resultado.semDataProgramada++;
+      resultado.oms.push(om);
+    });
+
+    if (!resultado.oms.length) resultado.erros.push('Nenhuma OM encontrada abaixo do cabeçalho.');
+    if (datasInvalidas) resultado.avisos.push(`${datasInvalidas} data(s) não reconhecida(s) foram deixadas em branco.`);
+    return resultado;
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Dados do ciclo (cache local + servidor)                             */
+  /* ------------------------------------------------------------------ */
+
+  const chaveCache = (ciclo) => `om:ciclo:${ciclo}`;
+
+  OM.cicloAtivo = () => U.pref.get('cicloAtivo', '');
+  OM.definirCicloAtivo = (c) => U.pref.set('cicloAtivo', String(c || ''));
+
+  OM.ciclosLocais = async () => (await store.get('om:ciclos')) || [];
+
+  OM.carregarLocal = async (ciclo) => (ciclo ? await store.get(chaveCache(ciclo)) : null);
+
+  /** Aplica por cima dos dados do servidor o que ainda está na fila do aparelho. */
+  async function aplicarPendentes(dados) {
+    const ciclo = dados.ciclo;
+    const exec = await sync.pendentesDoTipo('execucao');
+    const reprog = await sync.pendentesDoTipo('reprogramacao');
+    exec.forEach((d) => {
+      if (String(d.ciclo) !== ciclo) return;
+      const atual = dados.exec[d.nOrdem];
+      if (!atual || String(atual.atualizadoEm || '') <= d.atualizadoEm) {
+        dados.exec[d.nOrdem] = { status: d.status, dataRealizacao: d.dataRealizacao || '', atualizadoEm: d.atualizadoEm };
+      }
+    });
+    reprog.forEach((d) => {
+      if (String(d.ciclo) !== ciclo) return;
+      const om = dados.oms.find((o) => o.nOrdem === d.nOrdem);
+      if (om) om.dataProgramada = d.dataProgramada;
+    });
+    return dados;
+  }
+
+  /** Busca o ciclo no servidor e grava no aparelho. */
+  OM.atualizarDoServidor = async (ciclo) => {
+    const [ciclos, resp] = await Promise.all([
+      api.chamar('getCiclos'),
+      ciclo ? api.chamar('getOMs', { ciclo }) : Promise.resolve(null)
+    ]);
+    await store.set('om:ciclos', ciclos || []);
+    if (!resp) return null;
+    const exec = {};
+    (resp.execucoes || []).forEach((x) => {
+      exec[x.nOrdem] = { status: x.status, dataRealizacao: x.dataRealizacao || '', atualizadoEm: x.atualizadoEm || '' };
+    });
+    let dados = null;
+    await store.atualizar(chaveCache(resp.ciclo), async () => {
+      dados = await aplicarPendentes({
+        ciclo: resp.ciclo,
+        oms: (resp.oms || []).map(limparOM),
+        exec,
+        atualizadoEm: U.agora()
+      });
+      return dados;
+    });
+    return dados;
+  };
+
+  function limparOM(o) {
+    return {
+      nOrdem: String(o.nOrdem),
+      textoBreve: o.textoBreve || '',
+      denominacao: o.denominacao || '',
+      km: o.km,
+      km2: o.km2,
+      dataPlanejada: o.dataPlanejada || '',
+      dataProgramada: o.dataProgramada || '',
+      ramal: OM.ramal(o.textoBreve)
+    };
+  }
+
+  OM.importar = async (ciclo, oms) => {
+    const r = await api.chamar('importarOMs', { ciclo, oms });
+    OM.definirCicloAtivo(r.ciclo);
+    await OM.atualizarDoServidor(r.ciclo);
+    return r;
+  };
+
+  /** Alterna Realizado/Não realizado e coloca na fila. Retorna o novo estado. */
+  OM.alternar = async (ciclo, nOrdem) => {
+    let novo = null;
+    await store.atualizar(chaveCache(ciclo), (dados) => {
+      if (!dados) throw new Error('Ciclo não carregado.');
+      const atual = dados.exec[nOrdem];
+      const realizado = atual && atual.status === OM.REALIZADO;
+      const agora = U.agora();
+      novo = realizado
+        ? { status: OM.NAO_REALIZADO, dataRealizacao: '', atualizadoEm: agora }
+        : { status: OM.REALIZADO, dataRealizacao: agora, atualizadoEm: agora };
+      dados.exec[nOrdem] = novo;
+      return dados;
+    });
+    await sync.enfileirar('execucao', OM.chave(ciclo, nOrdem), { ciclo: String(ciclo), nOrdem, ...novo });
+    return novo;
+  };
+
+  OM.reprogramar = async (ciclo, nOrdem, dataProgramada) => {
+    await store.atualizar(chaveCache(ciclo), (dados) => {
+      const om = dados && dados.oms.find((o) => o.nOrdem === nOrdem);
+      if (!om) throw new Error('OM não encontrada.');
+      om.dataProgramada = dataProgramada;
+      return dados;
+    });
+    await sync.enfileirar('reprogramacao', OM.chave(ciclo, nOrdem), { ciclo: String(ciclo), nOrdem, dataProgramada });
+  };
+
+  /* ------------------------------------------------------------------ */
+  /* Metas e indicadores                                                 */
+  /* ------------------------------------------------------------------ */
+
+  OM.realizada = (dados, nOrdem) => {
+    const x = dados.exec[nOrdem];
+    return !!(x && x.status === OM.REALIZADO);
+  };
+
+  OM.diaRealizacao = (dados, nOrdem) => {
+    const x = dados.exec[nOrdem];
+    return x && x.status === OM.REALIZADO && x.dataRealizacao ? x.dataRealizacao.slice(0, 10) : '';
+  };
+
+  /**
+   * Indicadores para a data de referência.
+   * - Meta: OMs com data programada no período.
+   * - Realizado: OMs realizadas no período (pela data de realização), até a data de referência.
+   * - Semana: meta de segunda a sexta; realizado de segunda a domingo (semana vigente).
+   */
+  OM.metricas = (dados, ref) => {
+    const oms = dados.oms;
+    const dias = oms.map((o) => OM.diaRealizacao(dados, o.nOrdem));
+    const progr = oms.map((o) => o.dataProgramada || '');
+    const contar = (lista, ini, fim) => lista.filter((d) => d && d >= ini && d <= fim).length;
+
+    const seg = U.inicioSemana(ref);
+    const sex = U.somarDias(seg, 4);
+    const dom = U.somarDias(seg, 6);
+    const ini = U.inicioMes(ref);
+    const fimMes = U.fimMes(ref);
+
+    const dia = { meta: contar(progr, ref, ref), realizado: contar(dias, ref, ref) };
+    const semana = {
+      meta: contar(progr, seg, sex),
+      realizado: contar(dias, seg, ref < dom ? ref : dom),
+      inicio: seg,
+      fim: dom
+    };
+    const mes = {
+      meta: contar(progr, ini, fimMes),
+      metaAteHoje: contar(progr, ini, ref),
+      realizado: contar(dias, ini, ref)
+    };
+    const ciclo = { meta: oms.length, realizado: dias.filter((d) => d && d <= ref).length };
+
+    [dia, semana, mes, ciclo].forEach((m) => { m.pct = U.pct(m.realizado, m.meta); });
+
+    // Série da semana (segunda a domingo).
+    const serieSemana = [];
+    for (let i = 0; i < 7; i++) {
+      const d = U.somarDias(seg, i);
+      serieSemana.push({ dia: d, meta: contar(progr, d, d), realizado: d <= ref ? contar(dias, d, d) : null });
+    }
+
+    // Série acumulada do mês.
+    const serieMes = [];
+    let accMeta = 0;
+    let accReal = 0;
+    for (let d = ini; d <= fimMes; d = U.somarDias(d, 1)) {
+      accMeta += contar(progr, d, d);
+      accReal += contar(dias, d, d);
+      serieMes.push({ dia: d, meta: accMeta, realizado: d <= ref ? accReal : null });
+    }
+
+    return { dia, semana, mes, ciclo, serieSemana, serieMes };
+  };
+
+  /** Listas da tela: do dia (programadas ou realizadas no dia), atrasadas e todas. */
+  OM.listas = (dados, ref) => {
+    const doDia = [];
+    const atrasadas = [];
+    dados.oms.forEach((o) => {
+      const realizadaEm = OM.diaRealizacao(dados, o.nOrdem);
+      if (o.dataProgramada === ref || realizadaEm === ref) doDia.push(o);
+      else if (o.dataProgramada && o.dataProgramada < ref && !OM.realizada(dados, o.nOrdem)) atrasadas.push(o);
+    });
+    const porProg = (a, b) => (a.dataProgramada || '9').localeCompare(b.dataProgramada || '9') || a.textoBreve.localeCompare(b.textoBreve);
+    return { doDia: doDia.sort(porProg), atrasadas: atrasadas.sort(porProg), todas: dados.oms.slice().sort(porProg) };
+  };
+
+  App.OM = OM;
+})(window.App);
+
+</script>
+  <script>
+/* js/modulos/checklist.js */
+/* Módulo 1 – Check List de Inspeção. */
+'use strict';
+
+(function (App) {
+  const { U, ui, dados, config, OM, sync } = App;
+  const { h } = ui;
+  const RASCUNHO = 'rascunho:checklist';
+  const LINHAS_INICIAIS = 3;
+
+  let raiz;
+  let formEl;
+  let listaEl;
+  let progressoEl;
+  let estado;
+
+  const itens = () => config.checklist.flatMap((g) => g.itens.map((it) => ({ ...it, grupo: g.titulo })));
+  const perguntasSN = () => itens().filter((i) => i.tipo === 'sn');
+
+  function novoEstado() {
+    return {
+      cab: { responsavel: U.pref.get('ultimoResponsavel', ''), data: U.hoje(), ciclo: OM.cicloAtivo() || '' },
+      resp: {},
+      am: {}
+    };
+  }
+
+  /** Garante a estrutura mínima (útil quando o checklist ganha perguntas novas). */
+  function normalizar(e) {
+    const st = e && typeof e === 'object' ? e : novoEstado();
+    st.cab = st.cab || {};
+    st.resp = st.resp || {};
+    st.am = st.am || {};
+    itens().forEach((it) => {
+      if (it.tipo !== 'sn' && !Array.isArray(st.am[it.id])) {
+        st.am[it.id] = Array.from({ length: LINHAS_INICIAIS }, () => ({ v: '', v2: '' }));
+      }
+    });
+    return st;
+  }
+
+  const salvarRascunho = U.debounce(() => U.pref.set(RASCUNHO, estado), 400);
+  function alterou() {
+    salvarRascunho();
+    atualizarProgresso();
+  }
+
+  /* ---------------- Renderização ---------------- */
+
+  function montar(el) {
+    raiz = el;
+    estado = normalizar(U.pref.get(RASCUNHO, null));
+    const temRespostas = Object.keys(estado.resp).length
+      || Object.values(estado.am).some((l) => l.some((x) => String(x.v || x.v2 || '').trim()));
+    if (!temRespostas) estado.cab.data = U.hoje(); // rascunho vazio de outro dia
+    formEl = h('form', { class: 'pilha', novalidate: true, onsubmit: (e) => { e.preventDefault(); salvar(); } });
+    listaEl = h('div', { class: 'lista' });
+    raiz.append(
+      h('div', { class: 'tela-cab' },
+        h('h1', { text: 'Check List de Inspeção' }),
+        h('p', { class: 'sub', text: 'Responda Sim ou Não. Quando houver problema, descreva o que houve.' })),
+      formEl,
+      h('section', { class: 'cartao' }, h('h2', { text: 'Checklists recentes' }), listaEl)
+    );
+    renderForm();
+  }
+
+  function renderForm() {
+    ui.limpar(formEl);
+    const c = estado.cab;
+    const entrada = (campo, attrs) => h('input', {
+      ...attrs,
+      value: c[campo] || '',
+      oninput: (e) => { c[campo] = e.target.value; alterou(); }
+    });
+
+    formEl.append(
+      h('section', { class: 'cartao' },
+        h('h2', { text: 'Identificação' }),
+        h('div', { class: 'grade-3' },
+          ui.campo('Responsável', entrada('responsavel', { type: 'text', name: 'responsavel', autocomplete: 'name', maxlength: 80 }), { obrigatorio: true }),
+          ui.campo('Data', entrada('data', { type: 'date', name: 'data' }), { obrigatorio: true }),
+          ui.campo('Ciclo', entrada('ciclo', { type: 'text', name: 'ciclo', inputmode: 'numeric', maxlength: 4, placeholder: 'Ex.: 5' }), { obrigatorio: true })))
+    );
+
+    config.checklist.forEach((g) => {
+      formEl.append(h('section', { class: 'cartao' },
+        h('h2', { text: g.titulo }),
+        g.itens.map((it) => renderItem({ ...it, grupo: g.titulo }))));
+    });
+
+    progressoEl = h('span', { class: 'progresso' });
+    formEl.append(h('div', { class: 'barra-acoes barra-fixa' },
+      progressoEl,
+      h('button', { type: 'button', class: 'btn btn-secundario', onclick: limparForm }, 'Limpar'),
+      h('button', { type: 'submit', class: 'btn btn-primario' }, ui.icone('check'), 'Salvar checklist')));
+    atualizarProgresso();
+  }
+
+  function renderItem(it) {
+    return it.tipo === 'sn' ? renderSN(it) : renderAmostras(it);
+  }
+
+  function renderSN(it) {
+    const r = estado.resp[it.id] || { r: '', d: '' };
+    const temProblema = r.r && r.r === it.problemaEm;
+    const opcao = (valor) => h('button', {
+      type: 'button',
+      class: `seg-opcao${r.r === valor ? ' ativo' : ''}${r.r === valor && valor === it.problemaEm ? ' problema' : ''}`,
+      'aria-pressed': r.r === valor ? 'true' : 'false',
+      onclick: () => {
+        estado.resp[it.id] = { r: valor, d: (estado.resp[it.id] || {}).d || '' };
+        alterou();
+        const novo = renderSN(it);
+        no.replaceWith(novo);
+        if (valor === it.problemaEm) {
+          const ta = novo.querySelector('textarea');
+          if (ta && !ta.value) ta.focus();
+        }
+      }
+    }, valor);
+
+    const no = h('div', { class: 'pergunta', dataset: { id: it.id } },
+      h('p', { class: 'pergunta-texto', text: it.texto }),
+      h('div', { class: 'seg', role: 'group', 'aria-label': it.texto }, opcao('Sim'), opcao('Não')),
+      temProblema ? ui.campo('Descreva o que houve', h('textarea', {
+        rows: 3,
+        maxlength: 2000,
+        value: r.d || '',
+        oninput: (e) => { estado.resp[it.id].d = e.target.value; alterou(); }
+      }), { obrigatorio: true, classe: 'descricao' }) : null);
+    return no;
+  }
+
+  function renderAmostras(it) {
+    const pares = it.tipo === 'pares';
+    const linhas = estado.am[it.id];
+    const lista = h('div', { class: 'amostras' });
+
+    const redesenhar = () => {
+      ui.limpar(lista);
+      linhas.forEach((ln, i) => {
+        const num = (campo, rotulo) => h('input', {
+          type: 'text',
+          inputmode: 'decimal',
+          class: 'num',
+          placeholder: rotulo,
+          'aria-label': `${rotulo} – amostra ${i + 1}`,
+          value: ln[campo] || '',
+          oninput: (e) => { ln[campo] = e.target.value; alterou(); }
+        });
+        lista.append(h('div', { class: 'amostra' },
+          h('span', { class: 'amostra-num', text: `Amostra ${U.pad(i + 1)}` }),
+          pares ? num('v', it.rotulos[0]) : num('v', 'Valor'),
+          pares ? num('v2', it.rotulos[1]) : null,
+          h('button', {
+            type: 'button',
+            class: 'btn-icone',
+            'aria-label': `Remover amostra ${i + 1}`,
+            disabled: linhas.length <= 1,
+            onclick: () => { linhas.splice(i, 1); alterou(); redesenhar(); }
+          }, ui.icone('lixo'))));
+      });
+    };
+    redesenhar();
+
+    return h('div', { class: 'pergunta', dataset: { id: it.id } },
+      h('p', { class: 'pergunta-texto', text: it.texto }),
+      lista,
+      h('button', {
+        type: 'button',
+        class: 'btn btn-fantasma',
+        onclick: () => {
+          linhas.push({ v: '', v2: '' });
+          alterou();
+          redesenhar();
+          const inputs = lista.querySelectorAll('input');
+          inputs[inputs.length - (pares ? 2 : 1)].focus();
+        }
+      }, ui.icone('plus'), 'Adicionar amostra'));
+  }
+
+  function atualizarProgresso() {
+    if (!progressoEl) return;
+    const total = perguntasSN().length;
+    const feitas = perguntasSN().filter((p) => estado.resp[p.id] && estado.resp[p.id].r).length;
+    progressoEl.textContent = `${feitas} de ${total} respondidas`;
+  }
+
+  /* ---------------- Salvar ---------------- */
+
+  function validar() {
+    ui.limparErros(formEl);
+    const erros = [];
+    const c = estado.cab;
+    const campoCab = (nome) => formEl.querySelector(`[name="${nome}"]`);
+    if (!String(c.responsavel || '').trim()) erros.push([campoCab('responsavel'), 'Informe o responsável.']);
+    if (!U.parseData(c.data)) erros.push([campoCab('data'), 'Informe a data.']);
+    if (!/^\d{1,4}$/.test(String(c.ciclo || '').trim())) erros.push([campoCab('ciclo'), 'Informe o número do ciclo.']);
+
+    itens().forEach((it) => {
+      const no = formEl.querySelector(`.pergunta[data-id="${it.id}"]`);
+      if (it.tipo === 'sn') {
+        const r = estado.resp[it.id];
+        if (!r || !r.r) erros.push([no, 'Responda Sim ou Não.']);
+        else if (r.r === it.problemaEm && !String(r.d || '').trim()) erros.push([no.querySelector('textarea') || no, 'Descreva o que houve.']);
+      } else {
+        const invalida = estado.am[it.id].some((ln) => [ln.v, ln.v2].some((v) => String(v || '').trim() && U.numero(v) === null));
+        if (invalida) erros.push([no, 'Use apenas números nas amostras (ex.: 1,5 ou -0,8).']);
+      }
+    });
+    erros.forEach(([el, msg]) => el && ui.marcarErro(el, msg));
+    return erros;
+  }
+
+  async function salvar() {
+    const erros = validar();
+    if (erros.length) {
+      ui.toast(`${erros.length} item(ns) precisam de atenção.`, 'erro');
+      ui.rolarAte(erros[0][0]);
+      return;
+    }
+    const c = estado.cab;
+    const respostas = perguntasSN().map((p) => {
+      const r = estado.resp[p.id];
+      const problema = r.r === p.problemaEm;
+      return {
+        grupo: p.grupo,
+        perguntaId: p.id,
+        pergunta: p.texto,
+        resposta: r.r,
+        problema: problema ? 'Sim' : 'Não',
+        descricao: problema ? r.d.trim() : ''
+      };
+    });
+    const amostras = [];
+    itens().filter((it) => it.tipo !== 'sn').forEach((it) => {
+      let n = 0;
+      estado.am[it.id].forEach((ln) => {
+        const v = U.numero(ln.v);
+        const v2 = it.tipo === 'pares' ? U.numero(ln.v2) : null;
+        if (v === null && v2 === null) return;
+        n++;
+        amostras.push({
+          grupo: it.grupo,
+          medicaoId: it.id,
+          medicao: it.tipo === 'pares' ? `${it.texto} – ${it.rotulos[0]}` : it.texto,
+          amostra: n,
+          valor: v === null ? '' : v,
+          rotulo2: it.tipo === 'pares' ? it.rotulos[1] : '',
+          valor2: v2 === null ? '' : v2
+        });
+      });
+    });
+
+    const registro = {
+      id: U.uuid(),
+      data: c.data,
+      ciclo: String(c.ciclo).trim(),
+      responsavel: c.responsavel.trim(),
+      qtdProblemas: respostas.filter((r) => r.problema === 'Sim').length,
+      respostas,
+      amostras
+    };
+    try {
+      await dados.salvar('checklist', 'checklists', registro);
+    } catch (e) {
+      ui.toast(`Não foi possível salvar: ${e.message}`, 'erro', 6000);
+      return;
+    }
+    U.pref.set('ultimoResponsavel', registro.responsavel);
+    U.pref.del(RASCUNHO);
+    estado = normalizar(null);
+    estado.cab.ciclo = registro.ciclo;
+    renderForm();
+    ui.toast('Checklist salvo.', 'ok');
+    raiz.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    renderLista();
+  }
+
+  async function limparForm() {
+    const ok = await ui.confirmar('Limpar checklist', 'Apagar as respostas preenchidas até agora?', { ok: 'Limpar', perigo: true });
+    if (!ok) return;
+    U.pref.del(RASCUNHO);
+    estado = normalizar(null);
+    renderForm();
+  }
+
+  /* ---------------- Lista ---------------- */
+
+  async function renderLista() {
+    const [lista, pendentes] = await Promise.all([dados.listar('checklists'), sync.pendentesDoTipo('checklist')]);
+    if (!lista.length) {
+      ui.trocar(listaEl, h('p', { class: 'vazio', text: 'Nenhum checklist salvo ainda.' }));
+      return;
+    }
+    ui.trocar(listaEl, lista.slice(0, 15).map((c) => h('div', { class: 'item' },
+      h('div', { class: 'item-principal' },
+        h('strong', { text: `${U.fmtData(c.data)} · Ciclo ${c.ciclo}` }),
+        h('span', { class: 'item-sub', text: c.responsavel })),
+      h('div', { class: 'item-lado' },
+        Number(c.qtdProblemas) > 0
+          ? h('span', { class: 'etiqueta etiqueta-alerta', text: `${c.qtdProblemas} problema(s)` })
+          : h('span', { class: 'etiqueta etiqueta-ok', text: 'Sem problemas' }),
+        pendentes.has(c.id) ? h('span', { class: 'etiqueta etiqueta-pendente', text: 'Não enviado' }) : null))));
+  }
+
+  async function aoMostrar() {
+    if (!estado.cab.ciclo && OM.cicloAtivo()) {
+      estado.cab.ciclo = OM.cicloAtivo();
+      const campoCiclo = formEl.querySelector('[name="ciclo"]');
+      if (campoCiclo && !campoCiclo.value) campoCiclo.value = estado.cab.ciclo;
+    }
+    await renderLista();
+    try {
+      await dados.atualizarDoServidor('checklist', 'checklists');
+      await renderLista();
+    } catch (e) { /* sem conexão: mantém a lista local */ }
+  }
+
+  document.addEventListener('em80:sincronizado', () => { if (listaEl) renderLista(); });
+
+  App.modulos = App.modulos || [];
+  App.modulos.push({ id: 'checklist', titulo: 'Checklist', icone: 'checklist', montar, aoMostrar });
+})(window.App);
+
+</script>
+  <script>
+/* js/modulos/eventos.js */
+/* Módulo 2 – Registro de Eventos (falhas durante a inspeção). */
+'use strict';
+
+(function (App) {
+  const { U, ui, dados, config, sync } = App;
+  const { h } = ui;
+  const COLECAO = 'eventos';
+
+  let raiz;
+  let formCartao;
+  let abertosEl;
+  let recentesEl;
+  let lista = [];
+  let pendentes = new Map();
+  let editando = null; // evento em edição (ou null)
+  let f = {}; // campos do formulário
+
+  const vazio = () => ({ equipamento: '', outro: '', parte: '', inicio: '', fim: '', observacao: '' });
+
+  function montar(el) {
+    raiz = el;
+    f = vazio();
+    formCartao = h('section', { class: 'cartao' });
+    abertosEl = h('div', { class: 'lista' });
+    recentesEl = h('div', { class: 'lista' });
+    raiz.append(
+      h('div', { class: 'tela-cab' },
+        h('h1', { text: 'Registro de Eventos' }),
+        h('p', { class: 'sub', text: 'Falhas durante a inspeção. Deixe o fim em branco enquanto a falha estiver ocorrendo.' })),
+      formCartao,
+      h('section', { class: 'cartao' }, h('h2', { text: 'Em aberto' }), abertosEl),
+      h('section', { class: 'cartao' }, h('h2', { text: 'Recentes' }), recentesEl));
+    renderForm();
+    setInterval(() => {
+      if (raiz.offsetParent !== null) renderListas();
+    }, 30000);
+  }
+
+  /* ---------------- Formulário ---------------- */
+
+  function renderForm() {
+    const ehOutro = f.equipamento === 'Outro';
+    const historico = lista.filter((e) => !f.equipamento || nomeEquip(f) === e.equipamento);
+    const sugestoesParte = U.maisFrequentes(lista.map((e) => e.parte), 15);
+    const sugestoesObs = U.maisFrequentes(historico.map((e) => e.observacao), 5);
+
+    const sel = h('select', {
+      name: 'equipamento',
+      value: f.equipamento,
+      onchange: (e) => { f.equipamento = e.target.value; renderForm(); }
+    }, h('option', { value: '', text: 'Selecione…' }), config.equipamentos.map((q) => h('option', { value: q, text: q })));
+
+    const dataHora = (campo, rotulo) => {
+      const input = h('input', {
+        type: 'datetime-local',
+        name: campo,
+        value: U.paraInputDataHora(f[campo]),
+        onchange: (e) => { f[campo] = U.deInputDataHora(e.target.value); }
+      });
+      return ui.campo(rotulo, h('div', { class: 'linha-campo' }, input,
+        h('button', {
+          type: 'button',
+          class: 'btn btn-secundario',
+          onclick: () => { f[campo] = U.agora(); input.value = U.paraInputDataHora(f[campo]); }
+        }, ui.icone('relogio'), 'Agora'),
+        f[campo] ? h('button', {
+          type: 'button',
+          class: 'btn-icone',
+          'aria-label': `Limpar ${rotulo.toLowerCase()}`,
+          onclick: () => { f[campo] = ''; renderForm(); }
+        }, ui.icone('x')) : null));
+    };
+
+    const obs = h('textarea', {
+      name: 'observacao',
+      rows: 3,
+      maxlength: 2000,
+      value: f.observacao,
+      placeholder: 'Impacto da falha na inspeção',
+      oninput: (e) => { f.observacao = e.target.value; }
+    });
+
+    const listaParte = h('datalist', { id: 'dl-partes' }, sugestoesParte.map((p) => h('option', { value: p })));
+
+    ui.trocar(formCartao,
+      h('h2', { text: editando ? 'Editar evento' : 'Novo evento' }),
+      h('form', { class: 'pilha', novalidate: true, onsubmit: (e) => { e.preventDefault(); salvar(); } },
+        h('div', { class: 'grade-2' },
+          ui.campo('Equipamento', sel, { obrigatorio: true }),
+          ehOutro ? ui.campo('Qual equipamento?', h('input', {
+            type: 'text', name: 'outro', maxlength: 80, value: f.outro,
+            oninput: (e) => { f.outro = e.target.value; }
+          }), { obrigatorio: true }) : null,
+          ui.campo('Parte do equipamento', h('input', {
+            type: 'text', name: 'parte', maxlength: 120, list: 'dl-partes', value: f.parte,
+            oninput: (e) => { f.parte = e.target.value; }
+          }))),
+        listaParte,
+        h('div', { class: 'grade-2' },
+          dataHora('inicio', 'Início'),
+          dataHora('fim', 'Fim')),
+        ui.campo('Observação / impacto', obs),
+        sugestoesObs.length ? h('div', { class: 'chips', 'aria-label': 'Observações frequentes' },
+          sugestoesObs.map((t) => h('button', {
+            type: 'button',
+            class: 'chip',
+            title: t,
+            onclick: () => {
+              f.observacao = f.observacao.trim() ? `${f.observacao.trim()}; ${t}` : t;
+              obs.value = f.observacao;
+            }
+          }, t.length > 40 ? `${t.slice(0, 40)}…` : t))) : null,
+        h('div', { class: 'barra-acoes' },
+          editando
+            ? h('button', { type: 'button', class: 'btn btn-secundario', onclick: cancelarEdicao }, 'Cancelar edição')
+            : [
+              h('button', { type: 'button', class: 'btn btn-secundario', onclick: duplicarUltimo, disabled: !lista.length }, ui.icone('duplicar'), 'Duplicar último'),
+              h('button', { type: 'button', class: 'btn btn-secundario', onclick: iniciarAgora }, ui.icone('play'), 'Iniciar agora')
+            ],
+          h('button', { type: 'submit', class: 'btn btn-primario' }, ui.icone('check'), editando ? 'Salvar alterações' : 'Salvar evento'))));
+  }
+
+  const nomeEquip = (x) => (x.equipamento === 'Outro' ? String(x.outro || '').trim() : x.equipamento);
+
+  function paraForm(ev) {
+    const conhecido = config.equipamentos.includes(ev.equipamento) && ev.equipamento !== 'Outro';
+    return {
+      equipamento: conhecido ? ev.equipamento : 'Outro',
+      outro: conhecido ? '' : ev.equipamento,
+      parte: ev.parte || '',
+      inicio: ev.inicio || '',
+      fim: ev.fim || '',
+      observacao: ev.observacao || ''
+    };
+  }
+
+  function validar(exigirInicio) {
+    const form = formCartao.querySelector('form');
+    ui.limparErros(form);
+    const erros = [];
+    if (!f.equipamento) erros.push(['equipamento', 'Selecione o equipamento.']);
+    else if (f.equipamento === 'Outro' && !f.outro.trim()) erros.push(['outro', 'Informe o equipamento.']);
+    if (exigirInicio && !f.inicio) erros.push(['inicio', 'Informe o início (ou toque em "Agora").']);
+    if (f.inicio && f.fim && f.fim < f.inicio) erros.push(['fim', 'O fim não pode ser antes do início.']);
+    erros.forEach(([nome, msg]) => ui.marcarErro(form.querySelector(`[name="${nome}"]`), msg));
+    if (erros.length) ui.rolarAte(form.querySelector(`[name="${erros[0][0]}"]`));
+    return !erros.length;
+  }
+
+  async function gravar(ev, mensagem) {
+    try {
+      await dados.salvar('evento', COLECAO, ev);
+      ui.toast(mensagem, 'ok');
+      return true;
+    } catch (e) {
+      ui.toast(`Não foi possível salvar: ${e.message}`, 'erro', 6000);
+      return false;
+    }
+  }
+
+  async function salvar() {
+    if (!validar(true)) return;
+    const ev = {
+      ...(editando || {}),
+      id: editando ? editando.id : U.uuid(),
+      equipamento: nomeEquip(f),
+      parte: f.parte.trim(),
+      inicio: f.inicio,
+      fim: f.fim,
+      observacao: f.observacao.trim()
+    };
+    if (await gravar(ev, editando ? 'Evento atualizado.' : (ev.fim ? 'Evento salvo.' : 'Evento salvo (em aberto).'))) {
+      editando = null;
+      f = vazio();
+      await carregar();
+    }
+  }
+
+  async function iniciarAgora() {
+    if (!validar(false)) return;
+    const ev = {
+      id: U.uuid(),
+      equipamento: nomeEquip(f),
+      parte: f.parte.trim(),
+      inicio: U.agora(),
+      fim: '',
+      observacao: f.observacao.trim()
+    };
+    if (await gravar(ev, `Falha iniciada às ${U.fmtHora(ev.inicio)}.`)) {
+      f = vazio();
+      await carregar();
+    }
+  }
+
+  function duplicarUltimo() {
+    const ultimo = lista[0];
+    if (!ultimo) return;
+    f = { ...paraForm(ultimo), inicio: '', fim: '' };
+    renderForm();
+    ui.toast('Dados do último evento copiados. Ajuste os horários.', 'info');
+  }
+
+  function editar(ev) {
+    editando = ev;
+    f = paraForm(ev);
+    renderForm();
+    ui.rolarAte(formCartao);
+  }
+
+  function cancelarEdicao() {
+    editando = null;
+    f = vazio();
+    renderForm();
+  }
+
+  async function finalizarAgora(ev) {
+    const fim = U.agora();
+    if (await gravar({ ...ev, fim: fim < ev.inicio ? ev.inicio : fim }, 'Evento finalizado.')) await carregar();
+  }
+
+  /* ---------------- Listas ---------------- */
+
+  function cartaoEvento(ev, aberto) {
+    const dur = U.minutosEntre(ev.inicio, aberto ? U.agora() : ev.fim);
+    return h('div', { class: `item${aberto ? ' item-aberto' : ''}` },
+      h('div', { class: 'item-principal' },
+        h('strong', { text: [ev.equipamento, ev.parte].filter(Boolean).join(' · ') }),
+        h('span', { class: 'item-sub', text: aberto
+          ? `Desde ${U.fmtDataHora(ev.inicio)} · há ${U.fmtDuracao(dur)}`
+          : `${U.fmtDataHora(ev.inicio)} → ${ev.fim ? U.fmtHora(ev.fim) : '—'} · ${U.fmtDuracao(dur)}` }),
+        ev.observacao ? h('span', { class: 'item-obs', text: ev.observacao }) : null),
+      h('div', { class: 'item-lado' },
+        pendentes.has(ev.id) ? h('span', { class: 'etiqueta etiqueta-pendente', text: 'Não enviado' }) : null,
+        aberto ? h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => finalizarAgora(ev) }, ui.icone('parar'), 'Finalizar agora') : null,
+        h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => editar(ev) }, ui.icone('editar'), 'Editar')));
+  }
+
+  function renderListas() {
+    const abertos = lista.filter((e) => !e.fim);
+    const fechados = lista.filter((e) => e.fim).slice(0, 25);
+    ui.trocar(abertosEl, abertos.length ? abertos.map((e) => cartaoEvento(e, true)) : h('p', { class: 'vazio', text: 'Nenhuma falha em aberto.' }));
+    ui.trocar(recentesEl, fechados.length ? fechados.map((e) => cartaoEvento(e, false)) : h('p', { class: 'vazio', text: 'Nenhum evento finalizado ainda.' }));
+  }
+
+  /** Recarrega a lista. O formulário só é redesenhado quando pedido, para não atrapalhar a digitação. */
+  async function carregar({ form = true } = {}) {
+    [lista, pendentes] = await Promise.all([dados.listar(COLECAO), sync.pendentesDoTipo('evento')]);
+    lista = lista.slice().sort((a, b) => String(b.inicio).localeCompare(String(a.inicio)));
+    if (form) renderForm();
+    renderListas();
+  }
+
+  async function aoMostrar() {
+    await carregar();
+    try {
+      await dados.atualizarDoServidor('evento', COLECAO);
+      await carregar({ form: false });
+    } catch (e) { /* sem conexão */ }
+  }
+
+  document.addEventListener('em80:sincronizado', () => { if (raiz) carregar({ form: false }); });
+
+  App.modulos = App.modulos || [];
+  App.modulos.push({ id: 'eventos', titulo: 'Eventos', icone: 'alerta', montar, aoMostrar });
+})(window.App);
+
+</script>
+  <script>
+/* js/modulos/producao.js */
+/* Módulo 3 – Produção de OMs: importação, marcação e acompanhamento das metas. */
+'use strict';
+
+(function (App) {
+  const { U, ui, OM, charts, api } = App;
+  const { h } = ui;
+  const XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+
+  let raiz;
+  let topoEl;
+  let painelEl;
+  let listaCab;
+  let listaEl;
+  let dados = null; // { ciclo, oms, exec }
+  let ref = U.hoje();
+  let refManual = false; // true quando o usuário escolheu outra data
+  let aba = 'dia';
+  let ramal = '';
+  let busca = '';
+  const travas = new Set(); // evita toque duplo acidental
+
+  function montar(el) {
+    raiz = el;
+    topoEl = h('div', { class: 'cartao' });
+    painelEl = h('div', { class: 'pilha' });
+    listaCab = h('div', { class: 'lista-cab' });
+    listaEl = h('div', { class: 'lista-om' });
+    raiz.append(
+      h('div', { class: 'tela-cab' },
+        h('h1', { text: 'Produção de OMs' }),
+        h('p', { class: 'sub', text: 'Toque na OM para marcar como realizada. Toque de novo para desfazer.' })),
+      topoEl,
+      painelEl,
+      h('section', { class: 'cartao' }, listaCab, listaEl));
+    renderTudo();
+  }
+
+  /* ---------------- Carga de dados ---------------- */
+
+  async function carregarLocal() {
+    const ciclo = OM.cicloAtivo();
+    dados = ciclo ? await OM.carregarLocal(ciclo) : null;
+  }
+
+  async function atualizarServidor({ avisar = false } = {}) {
+    if (!api.configurado()) return;
+    try {
+      let ciclo = OM.cicloAtivo();
+      if (!ciclo) {
+        const ciclos = await api.chamar('getCiclos');
+        if (ciclos && ciclos.length) {
+          ciclo = ciclos[0].ciclo;
+          OM.definirCicloAtivo(ciclo);
+        }
+      }
+      const novos = await OM.atualizarDoServidor(ciclo);
+      if (novos) dados = novos;
+      renderTudo();
+      if (avisar) ui.toast('Dados atualizados.', 'ok');
+    } catch (e) {
+      if (avisar) ui.toast(`Não foi possível atualizar: ${e.message}`, 'erro', 5000);
+    }
+  }
+
+  async function aoMostrar() {
+    if (!refManual) ref = U.hoje(); // app aberto de um dia para o outro
+    await carregarLocal();
+    renderTudo();
+    await atualizarServidor();
+  }
+
+  /* ---------------- Renderização ---------------- */
+
+  function renderTudo() {
+    renderTopo();
+    renderPainel();
+    renderLista();
+  }
+
+  async function renderTopo() {
+    const ciclos = await OM.ciclosLocais();
+    const ativo = OM.cicloAtivo();
+    const opcoes = ciclos.map((c) => c.ciclo);
+    if (ativo && !opcoes.includes(ativo)) opcoes.unshift(ativo);
+
+    const sel = h('select', {
+      'aria-label': 'Ciclo',
+      value: ativo,
+      onchange: async (e) => {
+        OM.definirCicloAtivo(e.target.value);
+        await carregarLocal();
+        renderTudo();
+        atualizarServidor();
+      }
+    }, opcoes.length ? opcoes.map((c) => h('option', { value: c, text: `Ciclo ${c}` })) : h('option', { value: '', text: 'Nenhum ciclo' }));
+
+    const data = h('input', {
+      type: 'date',
+      'aria-label': 'Data de referência',
+      value: ref,
+      onchange: (e) => {
+        if (U.parseData(e.target.value)) mudarData(e.target.value);
+      }
+    });
+
+    ui.trocar(topoEl,
+      h('div', { class: 'barra-topo' },
+        h('div', { class: 'linha-campo' }, sel,
+          h('button', { class: 'btn-icone', 'aria-label': 'Atualizar do servidor', title: 'Atualizar', onclick: () => atualizarServidor({ avisar: true }) }, ui.icone('sync')),
+          h('button', { class: 'btn btn-secundario', onclick: abrirImportacao, title: 'Importar planilha do SAP' }, ui.icone('upload'), 'Importar')),
+        h('div', { class: 'linha-campo nav-data' },
+          h('button', { class: 'btn-icone', 'aria-label': 'Dia anterior', onclick: () => mudarData(U.somarDias(ref, -1)) }, ui.icone('esquerda')),
+          data,
+          h('button', { class: 'btn-icone', 'aria-label': 'Próximo dia', onclick: () => mudarData(U.somarDias(ref, 1)) }, ui.icone('direita')),
+          ref !== U.hoje() ? h('button', { class: 'btn btn-fantasma', onclick: () => mudarData(U.hoje()) }, 'Hoje') : null)));
+  }
+
+  function mudarData(d) {
+    ref = d;
+    refManual = d !== U.hoje();
+    renderTudo();
+  }
+
+  function renderPainel() {
+    if (!dados || !dados.oms.length) {
+      ui.trocar(painelEl, h('section', { class: 'cartao vazio-grande' },
+        h('p', { text: OM.cicloAtivo() ? `O ciclo ${OM.cicloAtivo()} ainda não foi carregado neste aparelho.` : 'Nenhum ciclo importado ainda.' }),
+        h('p', { class: 'sub', text: 'Importe a planilha de OMs do SAP com a coluna "Data Programada".' }),
+        h('button', { class: 'btn btn-primario', onclick: abrirImportacao }, ui.icone('upload'), 'Importar planilha')));
+      return;
+    }
+    const m = OM.metricas(dados, ref);
+    const ehHoje = ref === U.hoje();
+    ui.trocar(painelEl,
+      h('div', { class: 'kpis' },
+        charts.indicador({ titulo: ehHoje ? 'Hoje' : U.fmtData(ref), ...m.dia, pct: m.dia.pct }),
+        charts.indicador({ titulo: `Semana ${U.fmtData(m.semana.inicio).slice(0, 2)}–${U.fmtData(U.somarDias(m.semana.inicio, 4)).slice(0, 5)}`, ...m.semana }),
+        charts.indicador({ titulo: `Mês de ${U.fmtMesAno(ref).split(' de ')[0]}`, ...m.mes, extra: `Meta até ${ehHoje ? 'hoje' : U.fmtData(ref).slice(0, 5)}: ${m.mes.metaAteHoje}` }),
+        charts.indicador({ titulo: `Ciclo ${dados.ciclo}`, ...m.ciclo })),
+      h('div', { class: 'grade-graficos' },
+        h('section', { class: 'cartao' }, h('h2', { text: 'Semana: realizado por dia' }), charts.barrasSemana(m.serieSemana, { hoje: ref })),
+        h('section', { class: 'cartao' }, h('h2', { text: 'Mês: acumulado' }), charts.linhaMes(m.serieMes, { hoje: ref }))));
+  }
+
+  function renderLista() {
+    if (!dados || !dados.oms.length) {
+      ui.limpar(listaCab);
+      ui.limpar(listaEl);
+      return;
+    }
+    const listas = OM.listas(dados, ref);
+    const ramais = [...new Set(dados.oms.map((o) => o.ramal))].sort();
+    if (ramal && !ramais.includes(ramal)) ramal = '';
+
+    const abaBtn = (id, rotulo, n) => h('button', {
+      class: `seg-opcao${aba === id ? ' ativo' : ''}`,
+      'aria-pressed': aba === id ? 'true' : 'false',
+      onclick: () => { aba = id; renderLista(); }
+    }, `${rotulo} (${n})`);
+
+    const campoBusca = h('input', {
+      type: 'search',
+      placeholder: 'Buscar OM ou trecho',
+      'aria-label': 'Buscar OM',
+      value: busca,
+      oninput: U.debounce((e) => { busca = e.target.value; desenharItens(listas); }, 200)
+    });
+
+    ui.trocar(listaCab,
+      h('div', { class: 'seg seg-abas', role: 'group', 'aria-label': 'Filtro da lista' },
+        abaBtn('dia', ref === U.hoje() ? 'Hoje' : 'Do dia', listas.doDia.length),
+        abaBtn('atrasadas', 'Atrasadas', listas.atrasadas.length),
+        abaBtn('todas', 'Todas', listas.todas.length)),
+      h('div', { class: 'linha-campo filtros' },
+        h('select', {
+          'aria-label': 'Ramal',
+          value: ramal,
+          onchange: (e) => { ramal = e.target.value; desenharItens(listas); }
+        }, h('option', { value: '', text: 'Ramal: todos' }), ramais.map((r) => h('option', { value: r, text: r }))),
+        campoBusca));
+    desenharItens(listas);
+  }
+
+  function desenharItens(listas) {
+    const base = aba === 'dia' ? listas.doDia : aba === 'atrasadas' ? listas.atrasadas : listas.todas;
+    const termo = U.normalizar(busca);
+    const filtrada = base.filter((o) => (!ramal || o.ramal === ramal)
+      && (!termo || U.normalizar(`${o.textoBreve} ${o.nOrdem} ${o.denominacao}`).includes(termo)));
+
+    if (!filtrada.length) {
+      const msg = { dia: 'Nenhuma OM programada para este dia.', atrasadas: 'Nenhuma OM atrasada.', todas: 'Nenhuma OM encontrada.' }[aba];
+      ui.trocar(listaEl, h('p', { class: 'vazio', text: base.length ? 'Nenhuma OM com esse filtro.' : msg }));
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    filtrada.forEach((o) => frag.appendChild(itemOM(o)));
+    ui.trocar(listaEl, frag);
+  }
+
+  function itemOM(o) {
+    const exec = dados.exec[o.nOrdem];
+    const feita = !!(exec && exec.status === OM.REALIZADO);
+    const atrasada = !feita && o.dataProgramada && o.dataProgramada < U.hoje();
+    const info = [];
+    if (o.dataProgramada) info.push(h('span', { class: `chip-info${atrasada ? ' atrasada' : ''}`, text: `Prog. ${U.fmtData(o.dataProgramada).slice(0, 5)}` }));
+    else info.push(h('span', { class: 'chip-info', text: 'Sem programação' }));
+    if (feita && exec.dataRealizacao) info.push(h('span', { class: 'chip-info feita', text: `Feita ${U.fmtData(exec.dataRealizacao).slice(0, 5)} ${U.fmtHora(exec.dataRealizacao)}` }));
+
+    const linha = h('div', { class: `om${feita ? ' om-feita' : ''}`, dataset: { n: o.nOrdem } },
+      h('button', {
+        class: 'om-botao',
+        'aria-pressed': feita ? 'true' : 'false',
+        'aria-label': `${o.textoBreve}: ${feita ? 'realizada' : 'não realizada'}. Tocar para alterar.`,
+        onclick: () => alternar(o)
+      },
+      h('span', { class: 'om-marca', 'aria-hidden': 'true' }, feita ? ui.icone('check') : null),
+      h('span', { class: 'om-texto' },
+        h('strong', { text: o.textoBreve }),
+        h('span', { class: 'om-sub', text: `${o.nOrdem}${o.denominacao ? ` · ${o.denominacao}` : ''}` }),
+        h('span', { class: 'om-info' }, info)),
+      h('span', { class: `om-status ${feita ? 'ok' : ''}`, text: feita ? 'Realizado' : 'Não realizado' })),
+      h('button', {
+        class: 'btn-icone om-mais',
+        'aria-label': `Reprogramar ${o.textoBreve}`,
+        title: 'Reprogramar',
+        onclick: () => abrirReprogramacao(o)
+      }, ui.icone('calendario')));
+    return linha;
+  }
+
+  async function alternar(o) {
+    if (travas.has(o.nOrdem)) return;
+    travas.add(o.nOrdem);
+    setTimeout(() => travas.delete(o.nOrdem), 700);
+    try {
+      const novo = await OM.alternar(dados.ciclo, o.nOrdem);
+      dados.exec[o.nOrdem] = novo;
+      const antigo = listaEl.querySelector(`.om[data-n="${CSS.escape(o.nOrdem)}"]`);
+      if (antigo) antigo.replaceWith(itemOM(o));
+      renderPainel();
+      atualizarContadores();
+      if (navigator.vibrate) navigator.vibrate(15);
+    } catch (e) {
+      ui.toast(`Não foi possível marcar: ${e.message}`, 'erro', 5000);
+    }
+  }
+
+  function atualizarContadores() {
+    const listas = OM.listas(dados, ref);
+    const botoes = listaCab.querySelectorAll('.seg-abas .seg-opcao');
+    const n = [listas.doDia.length, listas.atrasadas.length, listas.todas.length];
+    botoes.forEach((b, i) => { b.textContent = b.textContent.replace(/\(\d+\)$/, `(${n[i]})`); });
+  }
+
+  /* ---------------- Reprogramação ---------------- */
+
+  function abrirReprogramacao(o) {
+    const input = h('input', { type: 'date', value: o.dataProgramada || ref });
+    ui.modal({
+      titulo: 'Reprogramar OM',
+      conteudo: h('div', { class: 'pilha' },
+        h('p', null, h('strong', { text: o.textoBreve }), h('br'), h('span', { class: 'sub', text: o.nOrdem })),
+        ui.campo('Nova data programada', input)),
+      acoes: [
+        { texto: 'Cancelar', classe: 'btn-secundario', onClick: (f) => f() },
+        {
+          texto: 'Salvar',
+          classe: 'btn-primario',
+          onClick: async (fechar) => {
+            if (!U.parseData(input.value)) {
+              ui.marcarErro(input, 'Informe uma data válida.');
+              return;
+            }
+            try {
+              await OM.reprogramar(dados.ciclo, o.nOrdem, input.value);
+              o.dataProgramada = input.value;
+              fechar();
+              renderPainel();
+              renderLista();
+              ui.toast(`OM reprogramada para ${U.fmtData(input.value)}.`, 'ok');
+            } catch (e) {
+              ui.toast(`Não foi possível reprogramar: ${e.message}`, 'erro');
+            }
+          }
+        }
+      ]
+    });
+  }
+
+  /* ---------------- Importação ---------------- */
+
+  function carregarXLSX() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = XLSX_URL;
+      s.onload = () => (window.XLSX ? resolve(window.XLSX) : reject(new Error('Leitor de planilhas indisponível.')));
+      s.onerror = () => reject(new Error('Sem internet para carregar o leitor de planilhas.'));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function lerArquivo(arquivo) {
+    const XLSX = await carregarXLSX();
+    const buffer = await arquivo.arrayBuffer();
+    const wb = XLSX.read(buffer, { type: 'array', cellDates: false });
+    // Usa a primeira aba que tiver a coluna Nº Ordem.
+    for (const nome of wb.SheetNames) {
+      const linhas = XLSX.utils.sheet_to_json(wb.Sheets[nome], { header: 1, raw: true, defval: '' });
+      const r = OM.processarLinhas(linhas);
+      if (!r.erros.length || nome === wb.SheetNames[wb.SheetNames.length - 1]) return r;
+    }
+    return OM.processarLinhas([]);
+  }
+
+  async function abrirImportacao() {
+    let resultado = null;
+    const ciclosExistentes = await OM.ciclosLocais();
+    const resumo = h('div', { class: 'pilha' });
+    const cicloInput = h('input', {
+      type: 'text', inputmode: 'numeric', maxlength: 4, placeholder: 'Ex.: 5',
+      oninput: () => desenharResumo()
+    });
+    const arquivoInput = h('input', {
+      type: 'file',
+      accept: '.xlsx,.xls,.csv',
+      onchange: async (e) => {
+        const arq = e.target.files[0];
+        resultado = null;
+        if (!arq) return desenharResumo();
+        ui.trocar(resumo, h('p', { class: 'sub', text: 'Lendo arquivo…' }));
+        try {
+          resultado = await lerArquivo(arq);
+        } catch (err) {
+          resultado = { oms: [], avisos: [], erros: [err.message] };
+        }
+        desenharResumo();
+      }
+    });
+    let botaoImportar = null;
+
+    function desenharResumo() {
+      const ciclo = cicloInput.value.trim();
+      const cicloOk = /^\d{1,4}$/.test(ciclo);
+      const pronto = resultado && !resultado.erros.length && cicloOk;
+      if (botaoImportar) botaoImportar.disabled = !pronto;
+      if (!resultado) return ui.limpar(resumo);
+      if (resultado.erros.length) {
+        return ui.trocar(resumo, resultado.erros.map((e) => h('p', { class: 'aviso aviso-erro', text: e })));
+      }
+      const porRamal = {};
+      resultado.oms.forEach((o) => { const r = OM.ramal(o.textoBreve); porRamal[r] = (porRamal[r] || 0) + 1; });
+      const existente = ciclosExistentes.find((c) => c.ciclo === ciclo);
+      const avisos = resultado.avisos.slice(0, 6);
+      ui.trocar(resumo,
+        h('p', null, h('strong', { text: `${resultado.oms.length} OMs encontradas` }),
+          ` · ${resultado.oms.length - resultado.semDataProgramada} com data programada`),
+        h('p', { class: 'sub', text: Object.entries(porRamal).sort((a, b) => b[1] - a[1]).map(([r, n]) => `${r}: ${n}`).join(' · ') }),
+        existente ? h('p', { class: 'aviso', text: `O ciclo ${ciclo} já existe (${existente.total} OMs). As OMs serão substituídas pelas deste arquivo; as realizações já lançadas são mantidas.` }) : null,
+        avisos.map((a) => h('p', { class: 'aviso', text: a })),
+        resultado.avisos.length > avisos.length ? h('p', { class: 'sub', text: `…e mais ${resultado.avisos.length - avisos.length} aviso(s).` }) : null);
+    }
+
+    const m = ui.modal({
+      titulo: 'Importar planilha de OMs',
+      conteudo: h('div', { class: 'pilha' },
+        h('p', { class: 'sub', text: 'Use a exportação do SAP com a coluna "Data Programada" preenchida.' }),
+        ui.campo('Número do ciclo', cicloInput, { obrigatorio: true }),
+        ui.campo('Arquivo (.xlsx)', arquivoInput, { obrigatorio: true }),
+        resumo),
+      acoes: [
+        { texto: 'Cancelar', classe: 'btn-secundario', onClick: (f) => f() },
+        {
+          texto: 'Importar',
+          classe: 'btn-primario',
+          onClick: async (fechar) => {
+            if (!resultado || resultado.erros.length) return;
+            botaoImportar.disabled = true;
+            botaoImportar.textContent = 'Importando…';
+            try {
+              const r = await OM.importar(cicloInput.value.trim(), resultado.oms);
+              fechar();
+              await carregarLocal();
+              aba = 'dia';
+              renderTudo();
+              ui.toast(`${r.importadas} OMs importadas no ciclo ${r.ciclo}.`, 'ok', 5000);
+            } catch (e) {
+              botaoImportar.disabled = false;
+              botaoImportar.textContent = 'Importar';
+              ui.toast(e.codigo === 'REDE' ? 'Sem conexão. A importação precisa de internet.' : `Erro na importação: ${e.message}`, 'erro', 6000);
+            }
+          }
+        }
+      ]
+    });
+    botaoImportar = m.caixa.querySelector('.modal-acoes .btn-primario');
+    botaoImportar.disabled = true;
+  }
+
+  App.modulos = App.modulos || [];
+  App.modulos.push({ id: 'producao', titulo: 'Produção', icone: 'grafico', montar, aoMostrar });
+})(window.App);
+
+</script>
+  <script>
+/* js/modulos/ajustes.js */
+/* Ajustes: conexão com o servidor, sincronização, tema e dados do aparelho. */
+'use strict';
+
+(function (App) {
+  const { U, ui, api, sync, store, config } = App;
+  const { h } = ui;
+
+  const NOMES_TIPO = {
+    checklist: 'Checklist',
+    evento: 'Evento',
+    anomalia: 'Anomalia',
+    execucao: 'Marcação de OM',
+    reprogramacao: 'Reprogramação de OM'
+  };
+
+  let raiz;
+  let conexaoEl;
+  let syncEl;
+  let temaEl;
+
+  function montar(el) {
+    raiz = el;
+    conexaoEl = h('section', { class: 'cartao' });
+    syncEl = h('section', { class: 'cartao' });
+    temaEl = h('section', { class: 'cartao' });
+    raiz.append(
+      h('div', { class: 'tela-cab' }, h('h1', { text: 'Ajustes' })),
+      conexaoEl, syncEl, temaEl,
+      h('section', { class: 'cartao' },
+        h('h2', { text: 'Sobre' }),
+        h('p', { class: 'sub', text: `App Carro Controle EM80 · versão ${config.versao} · modo ${api.modo() === 'appsscript' ? 'Apps Script' : 'site (PWA)'}` }),
+        h('button', { class: 'btn btn-perigo', onclick: apagarDados }, ui.icone('lixo'), 'Apagar dados deste aparelho')));
+    renderConexao();
+    renderTema();
+    document.addEventListener('em80:sync', () => renderSync());
+    document.addEventListener('em80:tema', () => renderTema());
+  }
+
+  function renderConexao() {
+    const web = api.modo() === 'web';
+    const url = h('input', { type: 'url', name: 'url', value: api.config.url(), placeholder: 'https://script.google.com/macros/s/.../exec' });
+    const token = h('input', { type: 'text', name: 'token', value: api.config.token(), autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', maxlength: 40 });
+    const status = h('p', { class: 'sub' });
+
+    const testar = async () => {
+      if (web) api.config.setUrl(url.value);
+      api.config.setToken(token.value);
+      status.textContent = 'Testando…';
+      try {
+        const r = await api.chamar('ping');
+        status.textContent = `Conectado. Servidor versão ${r.versao}.`;
+        ui.toast('Conexão funcionando.', 'ok');
+        sync.sincronizar({ forcar: true });
+      } catch (e) {
+        status.textContent = `Falhou: ${e.message}`;
+      }
+    };
+
+    ui.trocar(conexaoEl,
+      h('h2', { text: 'Conexão com a planilha' }),
+      h('form', { class: 'pilha', onsubmit: (e) => { e.preventDefault(); testar(); } },
+        web ? ui.campo('URL do servidor (Apps Script)', url, { ajuda: 'Link da implantação do Apps Script, terminado em /exec.' }) : null,
+        ui.campo('Código de acesso', token, { ajuda: 'Gerado pela função setup() do Apps Script.' }),
+        h('div', { class: 'barra-acoes' }, h('button', { type: 'submit', class: 'btn btn-primario' }, 'Salvar e testar')),
+        status));
+  }
+
+  async function renderSync() {
+    if (!syncEl) return;
+    const e = sync.estado;
+    const itens = await sync.listar();
+    ui.trocar(syncEl,
+      h('h2', { text: 'Sincronização' }),
+      h('p', null,
+        e.pendentes ? `${e.pendentes} registro(s) aguardando envio.` : 'Tudo enviado para a planilha.',
+        e.ultimoSucesso ? h('span', { class: 'sub', text: ` Último envio: ${U.fmtDataHora(e.ultimoSucesso)}.` }) : null),
+      e.erro ? h('p', { class: 'aviso aviso-erro', text: e.erro }) : null,
+      itens.length ? h('div', { class: 'lista' }, itens.slice(0, 50).map((i) => h('div', { class: 'item' },
+        h('div', { class: 'item-principal' },
+          h('strong', { text: NOMES_TIPO[i.tipo] || i.tipo }),
+          h('span', { class: 'item-sub', text: `Salvo em ${U.fmtDataHora(i.em)}` }),
+          i.erro ? h('span', { class: 'item-obs erro', text: `Erro: ${i.erro}` }) : null)))) : null,
+      h('div', { class: 'barra-acoes' },
+        h('button', {
+          class: 'btn btn-primario',
+          disabled: e.sincronizando,
+          onclick: () => sync.sincronizar({ forcar: true })
+        }, ui.icone('sync'), e.sincronizando ? 'Sincronizando…' : 'Sincronizar agora')));
+  }
+
+  function renderTema() {
+    if (!temaEl) return;
+    const atual = ui.tema.atual();
+    const opcao = (valor, rotulo, ic) => h('button', {
+      class: `seg-opcao${atual === valor ? ' ativo' : ''}`,
+      'aria-pressed': atual === valor ? 'true' : 'false',
+      onclick: () => {
+        U.pref.set('tema', valor);
+        ui.tema.aplicar(valor);
+      }
+    }, ui.icone(ic), rotulo);
+    ui.trocar(temaEl,
+      h('h2', { text: 'Aparência' }),
+      h('div', { class: 'seg', role: 'group', 'aria-label': 'Tema' }, opcao('claro', 'Claro', 'sol'), opcao('escuro', 'Escuro', 'lua')));
+  }
+
+  async function apagarDados() {
+    const pend = sync.estado.pendentes;
+    const texto = pend
+      ? `Atenção: ${pend} registro(s) ainda NÃO foram enviados à planilha e serão perdidos. Apagar mesmo assim?`
+      : 'Os dados já estão na planilha. Isso apaga apenas a cópia guardada neste aparelho.';
+    const ok = await ui.confirmar('Apagar dados do aparelho', texto, { ok: 'Apagar', perigo: true });
+    if (!ok) return;
+    await store.limparTudo();
+    ['rascunho:checklist', 'rascunho:anomalia', 'cicloAtivo', 'ultimoSync'].forEach((k) => U.pref.del(k));
+    ui.toast('Dados do aparelho apagados.', 'ok');
+    setTimeout(() => location.reload(), 800);
+  }
+
+  function aoMostrar() {
+    renderSync();
+  }
+
+  App.modulos = App.modulos || [];
+  App.modulos.push({ id: 'ajustes', titulo: 'Ajustes', icone: 'ajustes', montar, aoMostrar });
+})(window.App);
+
+</script>
+  <script>
+/* js/modulos/anomalia.js */
+/* Módulo 5 – Relatório de Anomalia (gaveta lateral) com mensagem para o WhatsApp. */
+'use strict';
+
+(function (App) {
+  const { U, ui, dados, sync } = App;
+  const { h } = ui;
+  const COLECAO = 'anomalias';
+  const RASCUNHO = 'rascunho:anomalia';
+
+  const CAMPOS = [
+    { id: 'acaoTomada', rotulo: 'Ação tomada', obrigatorio: true, lista: true },
+    { id: 'data', rotulo: 'Data', obrigatorio: true, tipo: 'date' },
+    { id: 'local', rotulo: 'Local', obrigatorio: true, lista: true },
+    { id: 'kmInicio', rotulo: 'KM início', km: true, placeholder: '000+000' },
+    { id: 'kmFim', rotulo: 'KM fim', km: true, placeholder: '000+000' },
+    { id: 'defeito', rotulo: 'Defeito', obrigatorio: true, lista: true },
+    { id: 'amplitude', rotulo: 'Amplitude', modo: 'decimal' },
+    { id: 'observacao', rotulo: 'Observação', area: true },
+    { id: 'elemento', rotulo: 'Elemento', lista: true },
+    { id: 'latitude', rotulo: 'Latitude', coord: true, placeholder: 'Ex.: -19.9312' },
+    { id: 'longitude', rotulo: 'Longitude', coord: true, placeholder: 'Ex.: -43.9401' }
+  ];
+
+  let gaveta;
+  let corpo;
+  let formEl;
+  let resultadoEl;
+  let historicoEl;
+  let f;
+  let lista = [];
+
+  const vazio = () => ({ ...Object.fromEntries(CAMPOS.map((c) => [c.id, ''])), data: U.hoje() });
+  const salvarRascunho = U.debounce(() => U.pref.set(RASCUNHO, f), 400);
+
+  /* ---------------- Mensagem ---------------- */
+
+  const linkMapa = (lat, lon) => (lat && lon ? `https://www.google.com/maps/search/?api=1&query=${lat},${lon}` : '');
+
+  /** Monta a mensagem no formato usado no WhatsApp. */
+  function mensagem(r) {
+    const v = (x) => {
+      const t = String(x ?? '').replace(/\*/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+      return t || '-';
+    };
+    const linhas = [
+      ['AÇÃO TOMADA', v(r.acaoTomada)],
+      ['DATA', U.fmtData(r.data) || '-'],
+      ['LOCAL', v(r.local)],
+      ['KM INÍCIO', v(r.kmInicio)],
+      ['KM FIM', v(r.kmFim)],
+      ['DEFEITO', v(r.defeito)],
+      ['AMPLITUDE', v(r.amplitude)],
+      ['OBSERVAÇÃO', v(r.observacao)],
+      ['ELEMENTO', v(r.elemento)],
+      ['LINK DO MAPA', r.linkMapa || linkMapa(r.latitude, r.longitude) || '-']
+    ];
+    return `*RELATÓRIO DE ANOMALIA*\n\n${linhas.map(([k, x]) => `*▪ ${k}:* ${x}`).join('\n\n')}`;
+  }
+
+  const linkWhatsApp = (texto) => `https://wa.me/?text=${encodeURIComponent(texto)}`;
+
+  function acoesMensagem(texto, { grande = false } = {}) {
+    return h('div', { class: 'linha-acoes' },
+      h('button', {
+        type: 'button',
+        class: `btn btn-secundario${grande ? '' : ' btn-pequeno'}`,
+        onclick: async () => ui.toast(await ui.copiar(texto) ? 'Mensagem copiada.' : 'Não foi possível copiar.', 'ok')
+      }, ui.icone('copiar'), 'Copiar'),
+      h('a', {
+        class: `btn btn-whats${grande ? '' : ' btn-pequeno'}`,
+        href: linkWhatsApp(texto),
+        target: '_blank',
+        rel: 'noopener'
+      }, ui.icone('enviar'), 'Enviar no WhatsApp'));
+  }
+
+  /* ---------------- Gaveta ---------------- */
+
+  function montar(raizGaveta) {
+    gaveta = raizGaveta;
+    corpo = gaveta.querySelector('.gaveta-corpo');
+    const rascunho = U.pref.get(RASCUNHO, null) || {};
+    const temConteudo = CAMPOS.some((c) => c.id !== 'data' && String(rascunho[c.id] || '').trim());
+    f = temConteudo ? { ...vazio(), ...rascunho } : vazio(); // rascunho vazio de outro dia volta para a data de hoje
+    formEl = h('form', { class: 'pilha', novalidate: true, onsubmit: (e) => { e.preventDefault(); salvar(); } });
+    resultadoEl = h('div');
+    historicoEl = h('div', { class: 'lista' });
+    corpo.append(formEl, resultadoEl, h('h3', { class: 'titulo-secao', text: 'Enviados recentemente' }), historicoEl);
+    renderForm();
+  }
+
+  function renderForm() {
+    const sugestoes = (campo) => U.maisFrequentes(lista.map((r) => r[campo]), 12);
+    const controles = CAMPOS.map((c) => {
+      const attrs = {
+        name: c.id,
+        value: f[c.id] || '',
+        placeholder: c.placeholder || null,
+        oninput: (e) => { f[c.id] = e.target.value; salvarRascunho(); }
+      };
+      let ctrl;
+      if (c.area) {
+        ctrl = h('textarea', { ...attrs, rows: 3, maxlength: 1000 });
+      } else if (c.tipo === 'date') {
+        ctrl = h('input', { ...attrs, type: 'date' });
+      } else {
+        ctrl = h('input', {
+          ...attrs,
+          type: 'text',
+          maxlength: 120,
+          autocapitalize: 'characters',
+          inputmode: c.km || c.coord ? 'tel' : (c.modo || null),
+          list: c.lista ? `dl-an-${c.id}` : null
+        });
+        if (c.km) {
+          ctrl.addEventListener('blur', () => {
+            f[c.id] = U.formatarKm(ctrl.value);
+            ctrl.value = f[c.id];
+            salvarRascunho();
+          });
+        }
+        if (c.id === 'latitude') ctrl.addEventListener('paste', colarCoordenadas);
+      }
+      return [
+        ui.campo(c.rotulo, ctrl, { obrigatorio: c.obrigatorio, classe: c.area ? 'campo-largo' : '' }),
+        c.lista ? h('datalist', { id: `dl-an-${c.id}` }, sugestoes(c.id).map((s) => h('option', { value: s }))) : null
+      ];
+    });
+
+    ui.trocar(formEl,
+      h('div', { class: 'grade-2' }, controles),
+      h('div', { class: 'barra-acoes' },
+        h('button', { type: 'button', class: 'btn btn-secundario', onclick: limpar }, 'Limpar'),
+        h('button', { type: 'submit', class: 'btn btn-primario' }, ui.icone('check'), 'Salvar e gerar mensagem')));
+  }
+
+  /** Permite colar "lat, long" de uma vez no campo de latitude. */
+  function colarCoordenadas(e) {
+    const texto = (e.clipboardData || window.clipboardData).getData('text');
+    const m = /^\s*(-?\d+(?:[.,]\d+)?)\s*[,;\s]\s*(-?\d+(?:[.,]\d+)?)\s*$/.exec(texto || '');
+    if (!m || !/[.]/.test(texto)) return; // "-19,93" sozinho é só uma latitude com vírgula
+    e.preventDefault();
+    f.latitude = m[1].replace(',', '.');
+    f.longitude = m[2].replace(',', '.');
+    formEl.querySelector('[name="latitude"]').value = f.latitude;
+    formEl.querySelector('[name="longitude"]').value = f.longitude;
+    salvarRascunho();
+  }
+
+  function validar() {
+    ui.limparErros(formEl);
+    const erros = [];
+    const campo = (id) => formEl.querySelector(`[name="${id}"]`);
+    CAMPOS.filter((c) => c.obrigatorio).forEach((c) => {
+      if (!String(f[c.id] || '').trim()) erros.push([c.id, `Informe ${c.rotulo.toLowerCase()}.`]);
+    });
+    if (f.data && !U.parseData(f.data)) erros.push(['data', 'Data inválida.']);
+    const lat = U.coordenada(f.latitude, 90);
+    const lon = U.coordenada(f.longitude, 180);
+    if (lat === null) erros.push(['latitude', 'Latitude inválida (entre -90 e 90).']);
+    if (lon === null) erros.push(['longitude', 'Longitude inválida (entre -180 e 180).']);
+    if (lat !== null && lon !== null && (!lat) !== (!lon)) erros.push([lat ? 'longitude' : 'latitude', 'Informe latitude e longitude juntas.']);
+    erros.forEach(([id, msg]) => ui.marcarErro(campo(id), msg));
+    if (erros.length) ui.rolarAte(campo(erros[0][0]));
+    return erros.length ? null : { lat, lon };
+  }
+
+  async function salvar() {
+    const coords = validar();
+    if (!coords) return;
+    const r = {
+      id: U.uuid(),
+      acaoTomada: f.acaoTomada.trim(),
+      data: f.data,
+      local: f.local.trim(),
+      kmInicio: U.formatarKm(f.kmInicio),
+      kmFim: U.formatarKm(f.kmFim),
+      defeito: f.defeito.trim(),
+      amplitude: String(f.amplitude || '').trim(),
+      observacao: String(f.observacao || '').trim(),
+      elemento: String(f.elemento || '').trim(),
+      latitude: coords.lat,
+      longitude: coords.lon,
+      linkMapa: linkMapa(coords.lat, coords.lon)
+    };
+    try {
+      await dados.salvar('anomalia', COLECAO, r);
+    } catch (e) {
+      ui.toast(`Não foi possível salvar: ${e.message}`, 'erro', 6000);
+      return;
+    }
+    U.pref.del(RASCUNHO);
+    const texto = mensagem(r);
+    ui.trocar(resultadoEl, h('div', { class: 'resultado' },
+      h('div', { class: 'resultado-cab' }, h('strong', { text: 'Relatório salvo. Mensagem pronta:' })),
+      h('pre', { class: 'mensagem', text: texto }),
+      acoesMensagem(texto, { grande: true }),
+      h('button', { type: 'button', class: 'btn btn-fantasma', onclick: novo }, ui.icone('plus'), 'Novo relatório')));
+    formEl.hidden = true;
+    await carregar();
+    resultadoEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function novo() {
+    f = vazio();
+    ui.limpar(resultadoEl);
+    formEl.hidden = false;
+    renderForm();
+    corpo.scrollTop = 0;
+  }
+
+  async function limpar() {
+    const ok = await ui.confirmar('Limpar relatório', 'Apagar os campos preenchidos?', { ok: 'Limpar', perigo: true });
+    if (!ok) return;
+    U.pref.del(RASCUNHO);
+    novo();
+  }
+
+  async function carregar() {
+    let pendentes;
+    [lista, pendentes] = await Promise.all([dados.listar(COLECAO), sync.pendentesDoTipo('anomalia')]);
+    ui.trocar(historicoEl, lista.length ? lista.slice(0, 10).map((r) => h('div', { class: 'item item-coluna' },
+      h('div', { class: 'item-principal' },
+        h('strong', { text: `${U.fmtData(r.data)} · ${r.local || '-'}` }),
+        h('span', { class: 'item-sub', text: [r.defeito, r.acaoTomada].filter(Boolean).join(' · ') }),
+        pendentes.has(r.id) ? h('span', { class: 'etiqueta etiqueta-pendente', text: 'Não enviado à planilha' }) : null),
+      acoesMensagem(mensagem(r)))) : h('p', { class: 'vazio', text: 'Nenhum relatório ainda.' }));
+    if (!formEl.hidden) atualizarSugestoes();
+  }
+
+  function atualizarSugestoes() {
+    CAMPOS.filter((c) => c.lista).forEach((c) => {
+      const dl = formEl.querySelector(`#dl-an-${c.id}`);
+      if (dl) ui.trocar(dl, U.maisFrequentes(lista.map((r) => r[c.id]), 12).map((s) => h('option', { value: s })));
+    });
+  }
+
+  async function aoAbrir() {
+    if (!f.data) f.data = U.hoje();
+    await carregar();
+    try {
+      await dados.atualizarDoServidor('anomalia', COLECAO);
+      await carregar();
+    } catch (e) { /* sem conexão */ }
+  }
+
+  document.addEventListener('em80:sincronizado', () => { if (historicoEl) carregar(); });
+
+  App.anomalia = { montar, aoAbrir, mensagem };
+})(window.App);
+
+</script>
+  <script>
+/* js/app.js */
+/* Estrutura do app: cabeçalho, navegação entre telas, gaveta de anomalia e inicialização. */
+'use strict';
+
+(function (App) {
+  const { U, ui, api, sync } = App;
+  const { h } = ui;
+
+  const telas = new Map(); // id -> { modulo, el, montado }
+  let navEl;
+  let badgeEl;
+  let temaBtn;
+  let gaveta;
+  let gavetaFundo;
+  let puxador;
+  let gavetaMontada = false;
+  let atual = null;
+
+  function cabecalho() {
+    badgeEl = h('button', { class: 'sync-badge', onclick: () => ir('ajustes') });
+    temaBtn = h('button', {
+      class: 'btn-icone btn-cab',
+      onclick: () => ui.tema.alternar()
+    });
+    atualizarBotaoTema();
+    return h('header', { class: 'cab' },
+      h('div', { class: 'cab-marca' },
+        h('img', { class: 'cab-foto', src: 'data:image/jpeg;base64,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', alt: 'Carro controle EM80', width: 112, height: 72 }),
+        h('div', { class: 'cab-titulos' },
+          h('span', { class: 'cab-titulo', text: 'Carro Controle EM80' }),
+          h('span', { class: 'cab-sub', text: 'Centro de Monitoramento de Ativos' })),
+        h('div', { class: 'cab-logo', 'aria-hidden': 'true' })),
+      h('div', { class: 'cab-acoes' }, badgeEl, temaBtn));
+  }
+
+  function atualizarBotaoTema() {
+    const escuro = ui.tema.atual() === 'escuro';
+    ui.trocar(temaBtn, ui.icone(escuro ? 'sol' : 'lua'));
+    temaBtn.setAttribute('aria-label', escuro ? 'Mudar para tema claro' : 'Mudar para tema escuro');
+    temaBtn.title = escuro ? 'Tema claro' : 'Tema escuro';
+  }
+
+  function atualizarBadge(e) {
+    let icone = 'nuvem';
+    let num = '';
+    let texto = 'Enviado';
+    let classe = 'ok';
+    if (e.sincronizando) {
+      icone = 'sync'; texto = 'Enviando…'; classe = 'girando';
+    } else if (e.pendentes) {
+      icone = e.erro || e.comErro ? 'semNuvem' : 'nuvem';
+      num = String(e.pendentes);
+      texto = ` pendente${e.pendentes > 1 ? 's' : ''}`;
+      classe = e.erro || e.comErro ? 'erro' : 'pendente';
+    }
+    badgeEl.className = `sync-badge ${classe}`;
+    const descricao = e.pendentes ? `${e.pendentes} registro(s) aguardando envio` : 'Tudo enviado';
+    badgeEl.title = e.erro ? `Sincronização: ${e.erro}` : descricao;
+    badgeEl.setAttribute('aria-label', `${descricao}. Abrir sincronização.`);
+    ui.trocar(badgeEl, ui.icone(icone), num ? h('span', { class: 'b-num', text: num }) : null, h('span', { class: 'b-txt', text: texto }));
+  }
+
+  /* ---------------- Navegação ---------------- */
+
+  function ir(id) {
+    const t = telas.get(id);
+    if (!t) return;
+    if (!t.montado) {
+      t.modulo.montar(t.el);
+      t.montado = true;
+    }
+    telas.forEach((x, k) => { x.el.hidden = k !== id; });
+    navEl.querySelectorAll('button').forEach((b) => {
+      if (b.dataset.id === id) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
+    });
+    if (atual !== id) window.scrollTo(0, 0);
+    atual = id;
+    U.pref.set('aba', id);
+    Promise.resolve(t.modulo.aoMostrar && t.modulo.aoMostrar()).catch((e) => console.error(e));
+  }
+
+  /* ---------------- Gaveta de anomalia ---------------- */
+
+  function criarGaveta() {
+    gavetaFundo = h('div', { class: 'gaveta-fundo', hidden: true, onclick: fecharGaveta });
+    gaveta = h('aside', { class: 'gaveta', 'aria-label': 'Relatório de anomalia', 'aria-hidden': 'true', inert: true },
+      h('div', { class: 'gaveta-cab' },
+        h('h2', { text: 'Relatório de Anomalia' }),
+        h('button', { class: 'btn-icone', 'aria-label': 'Fechar', onclick: fecharGaveta }, ui.icone('x'))),
+      h('div', { class: 'gaveta-corpo' }));
+    puxador = h('button', { class: 'puxador', onclick: abrirGaveta, 'aria-label': 'Abrir relatório de anomalia' },
+      ui.icone('alerta'), h('span', { text: 'Anomalia' }));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && gaveta.classList.contains('aberta') && !document.querySelector('.modal-fundo')) fecharGaveta();
+    });
+    return [gavetaFundo, gaveta, puxador];
+  }
+
+  function abrirGaveta() {
+    if (!gavetaMontada) {
+      App.anomalia.montar(gaveta);
+      gavetaMontada = true;
+    }
+    gaveta.classList.add('aberta');
+    gaveta.removeAttribute('aria-hidden');
+    gaveta.inert = false;
+    gavetaFundo.hidden = false;
+    puxador.hidden = true;
+    document.body.classList.add('sem-rolagem');
+    App.anomalia.aoAbrir();
+    setTimeout(() => {
+      const primeiro = gaveta.querySelector('input:not([type=hidden]), textarea');
+      if (primeiro && window.matchMedia('(min-width: 900px)').matches) primeiro.focus();
+    }, 250);
+  }
+
+  function fecharGaveta() {
+    gaveta.classList.remove('aberta');
+    gaveta.setAttribute('aria-hidden', 'true');
+    gaveta.inert = true;
+    gavetaFundo.hidden = true;
+    puxador.hidden = false;
+    document.body.classList.remove('sem-rolagem');
+    puxador.focus();
+  }
+
+  /* ---------------- Código de acesso ---------------- */
+
+  let pedindoCodigo = false;
+  let adiado = false; // "Depois": não pergunta de novo nesta sessão (dá para informar em Ajustes)
+  function pedirCodigo() {
+    if (pedindoCodigo || adiado) return;
+    pedindoCodigo = true;
+    const input = h('input', { type: 'text', autocapitalize: 'characters', autocomplete: 'off', value: api.config.token() });
+    ui.modal({
+      titulo: 'Código de acesso',
+      conteudo: h('div', { class: 'pilha' },
+        h('p', { text: 'Informe o código de acesso gerado na instalação (função setup do Apps Script).' }),
+        ui.campo('Código', input)),
+      acoes: [
+        { texto: 'Depois', classe: 'btn-secundario', onClick: (f) => { adiado = true; f(); } },
+        {
+          texto: 'Salvar',
+          classe: 'btn-primario',
+          onClick: (f) => {
+            api.config.setToken(input.value);
+            f();
+            sync.sincronizar({ forcar: true });
+          }
+        }
+      ],
+      aoFechar: () => { setTimeout(() => { pedindoCodigo = false; }, 3000); }
+    });
+  }
+
+  /* ---------------- Inicialização ---------------- */
+
+  function registrarServiceWorker() {
+    if (api.modo() !== 'web' || !('serviceWorker' in navigator)) return;
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') return;
+    navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker não registrado:', e));
+  }
+
+  function iniciar() {
+    ui.tema.aplicar(ui.tema.atual());
+    const raiz = document.getElementById('app');
+    const principal = h('main', { class: 'principal', id: 'conteudo' });
+    navEl = h('nav', { class: 'nav', 'aria-label': 'Telas' });
+
+    App.modulos.forEach((m) => {
+      const el = h('section', { class: 'tela', hidden: true, 'aria-label': m.titulo });
+      principal.appendChild(el);
+      telas.set(m.id, { modulo: m, el, montado: false });
+      navEl.appendChild(h('button', { dataset: { id: m.id }, onclick: () => ir(m.id) },
+        ui.icone(m.icone), h('span', { text: m.titulo })));
+    });
+
+    ui.trocar(raiz, cabecalho(), navEl, principal, criarGaveta());
+
+    document.addEventListener('em80:sync', (e) => atualizarBadge(e.detail));
+    document.addEventListener('em80:tema', atualizarBotaoTema);
+    document.addEventListener('em80:auth', pedirCodigo);
+    atualizarBadge(sync.estado);
+
+    const inicial = !api.configurado() ? 'ajustes' : U.pref.get('aba', 'checklist');
+    ir(telas.has(inicial) ? inicial : 'checklist');
+    if (!api.configurado()) ui.toast('Configure a conexão com a planilha para enviar os dados.', 'info', 6000);
+
+    sync.iniciar();
+    registrarServiceWorker();
+  }
+
+  window.addEventListener('error', (e) => {
+    console.error(e.error || e.message);
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    console.error(e.reason);
+  });
+
+  App.iniciar = iniciar;
+  App.ir = ir;
+  iniciar();
+})(window.App);
+
+</script>
+</body>
+</html>

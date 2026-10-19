@@ -1,0 +1,12 @@
+{
+  "name": "app-carro-controle-em80",
+  "version": "1.0.0",
+  "private": true,
+  "description": "App do Carro Controle EM80 (Google Apps Script + PWA)",
+  "type": "module",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "test": "TZ=America/Sao_Paulo node --test tests/*.test.mjs",
+    "test:e2e": "TZ=America/Sao_Paulo node tests/e2e.mjs"
+  }
+}

@@ -3,7 +3,7 @@
 Documento de referência do projeto. Reúne tudo o que foi definido antes do início do desenvolvimento.
 
 - **Responsável:** Romário Costa – CMA (Centro de Monitoramento de Ativos)
-- **Última atualização:** 18/10/2026
+- **Última atualização:** 18/10/2026 (versão 1.0.0 desenvolvida)
 
 ---
 
@@ -248,3 +248,16 @@ Gaveta lateral com puxador, acessível de qualquer tela. Ao salvar, grava o regi
 | Definições do Dashboard (indicadores, CSV de exemplo, acesso ao BigQuery) | Fase futura |
 | Identificação de operador | Fase futura |
 | Fotos e GPS no Relatório de Anomalia | Fase futura |
+
+---
+
+## 10. Decisões de implementação (versão 1.0.0)
+
+- **Perguntas com sentido positivo:** em "O M1 salvou os dados conforme esperado?" e "Os dispositivos de conexão funcionaram corretamente?", o problema é a resposta **Não**. Nessas duas, a descrição é pedida no "Não"; nas demais, no "Sim". A planilha registra a resposta e uma coluna "Problema?".
+- **Dois modos com o mesmo código:** o app abre pelo link do Apps Script (mais simples) ou como site PWA. Páginas do Apps Script não podem abrir sem internet; o PWA abre mesmo sem sinal. Nos dois casos, os registros são salvos no aparelho e enviados depois.
+- **Código de acesso:** a API só aceita pedidos com o código gerado pela função `setup()`.
+- **Sugestões:** os campos de texto livre (parte do equipamento, ação tomada, local, defeito, elemento) sugerem os valores já usados, sem limitar o que pode ser digitado.
+- **Mensagem do WhatsApp:** os valores saem em maiúsculas, como no app atual. Campos vazios aparecem como "-". O link do mapa só é gerado com latitude e longitude preenchidas (aceita vírgula ou ponto; colar "lat, long" no campo de latitude preenche os dois).
+- **KM:** formatado automaticamente no padrão 000+000 (ex.: "109440" vira "109+440").
+- **OMs:** a trava de 0,7 s evita que um toque duplo acidental desfaça a marcação. Uma reimportação do mesmo ciclo substitui as OMs, mas mantém as realizações já lançadas.
+- **Rascunhos:** checklist e relatório de anomalia em preenchimento ficam salvos no aparelho até serem enviados ou limpos.
