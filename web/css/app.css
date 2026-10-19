@@ -356,8 +356,13 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .faixa-curva { fill: var(--serie-real); opacity: .08; }
 .faixa-fora { fill: var(--texto3); opacity: .10; }
 .graf-serie.s3 { stroke: var(--serie-3); }
+.graf-fino .graf-serie { stroke-width: .8; }
+.graf-envelope { stroke: none; opacity: .22; }
+.graf-envelope.s1 { fill: var(--serie-real); }
+.graf-envelope.s2 { fill: var(--serie-2); }
+.graf-envelope.s3 { fill: var(--serie-3); }
 .leg-chave.s3 { background: var(--serie-3); }
-.graf-cursor { stroke: var(--sup); stroke-width: 1.5; }
+.graf-cursor { stroke: var(--sup); stroke-width: 1; }
 .graf-cursor.s1 { fill: var(--serie-real); }
 .graf-cursor.s2 { fill: var(--serie-2); }
 .graf-cursor.s3 { fill: var(--serie-3); }
@@ -381,6 +386,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .el-tangente { background: var(--sup2); color: var(--texto); border: 1px solid var(--borda); }
 .el-curva { background: color-mix(in srgb, var(--serie-real) 15%, transparent); color: var(--texto); }
 .barra-pct { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.tabela-centro th, .tabela-centro td, .tabela-centro td.num { text-align: center; }
+.tabela-centro .barra-pct { justify-content: center; }
+.laudo-tabela.centro th, .laudo-tabela.centro td { text-align: center; }
+.bitolas-sel { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip-sel { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--borda); border-radius: 999px; font-size: .8rem; cursor: pointer; user-select: none; background: var(--sup); }
+.chip-sel input { margin: 0; }
 .barra-pct-fundo { width: 54px; height: 6px; border-radius: 3px; background: var(--grade); overflow: hidden; }
 .barra-pct-fundo span { display: block; height: 100%; background: var(--serie-real); }
 

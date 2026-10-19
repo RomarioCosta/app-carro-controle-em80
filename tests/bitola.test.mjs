@@ -86,16 +86,16 @@ test('índice mais próximo em posições decrescentes', () => {
 });
 
 /* ---------------- Planta da linha (dados inventados) ---------------- */
-// Coordenadas da planta = posição do arquivo + 30 m. Lacuna (sem elemento) entre 1+730 e 1+760.
+// Coordenadas da planta = posição do arquivo + 30 m. RH (pátio, sem elemento) entre 1+730 e 1+760.
 function plantaSintetica() {
   return [
     ['PLANTA DA LINHA — TESTE'],
     ['Ramal', 'Linha', 'Eh', 'C/T', 'Lado curva', 'Nº Elemento Eh', 'Quilometragem', '', 'Raio', 'Superelevação'],
     ['', '', '', '', '', '', 'Inicial', 'Final', '', ''],
-    ['TST', 1, 11, 'C', 'E', 1, 1.530, 1.730, 667, 80],
-    ['TST', 1, 10, 'T', '', 2, 1.760, 2.030, '', ''],
-    ['TST', 1, 10, 'C', 'D', 1, 2.030, 2.230, 500, 100],
-    ['TST', 1, 10, 'T', '', 1, 2.230, 2.531, '', ''],
+    ['TST', 1, 10, 'C', 'E', 1, 1.530, 1.730, 667, 80],
+    ['TST', 1, 11, 'T', '', 1, 1.760, 2.030, '', ''],
+    ['TST', 1, 11, 'C', 'D', 1, 2.030, 2.230, 500, 100],
+    ['TST', 1, 11, 'T', '', 2, 2.230, 2.531, '', ''],
     ['TST', 2, 10, 'T', '', 1, 2.000, 3.000, '', ''],
     ['LT', 1, 50, 'T', '', 1, 'x', 1, '', ''] // km inválido: ignorada com aviso
   ];
@@ -111,7 +111,7 @@ test('lê a planta: cabeçalho em duas linhas, km em metros, ramais e linhas', (
   assert.equal(c.fim, 1730);
   assert.equal(c.tipo, 'C');
   assert.equal(c.lado, 'E');
-  assert.equal(c.eh, '11');
+  assert.equal(c.eh, '10');
   assert.equal(c.raio, 667);
   assert.equal(B.ramalDaPlanta('RTST', p.ramais), 'TST');
   assert.equal(B.elementosDaPlanta(p, 'TST', 1).length, 4);
@@ -129,19 +129,33 @@ test('ajuste automático do km encontra o deslocamento da planta', () => {
   assert.ok(r.acerto > 95, `acerto = ${r.acerto}`);
 });
 
-test('elementos pela planta: EH, siglas e lacuna nomeada', () => {
+test('elementos pela planta: trechos EH x/y, RH entre eles e linha', () => {
   const a = B.lerCSV(gerarCSV());
   const els = B.elementosDaPlanta(B.lerPlanta(plantaSintetica()), 'TST', '1');
   const r = B.analisar(a, { modo: 'planta', elementosPlanta: els, ajusteKm: 30 });
   assert.equal(r.modo, 'planta');
-  assert.deepEqual(j(r.elementos.map((e) => e.sigla)), ['T01', 'C01', 'T02', '—', 'C01']);
-  assert.equal(r.elementos[1].nome, 'EH 10 · Curva 01');
-  assert.equal(r.elementos[3].nome, 'Entre EH 10 e EH 11');
+  assert.deepEqual(j(r.elementos.map((e) => e.sigla)), ['T02', 'C01', 'T01', 'RH', 'C01']);
+  assert.deepEqual(j(r.elementos.map((e) => e.eh)), ['EH 11/12', 'EH 11/12', 'EH 11/12', 'RH-11', 'EH 10/11']);
+  assert.equal(r.elementos[1].nome, 'EH 11/12 · Curva 01');
+  assert.equal(r.elementos[0].linha, '1');
   assert.ok(Math.abs(r.elementos[3].extensao - 30) <= 0.5);
-  assert.deepEqual(j(r.porEh.map((g) => [g.eh, g.tangentes, g.curvas])), [['10', 2, 1], ['11', 0, 1]]);
-  // A perda (50 m dentro da T02) fica toda na T02.
+  assert.deepEqual(j(r.porEh.map((g) => [g.eh, g.tangentes, g.curvas])), [['EH 11/12', 2, 1], ['RH-11', 0, 0], ['EH 10/11', 0, 1]]);
+  // A perda (50 m dentro da tangente do meio) fica toda nela.
   assert.equal(r.elementos[2].perdas, 200);
   assert.equal(r.elementos[0].perdas + r.elementos[1].perdas + r.elementos[4].perdas, 0);
+  assert.equal(r.porEh[0].perdas, 200);
+});
+
+test('nomes dos trechos: EH com o próximo da planta e RH pelo EH acima', () => {
+  const els = [
+    { eh: '38', ini: 0, fim: 100 }, { eh: '40', ini: 360, fim: 500 }, { eh: '41', ini: 760, fim: 900 }
+  ];
+  const n = B.nomesTrechos(els);
+  assert.equal(n.eh('38'), 'EH 38/40');
+  assert.equal(n.eh('41'), 'EH 41/42');
+  assert.equal(n.rh(200), 'RH-40');
+  assert.equal(n.rh(600), 'RH-41');
+  assert.equal(n.rh(1000), 'RH-42');
 });
 
 test('desvio padrão em 1 m marca a variação rápida', () => {
