@@ -28,7 +28,7 @@
       conexaoEl, syncEl, temaEl,
       h('section', { class: 'cartao' },
         h('h2', { text: 'Sobre' }),
-        h('p', { class: 'sub', text: `App Carro Controle EM80 · versão ${config.versao} · modo ${api.modo() === 'appsscript' ? 'Apps Script' : 'site (PWA)'}` }),
+        h('p', { class: 'sub', text: `App Carro Controle EM80 · versão ${config.versao} (${config.build}) · modo ${api.modo() === 'appsscript' ? 'Apps Script' : 'site (PWA)'}` }),
         h('button', { class: 'btn btn-perigo', onclick: apagarDados }, ui.icone('lixo'), 'Apagar dados deste aparelho')));
     renderConexao();
     renderTema();

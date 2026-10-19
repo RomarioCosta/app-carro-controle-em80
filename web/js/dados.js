@@ -38,7 +38,9 @@
     const resultado = await store.atualizar(colecao, async (atual) => {
       const pendentes = await sync.pendentesDoTipo(tipo);
       const mapa = new Map();
-      (doServidor || []).forEach((r) => mapa.set(r.id, r));
+      const locais = new Map((atual || []).map((r) => [r.id, r]));
+      // Mescla com a cópia local: campos que o servidor não devolve (ex.: respostas do checklist) são mantidos.
+      (doServidor || []).forEach((r) => mapa.set(r.id, { ...(locais.get(r.id) || {}), ...r }));
       (atual || []).forEach((r) => {
         if (!mapa.has(r.id) && String(r.atualizadoEm || '') >= inicio) mapa.set(r.id, r);
       });

@@ -97,6 +97,7 @@ Posição = `KM × 1000 + LOCALIZACAO` (metros). Tudo é calculado no aparelho; 
 - **Tabela de elementos:** início, fim, extensão, raio médio, % perda, maior F − T, OGMS − KLD médio, maior alinhamento e eventos do trecho.
 - **Ranking de nivelamento:** 10 maiores valores (em módulo) de NLmax_5, NLmax_20, EMP_2/10/20, Warp, SUPerABS e VrBTmax5; picos a menos de 10 m contam como um só.
 - Os limites (curva, perda, suavização e comprimento mínimo) podem ser ajustados em "Critérios da análise".
+- **Laudo em PDF (aceite):** botão "Gerar laudo (PDF)". Pede responsável, resultado (Aprovado / Aprovado com ressalvas / Reprovado), parecer e o checklist a incluir. O laudo traz identificação, resultado, indicadores, critérios, os 6 gráficos, a tabela de elementos, o ranking de nivelamento (5 maiores por parâmetro), o checklist com respostas e amostras e o campo de assinaturas (responsável, aceite e data). É gerado pela impressão do navegador ("Salvar como PDF"), funciona sem internet. Checklist feito em outro aparelho é buscado na planilha (ação `getChecklist`).
 
 ## 4. Módulo 2 – Registro de Eventos
 

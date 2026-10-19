@@ -14,7 +14,7 @@
  * Primeira instalação: execute a função setup() uma vez pelo editor.
  */
 
-var APP_VERSAO = '1.0.0';
+var APP_VERSAO = '1.1.0';
 var TZ = 'America/Sao_Paulo';
 
 /* ------------------------------------------------------------------ */
@@ -269,7 +269,8 @@ var ACOES = {
   getCiclos: { escrita: false, fn: acaoGetCiclos_ },
   getOMs: { escrita: false, fn: acaoGetOMs_ },
   importarOMs: { escrita: true, fn: acaoImportarOMs_ },
-  getRecentes: { escrita: false, fn: acaoGetRecentes_ }
+  getRecentes: { escrita: false, fn: acaoGetRecentes_ },
+  getChecklist: { escrita: false, fn: acaoGetChecklist_ }
 };
 
 function executar_(acao, dados) {
@@ -453,6 +454,17 @@ function acaoGetRecentes_(dados) {
   return new Tabela_(nome).todos()
     .sort(function (a, b) { return String(b.criadoEm).localeCompare(String(a.criadoEm)); })
     .slice(0, limite);
+}
+
+/** Checklist completo (cabeçalho, respostas e amostras), usado no laudo. */
+function acaoGetChecklist_(dados) {
+  var id = String(dados.id || '');
+  if (!id) throw erro_('VALIDACAO', 'Informe o checklist.');
+  var cab = new Tabela_('Checklists').todos().filter(function (c) { return c.id === id; })[0];
+  if (!cab) throw erro_('VALIDACAO', 'Checklist não encontrado na planilha.');
+  cab.respostas = new Tabela_('Checklist_Respostas').todos().filter(function (r) { return r.checklistId === id; });
+  cab.amostras = new Tabela_('Checklist_Amostras').todos().filter(function (a) { return a.checklistId === id; });
+  return cab;
 }
 
 /* ------------------------------------------------------------------ */

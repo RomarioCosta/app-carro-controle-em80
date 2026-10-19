@@ -445,6 +445,61 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
   .toasts { bottom: 24px; }
 }
 
+/* ---------- Laudo em PDF (impressão) ---------- */
+#laudo { position: absolute; left: -12000px; top: 0; width: 960px; }
+.laudo {
+  background: #fff; color: #1b2329; font: 11px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.laudo h1 { font-size: 18px; margin: 0; }
+.laudo h2 { font-size: 13px; margin: 14px 0 6px; padding-bottom: 3px; border-bottom: 2px solid #f2c200; }
+.laudo h3 { font-size: 11px; margin: 6px 0 2px; color: #4f5d67; }
+.laudo p { margin: 0; }
+.laudo-cab { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #33434e; }
+.laudo-cab p { color: #4f5d67; }
+.laudo-foto { width: 96px; height: 60px; object-fit: cover; border-radius: 4px; }
+.laudo-emissao { margin-left: auto; display: flex; flex-direction: column; text-align: right; color: #4f5d67; }
+.laudo-emissao strong { color: #1b2329; }
+.laudo-tabela { width: 100%; border-collapse: collapse; font-size: 10px; font-variant-numeric: tabular-nums; }
+.laudo-tabela th, .laudo-tabela td { border: 1px solid #d6dce1; padding: 3px 6px; text-align: left; vertical-align: top; }
+.laudo-tabela th { background: #eef1f4; font-weight: 700; }
+.laudo-tabela tr { break-inside: avoid; }
+.laudo-tabela + .laudo-tabela { margin-top: 8px; }
+.laudo-id td:first-child { width: 150px; font-weight: 600; color: #4f5d67; }
+.laudo-id thead { display: none; }
+.laudo-resultado { margin-top: 12px; padding: 8px 12px; border: 2px solid #8e99a2; border-radius: 6px; break-inside: avoid; }
+.laudo-resultado div { display: flex; gap: 10px; align-items: baseline; }
+.laudo-resultado span { color: #4f5d67; font-weight: 600; text-transform: uppercase; font-size: 10px; }
+.laudo-resultado strong { font-size: 16px; }
+.laudo-resultado p { margin-top: 4px; white-space: pre-wrap; }
+.laudo-res-0 { border-color: #1d7f46; background: #e2f3e8; }
+.laudo-res-1 { border-color: #9a5800; background: #fcefd9; }
+.laudo-res-2 { border-color: #c0392b; background: #fbe6e3; }
+.laudo-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.laudo-kpi { display: flex; flex-direction: column; padding: 6px 8px; border: 1px solid #d6dce1; border-radius: 6px; }
+.laudo-kpi span { font-size: 9.5px; font-weight: 700; text-transform: uppercase; color: #4f5d67; }
+.laudo-kpi strong { font-size: 18px; }
+.laudo-kpi small { color: #4f5d67; }
+.laudo-nota { margin-top: 6px !important; font-size: 9.5px; color: #4f5d67; }
+.laudo-grafico { break-inside: avoid; margin-bottom: 4px; }
+.laudo-grafico .graf { width: 100% !important; height: auto !important; }
+.laudo-ranking { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.laudo-rank { break-inside: avoid; }
+.laudo-problema { color: #c0392b; font-weight: 700; }
+.laudo-assinaturas { break-inside: avoid; }
+.laudo-ass { display: grid; grid-template-columns: 1.3fr 1.3fr 0.8fr; gap: 28px; margin-top: 40px; }
+.laudo-ass > div { display: flex; flex-direction: column; gap: 2px; }
+.laudo-ass span { color: #4f5d67; font-size: 9.5px; }
+.laudo-linha { border-top: 1px solid #1b2329; margin-bottom: 4px; }
+.laudo-rodape { margin-top: 18px; text-align: center; font-size: 9px; color: #6f7c86; }
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  html, body { background: #fff !important; }
+  body > *:not(#laudo) { display: none !important; }
+  #laudo { position: static; width: auto; left: auto; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
