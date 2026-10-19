@@ -85,7 +85,6 @@ async function main() {
     /* ============ Celular, modo site (PWA) ============ */
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' });
     await ctx.route('https://cdnjs.cloudflare.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: xlsxFalso }));
-    await ctx.route('https://wa.me/**', (r) => r.fulfill({ status: 200, body: 'whatsapp' }));
     const page = await ctx.newPage();
     vigiarErros(page, erros);
 
@@ -344,13 +343,18 @@ async function main() {
         '*▪ LINK DO MAPA:* https://www.google.com/maps/search/?api=1&query=-19.9312,-43.9401'
       ].join('\n');
       assert.equal(msg, esperado);
-      const href = await g.locator('.resultado a.btn-whats').getAttribute('href');
-      assert.equal(decodeURIComponent(href.replace('https://wa.me/?text=', '')), esperado);
+      assert.equal(await g.getByRole('link', { name: /WhatsApp/ }).count(), 0);
+      assert.equal(await g.getByRole('button', { name: 'Copiar mensagem' }).count(), 1);
+      // formulário já limpo para o próximo defeito (data de hoje mantida)
+      assert.equal(await g.locator('[name="local"]').inputValue(), '');
+      assert.equal(await g.locator('[name="defeito"]').inputValue(), '');
+      assert.equal(await g.locator('[name="latitude"]').inputValue(), '');
+      assert.equal(await g.locator('[name="data"]').inputValue(), isoLocal(hoje));
       await page.screenshot({ path: `${SAIDA}07-anomalia-mensagem.png` });
       const p = await aguardar(async () => { const x = await planilha(); return x.Anomalias.length === 1 && x; }, 'anomalia na planilha');
       assert.equal(p.Anomalias[0]['KM início'], '000+300');
-      await g.getByRole('button', { name: 'Novo relatório' }).click();
-      assert.equal(await g.locator('[name="local"]').inputValue(), '');
+      await g.getByRole('button', { name: 'Ocultar mensagem' }).click();
+      assert.equal(await g.locator('pre.mensagem').count(), 0);
       await g.getByRole('button', { name: 'Fechar' }).click();
       await page.getByRole('button', { name: 'Abrir relatório de anomalia' }).waitFor();
     });

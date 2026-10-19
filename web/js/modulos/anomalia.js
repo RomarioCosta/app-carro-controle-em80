@@ -57,21 +57,16 @@
     return `*RELATÓRIO DE ANOMALIA*\n\n${linhas.map(([k, x]) => `*▪ ${k}:* ${x}`).join('\n\n')}`;
   }
 
-  const linkWhatsApp = (texto) => `https://wa.me/?text=${encodeURIComponent(texto)}`;
-
   function acoesMensagem(texto, { grande = false } = {}) {
     return h('div', { class: 'linha-acoes' },
       h('button', {
         type: 'button',
-        class: `btn btn-secundario${grande ? '' : ' btn-pequeno'}`,
-        onclick: async () => ui.toast(await ui.copiar(texto) ? 'Mensagem copiada.' : 'Não foi possível copiar.', 'ok')
-      }, ui.icone('copiar'), 'Copiar'),
-      h('a', {
-        class: `btn btn-whats${grande ? '' : ' btn-pequeno'}`,
-        href: linkWhatsApp(texto),
-        target: '_blank',
-        rel: 'noopener'
-      }, ui.icone('enviar'), 'Enviar no WhatsApp'));
+        class: `btn ${grande ? 'btn-primario' : 'btn-secundario btn-pequeno'}`,
+        onclick: async () => {
+          const ok = await ui.copiar(texto);
+          ui.toast(ok ? 'Mensagem copiada. Cole no WhatsApp.' : 'Não foi possível copiar.', ok ? 'ok' : 'erro');
+        }
+      }, ui.icone('copiar'), grande ? 'Copiar mensagem' : 'Copiar'));
   }
 
   /* ---------------- Gaveta ---------------- */
@@ -85,7 +80,7 @@
     formEl = h('form', { class: 'pilha', novalidate: true, onsubmit: (e) => { e.preventDefault(); salvar(); } });
     resultadoEl = h('div');
     historicoEl = h('div', { class: 'lista' });
-    corpo.append(formEl, resultadoEl, h('h3', { class: 'titulo-secao', text: 'Enviados recentemente' }), historicoEl);
+    corpo.append(resultadoEl, formEl, h('h3', { class: 'titulo-secao', text: 'Enviados recentemente' }), historicoEl);
     renderForm();
   }
 
@@ -191,20 +186,22 @@
     }
     U.pref.del(RASCUNHO);
     const texto = mensagem(r);
+    // Mostra a mensagem pronta no topo e já deixa o formulário limpo para o próximo defeito.
     ui.trocar(resultadoEl, h('div', { class: 'resultado' },
-      h('div', { class: 'resultado-cab' }, h('strong', { text: 'Relatório salvo. Mensagem pronta:' })),
+      h('div', { class: 'resultado-cab' },
+        h('strong', { text: 'Relatório salvo. Mensagem pronta:' }),
+        h('button', { type: 'button', class: 'btn-icone', 'aria-label': 'Ocultar mensagem', onclick: () => ui.limpar(resultadoEl) }, ui.icone('x'))),
       h('pre', { class: 'mensagem', text: texto }),
-      acoesMensagem(texto, { grande: true }),
-      h('button', { type: 'button', class: 'btn btn-fantasma', onclick: novo }, ui.icone('plus'), 'Novo relatório')));
-    formEl.hidden = true;
+      acoesMensagem(texto, { grande: true })));
+    f = vazio();
+    renderForm();
     await carregar();
-    resultadoEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    corpo.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function novo() {
     f = vazio();
     ui.limpar(resultadoEl);
-    formEl.hidden = false;
     renderForm();
     corpo.scrollTop = 0;
   }
@@ -225,7 +222,7 @@
         h('span', { class: 'item-sub', text: [r.defeito, r.acaoTomada].filter(Boolean).join(' · ') }),
         pendentes.has(r.id) ? h('span', { class: 'etiqueta etiqueta-pendente', text: 'Não enviado à planilha' }) : null),
       acoesMensagem(mensagem(r)))) : h('p', { class: 'vazio', text: 'Nenhum relatório ainda.' }));
-    if (!formEl.hidden) atualizarSugestoes();
+    atualizarSugestoes();
   }
 
   function atualizarSugestoes() {
