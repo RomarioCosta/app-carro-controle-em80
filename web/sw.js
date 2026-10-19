@@ -5,7 +5,7 @@
  */
 'use strict';
 
-const VERSAO = 'em80-c401a01c97';
+const VERSAO = 'em80-98db776ce0';
 const ARQUIVOS = [
   './',
   'index.html',
@@ -65,7 +65,8 @@ self.addEventListener('fetch', (e) => {
       }
     };
     const timer = setTimeout(() => doCache().then(responder), 4000);
-    fetch(req)
+    // "no-cache": sempre confere com o servidor se há versão nova (evita esperar o cache de 10 min do GitHub Pages).
+    fetch(req, { cache: 'no-cache' })
       .then((resp) => {
         clearTimeout(timer);
         if (resp.ok) {

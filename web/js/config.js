@@ -13,6 +13,7 @@
 (function (App) {
   App.config = {
     versao: '1.0.0',
+    build: 'em80-98db776ce0', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {

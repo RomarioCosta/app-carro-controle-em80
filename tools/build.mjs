@@ -2,7 +2,7 @@
 /*
  * Gera os arquivos de publicação a partir da pasta web/:
  *  - apps-script/Index.html: página única (CSS, JS e imagem embutidos) servida pelo Apps Script.
- *  - web/sw.js: atualiza a versão do cache do PWA quando algum arquivo muda.
+ *  - web/sw.js e web/js/config.js: número da versão (muda quando algum arquivo muda).
  *
  * Uso: node tools/build.mjs
  */
@@ -15,6 +15,23 @@ const raiz = join(dirname(fileURLToPath(import.meta.url)), '..');
 const web = join(raiz, 'web');
 const ler = (p) => readFileSync(join(web, p), 'utf8');
 
+// 1) Versão = hash do conteúdo dos arquivos (o próprio número da versão é ignorado no cálculo,
+//    para que rodar o build duas vezes gere sempre o mesmo resultado).
+const swOriginal = ler('sw.js');
+const lista = [...swOriginal.matchAll(/^\s+'([^']+)',?$/gm)].map((m) => m[1]).filter((p) => p !== './');
+const hash = createHash('sha256');
+const normalizar = (p, conteudo) => {
+  if (p === 'js/config.js') return Buffer.from(conteudo.toString('utf8').replace(/build: '[^']*'/, "build: ''"));
+  return conteudo;
+};
+lista.forEach((p) => hash.update(normalizar(p, readFileSync(join(web, p)))));
+const versao = `em80-${hash.digest('hex').slice(0, 10)}`;
+writeFileSync(join(web, 'sw.js'), swOriginal.replace(/const VERSAO = '[^']*';/, `const VERSAO = '${versao}';`));
+// O mesmo código aparece em Ajustes, para conferir qual versão está aberta.
+const configPath = join(web, 'js', 'config.js');
+writeFileSync(configPath, readFileSync(configPath, 'utf8').replace(/build: '[^']*'/, `build: '${versao}'`));
+
+// 2) Index.html do Apps Script (com a versão já preenchida).
 let html = ler('index.html');
 const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
 const estilos = [...html.matchAll(/<link rel="stylesheet" href="([^"]+)">/g)].map((m) => m[1]);
@@ -38,13 +55,5 @@ scripts.forEach((src) => {
 if (/<script src=|<link rel="stylesheet"/.test(saida)) throw new Error('Sobrou referência externa no Index.html');
 if (saida.includes("'img/carro.jpg'")) throw new Error('Imagem do cabeçalho não foi embutida');
 writeFileSync(join(raiz, 'apps-script', 'Index.html'), saida);
-
-// Versão do cache do PWA = hash do conteúdo dos arquivos.
-const sw = ler('sw.js');
-const lista = [...sw.matchAll(/^\s+'([^']+)',?$/gm)].map((m) => m[1]).filter((p) => p !== './');
-const hash = createHash('sha256');
-lista.forEach((p) => hash.update(readFileSync(join(web, p))));
-const versao = `em80-${hash.digest('hex').slice(0, 10)}`;
-writeFileSync(join(web, 'sw.js'), sw.replace(/const VERSAO = '[^']*';/, `const VERSAO = '${versao}';`));
 
 console.log(`Index.html gerado (${(saida.length / 1024).toFixed(0)} KB). Cache do PWA: ${versao}`);
