@@ -99,5 +99,5 @@ O link continua o mesmo. Os dados não são afetados.
 2. **Eventos:** escolha um equipamento e toque em **Iniciar agora**; depois **Finalizar agora**. Teste também **Duplicar último** e o preenchimento manual dos horários.
 3. **Produção:** em **Importar**, informe o número do ciclo e escolha a planilha do SAP com a coluna **Data Programada**. Toque nas OMs do dia, veja os percentuais e os gráficos. Teste um toque duplo para desfazer.
 4. **Sem sinal:** ative o modo avião, marque uma OM e salve um evento; desative e veja o envio automático.
-5. **Anomalia:** toque na aba amarela **Anomalia** na lateral (ou no ícone de alerta no topo), preencha, salve e use **Copiar** ou **Enviar no WhatsApp**.
+5. **Anomalia:** toque na aba amarela **Anomalia** na lateral (ou no ícone de alerta no topo), preencha, salve e use **Copiar mensagem**. O formulário fica limpo para o próximo defeito.
 6. **Tema:** use o botão de lua/sol no topo.

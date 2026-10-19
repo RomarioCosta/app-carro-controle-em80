@@ -194,7 +194,7 @@ Gaveta lateral com puxador, acessível de qualquer tela. Ao salvar, grava o regi
 
 ### Funcionalidades
 - Prévia da mensagem, com botão **Copiar**.
-- Botão **Enviar no WhatsApp**, que abre o app com o texto preenchido.
+- Ao salvar, o formulário é limpo para o próximo defeito, e a mensagem fica no topo com o botão **Copiar mensagem** (para colar no WhatsApp). O botão "Enviar no WhatsApp" foi retirado a pedido.
 - Link do mapa montado a partir de latitude e longitude.
 - Histórico dos lançamentos (começa do zero, sem migração do Power Apps).
 
