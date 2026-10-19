@@ -166,7 +166,7 @@
       kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${r.geral.perdas.toLocaleString('pt-BR')} de ${r.geral.pontos.toLocaleString('pt-BR')} pontos`),
       kpi('Em tangentes', `${fmt(r.tangentes.pctPerda)}%`, `${r.tangentes.quantidade} tangente(s) · ${fmt(r.tangentes.extensao / 1000, 2)} km`),
       kpi('Em curvas', `${fmt(r.curvas.pctPerda)}%`, `${r.curvas.quantidade} curva(s) · ${fmt(r.curvas.extensao / 1000, 2)} km`),
-      kpi('OGMS − KLD', `${fmt(r.geral.difKldMedia, 2)} mm`, `diferença média · ${fmt(r.geral.pctKld)}% acima de ${fmt(opcoes.limitePerda, 0)} mm`)));
+      kpi('OGMS − KLD', `${fmt(r.geral.difKldMedia, 2)} mm`, 'diferença média entre os sensores (não entra na perda)')));
   }
 
   /* ---------------- Gráficos ---------------- */
@@ -204,7 +204,7 @@
       ['Curvatura (10000/R) — tangentes e curvas', { ...base, series: [{ nome: '10000/R', valores: dados.curv, classe: 's1' }], referencias: [opcoes.limiarCurva, -opcoes.limiarCurva], eventos }],
       ['Bitola frontal e traseira (mm)', { ...base, series: [{ nome: 'Bitola F', valores: dados.bitF, classe: 's1' }, { nome: 'Bitola T', valores: dados.bitT, classe: 's2' }] }],
       [`Diferença Bitola F − Bitola T (mm) — perda acima de ±${fmt(lim, 0)} mm`, { ...base, series: [{ nome: 'F − T', valores: r.difFT, classe: 's1' }, { nome: 'Perda', valores: alertas, classe: 's-alerta', tipo: 'pontos' }], referencias: [lim, -lim], legenda: false }],
-      ['Diferença OGMS − KLD (mm)', { ...base, series: [{ nome: 'OGMS (F) − KLD', valores: r.difKld, classe: 's1' }], referencias: [lim, -lim] }],
+      ['Diferença OGMS − KLD (mm) — comparação entre sensores', { ...base, series: [{ nome: 'OGMS (F) − KLD', valores: r.difKld, classe: 's1' }] }],
       [`Alinhamento: ${nomeAlin}`, { ...base, series: [{ nome: nomeAlin, valores: dados[opcoes.alinhamento], classe: 's1' }] }]
     ];
 
@@ -274,7 +274,7 @@
     const nomeAlin = (B.ALINHAMENTO.find((a) => a.id === opcoes.alinhamento) || B.ALINHAMENTO[0]).nome;
     ui.trocar(secoes.elementos, h('section', { class: 'cartao' },
       h('h2', { text: 'Elementos: tangentes e curvas' }),
-      h('p', { class: 'sub', text: `Numerados na ordem da inspeção. % perda = pontos com |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm ÷ pontos medidos no elemento.` }),
+      h('p', { class: 'sub', text: `Numerados na ordem da inspeção. Perda de bitola considera só a frontal e a traseira: % perda = pontos com |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm ÷ pontos medidos no elemento.` }),
       h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela' },
         h('thead', null, h('tr', null,
           ['Elemento', 'Início', 'Fim', 'Ext. (m)', 'Raio (m)', '% perda', 'Máx F−T', 'OGMS−KLD', `Máx ${nomeAlin}`, 'Eventos'].map((t) => h('th', { text: t })))),
