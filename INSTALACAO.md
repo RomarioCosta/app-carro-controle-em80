@@ -26,7 +26,8 @@ Tempo estimado: 15 minutos. Faça pelo **computador** (fica mais fácil copiar o
 2. O Google vai pedir autorização. Como o script é seu, aparece o aviso
    "O Google não verificou este app": clique em **Avançado → Acessar (não seguro)** e **Permitir**.
 3. No **Registro de execução** aparece: `Código de acesso do app: XXXXXXXXXXXX`.
-   **Anote esse código.** (Se perder, execute a função `mostrarCodigoAcesso`.)
+   **Anote esse código.** Se não aparecer ou se você perder, o código também fica em
+   **Configurações do projeto** (engrenagem ⚙ à esquerda) → **Propriedades do script** → valor de `API_TOKEN`.
 4. Volte à planilha: as abas Checklists, Eventos, Anomalias, OMs, Execucoes etc. foram criadas.
 
 ## 4. Publicar o app

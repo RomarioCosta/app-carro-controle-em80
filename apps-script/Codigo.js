@@ -201,14 +201,14 @@ function setup() {
     props.setProperty('API_TOKEN', gerarToken_());
   }
   var msg = 'Instalação concluída. Código de acesso do app: ' + props.getProperty('API_TOKEN');
-  Logger.log(msg);
+  console.log(msg);
   return msg;
 }
 
 /** Mostra o código de acesso atual no registro de execução. */
 function mostrarCodigoAcesso() {
   var token = PropertiesService.getScriptProperties().getProperty('API_TOKEN');
-  Logger.log(token ? 'Código de acesso: ' + token : 'Execute setup() primeiro.');
+  console.log(token ? 'Código de acesso: ' + token : 'Execute setup() primeiro.');
   return token;
 }
 
