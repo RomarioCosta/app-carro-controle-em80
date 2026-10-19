@@ -428,6 +428,10 @@ async function main() {
       await page.locator('input[type="file"][accept=".xls,.xlsx"]').setInputFiles({ name: 'Planta.xls', mimeType: 'application/vnd.ms-excel', buffer: Buffer.from('falso') });
       await page.getByText('Planta importada').waitFor();
       await page.evaluate(() => { delete window.__linhasXlsx; });
+      // Ramal e linha vêm do arquivo CSV (sem escolha na planta).
+      const criterios = page.locator('details').filter({ hasText: 'Critérios da análise' });
+      assert.ok((await criterios.textContent()).includes('linha 1 (do arquivo CSV)'));
+      assert.equal(await criterios.getByLabel('Linha').count(), 0);
       const tabEls = page.locator('.tabela:not(.tabela-offset)').filter({ hasText: 'Lado' });
       assert.deepEqual(await tabEls.locator('tbody .el-tag').allTextContents(), ['T01', 'T02', 'C01', 'RH', 'C01']);
       const trechos = await tabEls.locator('tbody tr').evaluateAll((trs) => trs.map((tr) => tr.children[0].textContent)); // EH/RH primeiro

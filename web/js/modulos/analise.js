@@ -17,7 +17,7 @@
   let arquivo = null; // resultado de B.lerCSV
   let nomeArquivo = '';
   let resultado = null; // resultado de B.analisar
-  const OPCOES_PADRAO = { ...B.PADRAO, alinhamento: 'alr10', modo: 'planta', ramal: '', linha: '', ajusteKm: 'auto', offset: { bitola: 'bitT', valor: 0, aplicar: false }, bitolas: ['bitF', 'bitT'] };
+  const OPCOES_PADRAO = { ...B.PADRAO, alinhamento: 'alr10', modo: 'planta', ajusteKm: 'auto', offset: { bitola: 'bitT', valor: 0, aplicar: false }, bitolas: ['bitF', 'bitT'] };
   let opcoes = { ...OPCOES_PADRAO, ...(U.pref.get('bitola:opcoes', {}) || {}) };
   let planta = null; // { nome, importadoEm, elementos, ramais }
   let infoPlanta = null; // { ramal, linha, ajuste, acerto, qtd, automatico }
@@ -81,13 +81,16 @@
   }
 
   /** Configuração da planta para o arquivo aberto (ramal, linha, elementos e ajuste de km). */
+  let problemaPlanta = '';
   function configurarPlanta() {
     infoPlanta = null;
+    problemaPlanta = '';
     if (!arquivo || !planta || opcoes.modo !== 'planta') return null;
-    const ramal = opcoes.ramal && planta.ramais[opcoes.ramal] ? opcoes.ramal : B.ramalDaPlanta(arquivo.meta.ramal, planta.ramais);
-    if (!ramal) return null;
-    const linhas = planta.ramais[ramal] || [];
-    const linha = opcoes.linha && linhas.includes(opcoes.linha) ? opcoes.linha : (linhas.includes(String(arquivo.meta.linha)) ? String(arquivo.meta.linha) : linhas[0]);
+    // Ramal e linha vêm sempre do arquivo CSV; a planta só fornece os elementos dessa linha.
+    const ramal = B.ramalDaPlanta(arquivo.meta.ramal, planta.ramais);
+    const linha = String(arquivo.meta.linha || '').trim();
+    if (!ramal) { problemaPlanta = `O ramal do arquivo (${arquivo.meta.ramal || '—'}) não existe na planta. Elementos identificados pela curvatura.`; return null; }
+    if (!(planta.ramais[ramal] || []).includes(linha)) { problemaPlanta = `A linha do arquivo (${linha || '—'}) não existe na planta para o ramal ${ramal}. Elementos identificados pela curvatura.`; return null; }
     const els = B.elementosDaPlanta(planta, ramal, linha);
     let ajuste = 0; let acerto = null; const automatico = opcoes.ajusteKm === 'auto';
     if (automatico) {
@@ -147,7 +150,7 @@
       planta = { nome: f.name, importadoEm: U.agora(), elementos: lida.elementos, ramais: lida.ramais };
       await store.set(CHAVE_PLANTA, planta);
       cacheAjuste.clear();
-      opcoes = { ...opcoes, modo: 'planta', ramal: '', linha: '', ajusteKm: 'auto' };
+      opcoes = { ...opcoes, modo: 'planta', ajusteKm: 'auto' };
       salvarOpcoes();
       ui.toast(`Planta importada: ${lida.elementos.length.toLocaleString('pt-BR')} elementos.`, 'ok', 5000);
       if (arquivo) recalcular(); else renderPlanta();
@@ -248,16 +251,9 @@
           'aria-pressed': opcoes.modo === v ? 'true' : 'false',
           onclick: () => mudar('modo', v)
         }, r)))),
-      opcoes.modo === 'planta' ? h('div', { class: 'grade-3' },
-        ui.campo('Ramal na planta', h('select', {
-          value: infoPlanta ? infoPlanta.ramal : '',
-          onchange: (e) => { opcoes = { ...opcoes, ramal: e.target.value, linha: '' }; salvarOpcoes(); recalcular(); }
-        }, Object.keys(planta.ramais).map((r) => h('option', { value: r, text: r })))),
-        ui.campo('Linha', h('select', {
-          value: infoPlanta ? infoPlanta.linha : '',
-          onchange: (e) => mudar('linha', e.target.value)
-        }, ((infoPlanta && planta.ramais[infoPlanta.ramal]) || []).map((l) => h('option', { value: l, text: `Linha ${l}` })))),
-        ui.campo('Ajuste de km (m)', h('input', {
+      usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Ramal ${arquivo.meta.ramal} · linha ${infoPlanta.linha} (do arquivo CSV) → planta ${infoPlanta.ramal}, linha ${infoPlanta.linha}.` }) : null,
+      opcoes.modo === 'planta' && infoPlanta ? h('div', { class: 'grade-3' },
+        ui.campo('Correção do km do carro (m)', h('input', {
           type: 'text',
           inputmode: 'tel',
           value: opcoes.ajusteKm === 'auto' ? '' : String(opcoes.ajusteKm).replace('.', ','),
@@ -266,13 +262,13 @@
             const v = U.numero(e.target.value);
             mudar('ajusteKm', e.target.value.trim() === '' || v === null ? 'auto' : v);
           }
-        }), { ajuda: 'Vazio = automático (alinha as curvas medidas com as da planta).' })) : null,
-      usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Planta ${infoPlanta.ramal} · linha ${infoPlanta.linha} · ajuste de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automático)' : ''}${infoPlanta.acerto !== null ? ` · curvas coincidentes em ${fmt(infoPlanta.acerto, 0)}% do trecho` : ''}` }) : null,
-      opcoes.modo === 'planta' && !infoPlanta ? h('p', { class: 'aviso', text: `Ramal "${arquivo.meta.ramal}" não encontrado na planta. Escolha o ramal ou use a curvatura.` }) : null) : null;
+        }), { ajuda: 'O km registrado pelo carro costuma diferir alguns metros do km da planta. Vazio = automático: o app compara as curvas medidas com as curvas da planta e acha a diferença. Digite um valor só se o automático errar.' })) : null,
+      usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Correção de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automática)' : ' (digitada)'}${infoPlanta.acerto !== null ? ` · curvas do arquivo coincidem com as da planta em ${fmt(infoPlanta.acerto, 0)}% do trecho` : ''}.` }) : null,
+      opcoes.modo === 'planta' && !infoPlanta && problemaPlanta ? h('p', { class: 'aviso', text: problemaPlanta }) : null) : null;
 
     ui.trocar(secoes.parametros, h('details', { class: 'cartao detalhes' },
       h('summary', null, h('strong', { text: 'Critérios da análise' }),
-        h('span', { class: 'sub', text: ` · ${usandoPlanta ? `elementos da planta (${infoPlanta.ramal} L${infoPlanta.linha}, ajuste ${fmt(infoPlanta.ajuste, 0)} m)` : `curva a partir de |10000/R| ${opcoes.limiarCurva}`} · perda acima de ${opcoes.limitePerda} mm` })),
+        h('span', { class: 'sub', text: ` · ${usandoPlanta ? `elementos da planta (${infoPlanta.ramal} linha ${infoPlanta.linha}, correção do km ${fmt(infoPlanta.ajuste, 0)} m)` : `curva a partir de |10000/R| ${opcoes.limiarCurva}`} · perda acima de ${opcoes.limitePerda} mm` })),
       h('div', { class: 'pilha', style: { marginTop: '12px' } },
         blocoPlanta,
         h('div', { class: 'grade-2' },
@@ -462,9 +458,9 @@
     return cols;
   }
 
-  /** Linha da inspeção (do arquivo CSV; no modo planta, a linha usada da planta). */
+  /** Linha da inspeção: sempre a do arquivo CSV. */
   function linhaAtual() {
-    return String((resultado && resultado.modo === 'planta' && infoPlanta ? infoPlanta.linha : '') || (arquivo && arquivo.meta.linha) || '—');
+    return String((arquivo && arquivo.meta.linha) || '—'); // a linha é sempre a do arquivo CSV
   }
 
   /** Do local com maior perda para o com menor (sem medição por último). */
@@ -694,7 +690,7 @@
       `Perda de bitola quando |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm.`,
       `Variação rápida quando o desvio padrão da bitola em 1 m passa de ${fmt(opcoes.limiteVariacao, 1)} mm.`,
       r.modo === 'planta'
-        ? `Elementos da planta da linha (${planta.nome}), por trecho EH x/y e RH (pátio): ramal ${infoPlanta.ramal}, linha ${infoPlanta.linha}, ajuste de km de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automático' + (infoPlanta.acerto !== null ? `, curvas coincidentes em ${fmt(infoPlanta.acerto, 0)}% do trecho` : '') + ')' : ''}.`
+        ? `Elementos da planta da linha (${planta.nome}), por trecho EH x/y e RH (pátio): ramal ${infoPlanta.ramal} e linha ${infoPlanta.linha} do arquivo CSV, correção do km de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automático' + (infoPlanta.acerto !== null ? `, curvas coincidentes em ${fmt(infoPlanta.acerto, 0)}% do trecho` : '') + ')' : ''}.`
         : `Elementos pela curvatura: curva quando |10000/R| ≥ ${fmt(opcoes.limiarCurva, 1)} (média móvel de ${fmt(opcoes.suavizacao, 0)} m; elementos com menos de ${fmt(opcoes.comprimentoMin, 0)} m unidos ao vizinho).`,
       off.aplicar && off.valor ? `Offset de ${fmt(off.valor, 1)} mm aplicado em ${NOMES_BITOLA[off.bitola]}.` : ''
     ].filter(Boolean).join(' ');
