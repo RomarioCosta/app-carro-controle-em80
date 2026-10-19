@@ -43,7 +43,15 @@ function linhasSintéticas() {
   return linhas;
 }
 
-const xlsxFalso = `window.XLSX = { read: () => ({ SheetNames: ['Planilha1'], Sheets: { Planilha1: {} } }), utils: { sheet_to_json: () => ${JSON.stringify(linhasSintéticas())} } };`;
+const PLANTA_E2E = [
+  ['Ramal', 'Linha', 'Eh', 'C/T', 'Lado curva', 'Nº Elemento Eh', 'Quilometragem', '', 'Raio'],
+  ['', '', '', '', '', '', 'Inicial', 'Final', ''],
+  ['TST', 1, 11, 'C', 'E', 1, 1.530, 1.730, 667],
+  ['TST', 1, 10, 'T', '', 2, 1.760, 2.030, ''],
+  ['TST', 1, 10, 'C', 'D', 1, 2.030, 2.230, 500],
+  ['TST', 1, 10, 'T', '', 1, 2.230, 2.531, '']
+];
+const xlsxFalso = `window.XLSX = { read: () => ({ SheetNames: ['Planilha1'], Sheets: { Planilha1: {} } }), utils: { sheet_to_json: () => window.__linhasXlsx || ${JSON.stringify(linhasSintéticas())} } };`;
 
 async function aguardar(fn, msg, ms = 15000) {
   const ini = Date.now();
@@ -389,12 +397,12 @@ async function main() {
       await page.getByRole('tab', { name: 'Análise do arquivo' }).click();
       await page.locator('input[type="file"][accept=".csv,.txt"]').setInputFiles({ name: 'TESTE.csv', mimeType: 'text/csv', buffer: Buffer.from(gerarCSV(), 'latin1') });
       await page.locator('.graf-km svg').first().waitFor();
-      assert.deepEqual(await page.locator('.tabela').first().locator('tbody .el-tag').allTextContents(), ['T01', 'C01', 'T02', 'C02']);
+      assert.deepEqual(await page.locator('.tabela:not(.tabela-offset)').first().locator('tbody .el-tag').allTextContents(), ['T01', 'C01', 'T02', 'C02']);
       assert.equal(await page.locator('.kpi').first().locator('.kpi-valor').textContent(), '5,0%');
-      const rk = page.locator('.tabela').nth(1).locator('tbody tr').first();
+      const rk = page.locator('.tabela:not(.tabela-offset)').nth(1).locator('tbody tr').first();
       assert.equal(await rk.locator('td').nth(1).textContent(), '1+700');
       await page.screenshot({ path: `${SAIDA}13-analise.png`, fullPage: true });
-      await page.locator('.tabela').first().locator('tbody tr').nth(2).click();
+      await page.locator('.tabela:not(.tabela-offset)').first().locator('tbody tr').nth(2).click();
       await page.getByRole('button', { name: 'Ver tudo' }).waitFor();
 
       // Laudo em PDF: a janela de impressão é simulada; confere o conteúdo montado.
@@ -407,7 +415,7 @@ async function main() {
       await page.waitForFunction(() => window.__impressoes === 1);
       const laudo = page.locator('#laudo');
       assert.equal(await laudo.locator('.laudo-resultado strong').textContent(), 'Reprovado');
-      assert.equal(await laudo.locator('.laudo-grafico svg').count(), 6);
+      assert.equal(await laudo.locator('.laudo-grafico svg').count(), 7);
       assert.ok((await laudo.textContent()).includes('Checklist de inspeção'), 'checklist incluído no laudo');
       assert.ok((await laudo.textContent()).includes('Tangente 02'));
       await page.emulateMedia({ media: 'print' });
@@ -415,6 +423,24 @@ async function main() {
       await page.emulateMedia({ media: 'screen' });
       await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
       assert.equal(await page.locator('#laudo').count(), 0);
+      // Planta da linha: elementos por EH, com ajuste automático do km (+30 m nos dados inventados).
+      await page.evaluate((linhas) => { window.__linhasXlsx = linhas; }, PLANTA_E2E);
+      await page.locator('input[type="file"][accept=".xls,.xlsx"]').setInputFiles({ name: 'Planta.xls', mimeType: 'application/vnd.ms-excel', buffer: Buffer.from('falso') });
+      await page.getByText('Planta importada').waitFor();
+      await page.evaluate(() => { delete window.__linhasXlsx; });
+      const tabEls = page.locator('.tabela:not(.tabela-offset)').filter({ hasText: 'Lado' });
+      assert.deepEqual(await tabEls.locator('tbody .el-tag').allTextContents(), ['T01', 'C01', 'T02', 'Fora', 'C01']);
+      assert.ok((await tabEls.locator('tbody tr').nth(3).getAttribute('title') || await tabEls.locator('tbody tr').nth(3).textContent()).length > 0);
+      // Offset: o melhor valor na bitola T zera a perda.
+      const cartaoOff = page.locator('details').filter({ hasText: 'Simulação de offset' });
+      await cartaoOff.locator('summary').click();
+      await cartaoOff.locator('select').selectOption('bitT');
+      await page.locator('details').filter({ hasText: 'Simulação de offset' }).getByRole('button', { name: /Usar melhor offset/ }).click();
+      await page.locator('details').filter({ hasText: 'Simulação de offset' }).locator('input[type="checkbox"]').check();
+      await page.waitForFunction(() => document.querySelector('.kpi .kpi-valor')?.textContent === '0,0%');
+      await page.locator('.graf-alvo').first().hover();
+      await page.screenshot({ path: `${SAIDA}15-analise-planta.png`, fullPage: true });
+      await page.locator('details').filter({ hasText: 'Simulação de offset' }).locator('input[type="checkbox"]').uncheck();
       // o arquivo fica guardado no aparelho
       await page.reload();
       await page.getByRole('tab', { name: 'Análise do arquivo' }).waitFor();

@@ -195,6 +195,19 @@
   /* Gráfico com km no eixo X (análise do arquivo do carro controle)     */
   /* ------------------------------------------------------------------ */
 
+  /** Índice do ponto mais próximo (posições em ordem crescente ou decrescente). */
+  function indicePerto(pos, alvo) {
+    const n = pos.length;
+    if (!n) return -1;
+    const crescente = pos[n - 1] >= pos[0];
+    let lo = 0; let hi = n - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if ((pos[mid] < alvo) === crescente) lo = mid; else hi = mid;
+    }
+    return Math.abs(pos[lo] - alvo) <= Math.abs(pos[hi] - alvo) ? lo : hi;
+  }
+
   function passoKm(extensao) {
     const alvo = extensao / 6;
     return [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000, 10000].find((p) => p >= alvo) || 10000;
@@ -233,6 +246,7 @@
     const H = op.altura || 170;
     const m = { t: 18, r: 12, b: 26, l: 46 };
     let guiaLinha = null;
+    let cursorG = null;
     let estado = null;
     let ultimaLargura = 0;
 
@@ -335,6 +349,8 @@
       // Guia e área de interação.
       guiaLinha = s('line', { class: 'graf-guia', y1: m.t, y2: m.t + ih, visibility: 'hidden' });
       svg.appendChild(guiaLinha);
+      cursorG = s('g', { 'pointer-events': 'none' });
+      svg.appendChild(cursorG);
       const alvo = s('rect', { x: m.l, y: m.t, width: iw, height: ih, class: 'graf-alvo' });
       const mover = (ev) => {
         const r = svg.getBoundingClientRect();
@@ -347,7 +363,7 @@
       alvo.addEventListener('pointerleave', () => op.aoPassar && op.aoPassar(null));
       svg.appendChild(alvo);
 
-      estado = { x, lo, hi };
+      estado = { x, y, lo, hi };
       ui.trocar(caixa, svg);
     }
 
@@ -372,12 +388,22 @@
         if (!guiaLinha || !estado) return;
         if (p === null || p < estado.lo || p > estado.hi) {
           guiaLinha.setAttribute('visibility', 'hidden');
+          if (cursorG) while (cursorG.firstChild) cursorG.removeChild(cursorG.firstChild);
           return;
         }
         const xx = estado.x(p);
         guiaLinha.setAttribute('x1', xx);
         guiaLinha.setAttribute('x2', xx);
         guiaLinha.setAttribute('visibility', 'visible');
+        // Ponto discreto sobre cada linha, no km do cursor.
+        while (cursorG.firstChild) cursorG.removeChild(cursorG.firstChild);
+        const i = indicePerto(op.pos, p);
+        if (i < 0) return;
+        op.series.forEach((sr) => {
+          const v = sr.valores[i];
+          if (sr.tipo === 'pontos' || !Number.isFinite(v)) return;
+          cursorG.appendChild(s('circle', { cx: estado.x(op.pos[i]), cy: estado.y(v), r: 3, class: `graf-cursor ${sr.classe || ''}` }));
+        });
       },
       destruir() { ro.disconnect(); }
     };

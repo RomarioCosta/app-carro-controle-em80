@@ -66,8 +66,13 @@
     limiarCurva: 3, // |10000/R| a partir do qual o trecho é curva (R ≈ 3.333 m)
     suavizacao: 10, // metros (média móvel da curvatura)
     comprimentoMin: 20, // metros: trechos menores são unidos ao vizinho
-    limitePerda: 2 // mm: |Bitola F − Bitola T| acima disso = perda de bitola
+    limitePerda: 2, // mm: |Bitola F − Bitola T| acima disso = perda de bitola
+    limiteVariacao: 1.5, // mm: desvio padrão da bitola em 1 m acima disso = variação rápida (provável erro)
+    janelaVariacao: 1 // metros
   };
+
+  /** A bitola nominal é 1000 mm; o arquivo traz só a diferença. */
+  B.NOMINAL = 1000;
 
   const num = (s) => {
     const t = String(s ?? '').trim();
@@ -278,11 +283,73 @@
   /** Diferença ponto a ponto (NaN quando falta algum dos dois). */
   B.diferenca = (a, b) => Float64Array.from(a, (v, i) => v - b[i]);
 
-  function resumoTrecho(d, i0, i1, opcoes, alinhamento) {
+  const KLD_MAX = 60; // leituras do KLD acima disso (em módulo) são erro de sensor
+
+  /** Desvio padrão móvel (janela centrada, em pontos), ignorando valores ausentes. */
+  B.desvioMovel = (arr, janela) => {
+    const n = arr.length;
+    const out = new Float64Array(n).fill(NaN);
+    const meia = Math.max(1, Math.floor(janela / 2));
+    for (let i = 0; i < n; i++) {
+      let soma = 0; let soma2 = 0; let c = 0;
+      for (let j = Math.max(0, i - meia); j <= Math.min(n - 1, i + meia); j++) {
+        const v = arr[j];
+        if (!Number.isNaN(v)) { soma += v; soma2 += v * v; c++; }
+      }
+      if (c >= 3) out[i] = Math.sqrt(Math.max(0, soma2 / c - (soma / c) ** 2));
+    }
+    return out;
+  };
+
+  /** Dados com o offset aplicado (se pedido). Não altera o arquivo original. */
+  B.dadosComOffset = (dados, offset) => {
+    if (!offset || !offset.valor || !['bitF', 'bitT', 'kld'].includes(offset.bitola)) return dados;
+    const ajustado = Float64Array.from(dados[offset.bitola], (v) => v + offset.valor);
+    return { ...dados, [offset.bitola]: ajustado };
+  };
+
+  /** Perda de bitola em todo o trecho (|F − T| > limite). */
+  B.perdaTotal = (dados, limite, i0 = 0, i1 = dados.bitF.length - 1) => {
+    let pontos = 0; let perdas = 0;
+    for (let i = i0; i <= i1; i++) {
+      const f = dados.bitF[i]; const t = dados.bitT[i];
+      if (Number.isNaN(f) || Number.isNaN(t)) continue;
+      pontos++;
+      if (abs(f - t) > limite) perdas++;
+    }
+    return { pontos, perdas, pct: pontos ? (perdas / pontos) * 100 : null };
+  };
+
+  /**
+   * Offset (em mm) para a bitola F ou T que mais reduz a perda de bitola.
+   * Testa de −10 a +10 mm em passos de 0,1 mm.
+   */
+  B.melhorOffset = (dados, bitola, limite) => {
+    if (bitola !== 'bitF' && bitola !== 'bitT') return null;
+    const difs = [];
+    for (let i = 0; i < dados.bitF.length; i++) {
+      const f = dados.bitF[i]; const t = dados.bitT[i];
+      if (!Number.isNaN(f) && !Number.isNaN(t)) difs.push(f - t);
+    }
+    if (!difs.length) return null;
+    const sinal = bitola === 'bitF' ? 1 : -1; // offset em F soma na diferença; em T, subtrai
+    let melhor = { valor: 0, perdas: Infinity };
+    for (let k = -100; k <= 100; k++) {
+      const off = k / 10;
+      let perdas = 0;
+      for (const d of difs) if (abs(d + sinal * off) > limite) perdas++;
+      if (perdas < melhor.perdas || (perdas === melhor.perdas && abs(off) < abs(melhor.valor))) melhor = { valor: off, perdas };
+    }
+    return { valor: melhor.valor, perdas: melhor.perdas, pontos: difs.length, pct: (melhor.perdas / difs.length) * 100 };
+  };
+
+  function resumoTrecho(d, i0, i1, opcoes, extras) {
     let validos = 0; let perdas = 0; let maxDif = 0; let somaDif = 0;
     let nK = 0; let somaK = 0; let perdasK = 0;
     let nC = 0; let somaC = 0;
     let nA = 0; let somaA = 0; let maxA = 0;
+    let nV = 0; let varRapida = 0;
+    const alinhamento = extras.alinhamento;
     for (let i = i0; i <= i1; i++) {
       const f = d.bitF[i]; const t = d.bitT[i];
       if (!Number.isNaN(f) && !Number.isNaN(t)) {
@@ -293,7 +360,7 @@
         if (abs(dif) > abs(maxDif)) maxDif = dif;
       }
       const k = d.kld[i];
-      if (!Number.isNaN(f) && !Number.isNaN(k) && abs(k) < 60) {
+      if (!Number.isNaN(f) && !Number.isNaN(k) && abs(k) < KLD_MAX) {
         nK++;
         somaK += f - k;
         if (abs(f - k) > opcoes.limitePerda) perdasK++;
@@ -301,6 +368,8 @@
       if (!Number.isNaN(d.curv[i])) { nC++; somaC += d.curv[i]; }
       const a = alinhamento ? alinhamento[i] : NaN;
       if (!Number.isNaN(a)) { nA++; somaA += abs(a); if (abs(a) > abs(maxA)) maxA = a; }
+      const v = extras.variacao[i];
+      if (!Number.isNaN(v)) { nV++; if (v > opcoes.limiteVariacao) varRapida++; }
     }
     const curvMedia = nC ? somaC / nC : NaN;
     return {
@@ -314,36 +383,262 @@
       curvMedia,
       raioMedio: Number.isNaN(curvMedia) || abs(curvMedia) < 0.01 ? null : 10000 / abs(curvMedia),
       alinhMedio: nA ? somaA / nA : null,
-      alinhMax: nA ? maxA : null
+      alinhMax: nA ? maxA : null,
+      pctVariacao: nV ? (varRapida / nV) * 100 : null
     };
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Planta da linha (elementos por EH)                                  */
+  /* ------------------------------------------------------------------ */
+
   /**
-   * Análise completa: elementos, indicadores por elemento e gerais.
-   * opcoes: limiarCurva, suavizacao, comprimentoMin, limitePerda, alinhamento (id).
+   * Lê a planilha "Planta da linha" (matriz de células da aba).
+   * Colunas: Ramal, Linha, Eh, C/T, Lado curva, Nº Elemento Eh, km inicial, km final, extensão, grau, raio, superelevação.
+   * Retorna { elementos: [...], ramais: { LT: [1, 2], ... }, avisos }.
+   */
+  B.lerPlanta = (linhas) => {
+    const chave = (v) => U.chaveTitulo(v);
+    let idxCab = -1;
+    for (let i = 0; i < Math.min(linhas.length, 40); i++) {
+      const ks = (linhas[i] || []).map(chave);
+      if (ks.includes('ramal') && ks.includes('linha') && ks.includes('eh')) { idxCab = i; break; }
+    }
+    if (idxCab < 0) throw new Error('Não encontrei o cabeçalho da planta (colunas Ramal, Linha e Eh).');
+    const c1 = linhas[idxCab] || [];
+    const c2 = linhas[idxCab + 1] || [];
+    const largura = Math.max(c1.length, c2.length);
+    // Títulos em duas linhas (ex.: "Quilometragem" / "Inicial"): junta as duas.
+    let ultimoGrupo = '';
+    const titulos = [];
+    for (let j = 0; j < largura; j++) {
+      const a = chave(c1[j]);
+      if (a) ultimoGrupo = a;
+      const b = chave(c2[j]);
+      titulos.push({ a, b, grupo: a || ultimoGrupo });
+    }
+    const achar = (teste) => titulos.findIndex(teste);
+    const col = {
+      ramal: achar((t) => t.a === 'ramal'),
+      linha: achar((t) => t.a === 'linha'),
+      eh: achar((t) => t.a === 'eh'),
+      ct: achar((t) => t.a === 'ct'),
+      lado: achar((t) => t.a.startsWith('lado')),
+      num: achar((t) => t.a.startsWith('nelemento') || t.a.startsWith('numeroelemento')),
+      ini: achar((t) => t.b === 'inicial' || t.a.includes('inicial')),
+      fim: achar((t) => t.b === 'final' || t.a === 'final'),
+      raio: achar((t) => t.a.startsWith('raio')),
+      sup: achar((t) => t.a.startsWith('superelevacao'))
+    };
+    ['ramal', 'linha', 'eh', 'ct', 'ini', 'fim'].forEach((k) => {
+      if (col[k] < 0) throw new Error(`Coluna da planta não encontrada: ${k}.`);
+    });
+
+    const n = (v) => (typeof v === 'number' ? v : U.numero(v));
+    const elementos = [];
+    let descartados = 0;
+    linhas.slice(idxCab + 2).forEach((l) => {
+      if (!l) return;
+      const ramal = String(l[col.ramal] ?? '').trim().toUpperCase();
+      const tipo = String(l[col.ct] ?? '').trim().toUpperCase();
+      const ini = n(l[col.ini]);
+      const fim = n(l[col.fim]);
+      if (!ramal || (tipo !== 'C' && tipo !== 'T')) return;
+      if (ini === null || fim === null || fim <= ini) { descartados++; return; }
+      elementos.push({
+        ramal,
+        linha: String(l[col.linha] ?? '').trim(),
+        eh: String(l[col.eh] ?? '').trim(),
+        tipo,
+        lado: col.lado >= 0 ? String(l[col.lado] ?? '').trim().toUpperCase() : '',
+        num: col.num >= 0 ? String(l[col.num] ?? '').trim() : '',
+        ini: Math.round(ini * 1000 * 1000) / 1000, // km → metros
+        fim: Math.round(fim * 1000 * 1000) / 1000,
+        raio: col.raio >= 0 ? n(l[col.raio]) : null,
+        superelevacao: col.sup >= 0 ? n(l[col.sup]) : null
+      });
+    });
+    if (!elementos.length) throw new Error('Nenhum elemento encontrado na planta.');
+    const ramais = {};
+    elementos.forEach((e) => {
+      ramais[e.ramal] = ramais[e.ramal] || [];
+      if (!ramais[e.ramal].includes(e.linha)) ramais[e.ramal].push(e.linha);
+    });
+    Object.values(ramais).forEach((l) => l.sort());
+    return { elementos, ramais, avisos: descartados ? [`${descartados} linha(s) da planta sem km válido foram ignoradas.`] : [] };
+  };
+
+  /** Ramal da planta correspondente ao do arquivo (ex.: "RLT" → "LT"). */
+  B.ramalDaPlanta = (ramalArquivo, ramais) => {
+    const r = String(ramalArquivo || '').trim().toUpperCase();
+    if (ramais[r]) return r;
+    if (r.length > 2 && r.startsWith('R') && ramais[r.slice(1)]) return r.slice(1);
+    return Object.keys(ramais).find((k) => r.endsWith(k)) || '';
+  };
+
+  /** Elementos da planta de um ramal e linha, em ordem de km. */
+  B.elementosDaPlanta = (planta, ramal, linha) => planta.elementos
+    .filter((e) => e.ramal === ramal && String(e.linha) === String(linha))
+    .sort((a, b) => a.ini - b.ini);
+
+  /** Elemento da planta que contém a posição (busca binária). */
+  function naPlanta(els, p) {
+    let lo = 0; let hi = els.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (p < els[mid].ini) hi = mid - 1;
+      else if (p >= els[mid].fim) lo = mid + 1;
+      else return els[mid];
+    }
+    return null;
+  }
+
+  /**
+   * Ajuste de km (em metros, somado à posição do arquivo) que melhor alinha as curvas
+   * medidas (10000/R) com as curvas da planta. Testa de −300 a +300 m.
+   */
+  B.ajusteAutomatico = (pos, curv, els, opcoes = {}) => {
+    const o = { ...B.PADRAO, ...opcoes };
+    if (!els.length || !pos.length) return { ajuste: 0, acerto: null };
+    const esp = B.espacamento(pos) || 0.25;
+    const suave = B.mediaMovel(curv, Math.max(1, Math.round(o.suavizacao / esp)));
+    const passo = Math.max(1, Math.round(1 / esp)); // 1 amostra por metro
+    const amostras = [];
+    for (let i = 0; i < pos.length; i += passo) {
+      if (!Number.isNaN(suave[i])) amostras.push([pos[i], suave[i] <= -o.limiarCurva ? 'E' : suave[i] >= o.limiarCurva ? 'D' : 'T']);
+    }
+    const nota = (aj, troca) => {
+      let ok = 0; let total = 0;
+      for (const [p, cls] of amostras) {
+        const el = naPlanta(els, p + aj);
+        if (!el) continue;
+        total++;
+        let esperado = el.tipo === 'T' ? 'T' : (el.lado === 'D' ? 'D' : 'E');
+        if (troca && esperado !== 'T') esperado = esperado === 'D' ? 'E' : 'D';
+        if (esperado === cls) ok++;
+      }
+      return total >= amostras.length * 0.3 ? ok / total : 0;
+    };
+    let melhor = { ajuste: 0, acerto: -1, troca: false };
+    [false, true].forEach((troca) => {
+      for (let aj = -300; aj <= 300; aj += 2) {
+        const v = nota(aj, troca);
+        if (v > melhor.acerto + 1e-9 || (Math.abs(v - melhor.acerto) < 1e-9 && Math.abs(aj) < Math.abs(melhor.ajuste))) melhor = { ajuste: aj, acerto: v, troca };
+      }
+    });
+    for (let aj = melhor.ajuste - 2; aj <= melhor.ajuste + 2; aj += 0.5) {
+      const v = nota(aj, melhor.troca);
+      if (v > melhor.acerto + 1e-9) melhor = { ...melhor, ajuste: aj, acerto: v };
+    }
+    return { ajuste: melhor.ajuste, acerto: melhor.acerto < 0 ? null : melhor.acerto * 100 };
+  };
+
+  /**
+   * Elementos pela planta: cada ponto do arquivo (posição + ajuste) é atribuído ao elemento da planta.
+   * Trechos sem elemento (pátios, AMV fora da planta) viram "Sem elemento na planta".
+   */
+  B.segmentarPorPlanta = (pos, els, ajuste = 0) => {
+    const n = pos.length;
+    const esp = B.espacamento(pos) || 0.25;
+    const seg = [];
+    let atual = null;
+    for (let i = 0; i < n; i++) {
+      const el = naPlanta(els, pos[i] + ajuste);
+      if (!atual || atual.ref !== el) {
+        atual = { ref: el, i0: i, i1: i };
+        seg.push(atual);
+      } else {
+        atual.i1 = i;
+      }
+    }
+    // Nome do trecho sem elemento: "Entre EH x e EH y" (vizinhos na sequência do arquivo).
+    const ehVizinho = (k, passo) => {
+      for (let j = k + passo; j >= 0 && j < seg.length; j += passo) if (seg[j].ref) return seg[j].ref.eh;
+      return '';
+    };
+    return seg.map((s, k) => {
+      const e = s.ref;
+      if (!e) {
+        const a = ehVizinho(k, -1); const b = ehVizinho(k, 1);
+        s.nomeGap = a && b ? (a === b ? `Sem elemento na planta (EH ${a})` : `Entre EH ${a} e EH ${b}`) : 'Sem elemento na planta';
+      }
+      const base = { i0: s.i0, i1: s.i1, ini: pos[s.i0], fim: pos[s.i1], extensao: abs(pos[s.i1] - pos[s.i0]) + esp };
+      if (!e) return { ...base, tipo: 'X', eh: '', sigla: '—', nome: s.nomeGap, lado: '', raioPlanta: null };
+      const numero = e.num ? String(e.num).padStart(2, '0') : '';
+      return {
+        ...base,
+        tipo: e.tipo,
+        eh: e.eh,
+        sigla: `${e.tipo}${numero}`,
+        nome: `EH ${e.eh} · ${e.tipo === 'C' ? 'Curva' : 'Tangente'} ${numero}`,
+        lado: e.lado,
+        raioPlanta: e.raio || null,
+        superelevacao: e.superelevacao,
+        planta: { ini: e.ini, fim: e.fim }
+      };
+    });
+  };
+
+  /**
+   * Análise completa: elementos, indicadores por elemento, por EH e gerais.
+   * opcoes: limiarCurva, suavizacao, comprimentoMin, limitePerda, limiteVariacao, alinhamento (id),
+   *         offset { bitola, valor, aplicar }, modo ('planta'|'curvatura'), elementosPlanta, ajusteKm.
    */
   B.analisar = (arquivo, opcoes = {}) => {
     const o = { ...B.PADRAO, alinhamento: 'alr10', ...opcoes };
-    const { pos, dados } = arquivo;
+    const { pos } = arquivo;
+    const original = arquivo.dados;
+    const dados = o.offset && o.offset.aplicar ? B.dadosComOffset(original, o.offset) : original;
     const alin = dados[o.alinhamento];
-    const elementos = B.segmentar(pos, dados.curv, o).map((e) => ({ ...e, ...resumoTrecho(dados, e.i0, e.i1, o, alin) }));
-    const geral = resumoTrecho(dados, 0, pos.length - 1, o, alin);
+    const esp = B.espacamento(pos) || 0.25;
+    const janela = Math.max(3, Math.round(o.janelaVariacao / esp) + 1);
+    const varF = B.desvioMovel(dados.bitF, janela);
+    const varT = B.desvioMovel(dados.bitT, janela);
+    const variacao = Float64Array.from(varF, (v, i) => Math.max(Number.isNaN(v) ? -1 : v, Number.isNaN(varT[i]) ? -1 : varT[i])).map((v) => (v < 0 ? NaN : v));
+    const extras = { alinhamento: alin, variacao };
 
-    const porTipo = (tipo) => {
-      const els = elementos.filter((e) => e.tipo === tipo);
+    const usarPlanta = o.modo === 'planta' && o.elementosPlanta && o.elementosPlanta.length;
+    const brutos = usarPlanta ? B.segmentarPorPlanta(pos, o.elementosPlanta, o.ajusteKm || 0) : B.segmentar(pos, dados.curv, o);
+    const elementos = brutos.map((e) => ({ ...e, ...resumoTrecho(dados, e.i0, e.i1, o, extras) }));
+    const geral = resumoTrecho(dados, 0, pos.length - 1, o, extras);
+
+    const somar = (els) => {
       const pontos = els.reduce((s, e) => s + e.pontos, 0);
       const perdas = els.reduce((s, e) => s + e.perdas, 0);
       return { quantidade: els.length, extensao: els.reduce((s, e) => s + e.extensao, 0), pontos, perdas, pctPerda: pontos ? (perdas / pontos) * 100 : null };
     };
 
+    // Resumo por EH (só no modo planta), na ordem da inspeção.
+    const porEh = [];
+    if (usarPlanta) {
+      elementos.forEach((e) => {
+        if (e.tipo === 'X') return;
+        let g = porEh.find((x) => x.eh === e.eh);
+        if (!g) { g = { eh: e.eh, els: [] }; porEh.push(g); }
+        g.els.push(e);
+      });
+      porEh.forEach((g) => {
+        const r = resumoTrecho(dados, Math.min(...g.els.map((e) => e.i0)), Math.max(...g.els.map((e) => e.i1)), o, extras);
+        Object.assign(g, somar(g.els), { pctVariacao: r.pctVariacao, ini: g.els[0].ini, fim: g.els[g.els.length - 1].fim, curvas: g.els.filter((e) => e.tipo === 'C').length, tangentes: g.els.filter((e) => e.tipo === 'T').length });
+        delete g.els;
+      });
+    }
+
     return {
       opcoes: o,
+      modo: usarPlanta ? 'planta' : 'curvatura',
+      dados,
       elementos,
-      geral: { ...geral, extensao: Math.abs(pos[pos.length - 1] - pos[0]) + B.espacamento(pos) },
-      tangentes: porTipo('T'),
-      curvas: porTipo('C'),
+      porEh,
+      geral: { ...geral, extensao: abs(pos[pos.length - 1] - pos[0]) + esp },
+      tangentes: somar(elementos.filter((e) => e.tipo === 'T')),
+      curvas: somar(elementos.filter((e) => e.tipo === 'C')),
       difFT: B.diferenca(dados.bitF, dados.bitT),
-      difKld: Float64Array.from(dados.bitF, (f, i) => (abs(dados.kld[i]) < 60 ? f - dados.kld[i] : NaN))
+      difKld: Float64Array.from(dados.bitF, (f, i) => (abs(dados.kld[i]) < KLD_MAX ? f - dados.kld[i] : NaN)),
+      kldValido: Float64Array.from(dados.kld, (k) => (abs(k) < KLD_MAX ? k : NaN)),
+      varF,
+      varT,
+      variacao
     };
   };
 
