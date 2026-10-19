@@ -62,6 +62,21 @@
     { id: 'vrbt5', nome: 'VrBTmax5' }
   ];
 
+  /** Parâmetros que podem ser vistos no gráfico selecionável (por grupo). */
+  B.GRUPOS_GRAFICO = [
+    { grupo: 'Alinhamento', ids: ['alr10', 'alr20', 'al10', 'al20', 'alMax10', 'val25'] },
+    { grupo: 'Nivelamento longitudinal', ids: ['nl5', 'nl20'] },
+    { grupo: 'Empeno e torção', ids: ['emp2', 'emp10', 'emp20', 'warp'] },
+    { grupo: 'Superelevação', ids: ['sup'] },
+    { grupo: 'Outros', ids: ['vrbt5'] }
+  ];
+  /** Nome e grupo de um parâmetro do gráfico selecionável. */
+  B.parametroGrafico = (id) => {
+    const p = [...B.ALINHAMENTO, ...B.NIVELAMENTO].find((x) => x.id === id) || B.ALINHAMENTO[0];
+    const g = B.GRUPOS_GRAFICO.find((x) => x.ids.includes(p.id));
+    return { id: p.id, nome: p.nome, grupo: g ? g.grupo : 'Parâmetro' };
+  };
+
   B.PADRAO = {
     limiarCurva: 3, // |10000/R| a partir do qual o trecho é curva (R ≈ 3.333 m)
     suavizacao: 10, // metros (média móvel da curvatura)
@@ -534,12 +549,41 @@
   };
 
   /**
+   * Nome dos trechos da ferrovia a partir da planta.
+   * A ferrovia alterna EH (entre pátios, ~7 km) e RH (pátio, ~260 m). O "Eh 43" da planta é o
+   * trecho EH 43/44; o pátio entre o EH 42/43 e o EH 43/44 é a RH-43. Ordem: km crescente.
+   */
+  B.nomesTrechos = (els) => {
+    const ordem = [];
+    els.forEach((e) => { if (ordem[ordem.length - 1] !== e.eh) ordem.push(e.eh); });
+    const proximo = {};
+    ordem.forEach((eh, k) => {
+      const seguinte = ordem.slice(k + 1).find((x) => x !== eh && x !== '');
+      const n = Number(eh);
+      proximo[eh] = seguinte !== undefined && Number(seguinte) > n ? seguinte : (Number.isFinite(n) && eh !== '' ? String(n + 1) : '');
+    });
+    return {
+      eh: (eh) => (eh === '' ? 'EH ?' : `EH ${eh}/${proximo[eh] || '?'}`),
+      /** RH na posição p (metros da planta): número do EH logo acima no km. */
+      rh: (p) => {
+        const acima = els.find((e) => e.ini >= p && e.eh !== '');
+        if (acima) return `RH-${acima.eh}`;
+        const abaixo = [...els].reverse().find((e) => e.fim <= p && e.eh !== '');
+        const n = abaixo ? Number(abaixo.eh) : NaN;
+        return Number.isFinite(n) ? `RH-${n + 1}` : 'RH';
+      }
+    };
+  };
+
+  /**
    * Elementos pela planta: cada ponto do arquivo (posição + ajuste) é atribuído ao elemento da planta.
-   * Trechos sem elemento (pátios, AMV fora da planta) viram "Sem elemento na planta".
+   * Trechos sem elemento na planta são as RH (pátios).
    */
   B.segmentarPorPlanta = (pos, els, ajuste = 0) => {
     const n = pos.length;
     const esp = B.espacamento(pos) || 0.25;
+    const nomes = B.nomesTrechos(els);
+    const linhaPlanta = els.length ? els[0].linha : '';
     const seg = [];
     let atual = null;
     for (let i = 0; i < n; i++) {
@@ -551,26 +595,22 @@
         atual.i1 = i;
       }
     }
-    // Nome do trecho sem elemento: "Entre EH x e EH y" (vizinhos na sequência do arquivo).
-    const ehVizinho = (k, passo) => {
-      for (let j = k + passo; j >= 0 && j < seg.length; j += passo) if (seg[j].ref) return seg[j].ref.eh;
-      return '';
-    };
-    return seg.map((s, k) => {
+    return seg.map((s) => {
       const e = s.ref;
+      const base = { i0: s.i0, i1: s.i1, ini: pos[s.i0], fim: pos[s.i1], extensao: abs(pos[s.i1] - pos[s.i0]) + esp, linha: e ? e.linha : linhaPlanta };
       if (!e) {
-        const a = ehVizinho(k, -1); const b = ehVizinho(k, 1);
-        s.nomeGap = a && b ? (a === b ? `Sem elemento na planta (EH ${a})` : `Entre EH ${a} e EH ${b}`) : 'Sem elemento na planta';
+        const rh = nomes.rh((pos[s.i0] + pos[s.i1]) / 2 + ajuste);
+        return { ...base, tipo: 'X', eh: rh, trecho: rh, sigla: 'RH', nome: `${rh} (pátio)`, lado: '', raioPlanta: null };
       }
-      const base = { i0: s.i0, i1: s.i1, ini: pos[s.i0], fim: pos[s.i1], extensao: abs(pos[s.i1] - pos[s.i0]) + esp };
-      if (!e) return { ...base, tipo: 'X', eh: '', sigla: '—', nome: s.nomeGap, lado: '', raioPlanta: null };
       const numero = e.num ? String(e.num).padStart(2, '0') : '';
+      const trecho = nomes.eh(e.eh);
       return {
         ...base,
         tipo: e.tipo,
-        eh: e.eh,
+        eh: trecho,
+        trecho,
         sigla: `${e.tipo}${numero}`,
-        nome: `EH ${e.eh} · ${e.tipo === 'C' ? 'Curva' : 'Tangente'} ${numero}`,
+        nome: `${trecho} · ${e.tipo === 'C' ? 'Curva' : 'Tangente'} ${numero}`,
         lado: e.lado,
         raioPlanta: e.raio || null,
         superelevacao: e.superelevacao,
@@ -608,13 +648,12 @@
       return { quantidade: els.length, extensao: els.reduce((s, e) => s + e.extensao, 0), pontos, perdas, pctPerda: pontos ? (perdas / pontos) * 100 : null };
     };
 
-    // Resumo por EH (só no modo planta), na ordem da inspeção.
+    // Resumo por trecho (EH e RH; só no modo planta), na ordem da inspeção.
     const porEh = [];
     if (usarPlanta) {
       elementos.forEach((e) => {
-        if (e.tipo === 'X') return;
         let g = porEh.find((x) => x.eh === e.eh);
-        if (!g) { g = { eh: e.eh, els: [] }; porEh.push(g); }
+        if (!g) { g = { eh: e.eh, rh: e.tipo === 'X', linha: e.linha, els: [] }; porEh.push(g); }
         g.els.push(e);
       });
       porEh.forEach((g) => {
@@ -664,7 +703,7 @@
     }
     return escolhidos.map((i, k) => {
       const el = B.elementoDo(elementos, i);
-      return { posicao: k + 1, i, pos: pos[i], km: B.fmtKm(pos[i]), valor: v[i], elemento: el ? el.sigla : '—' };
+      return { posicao: k + 1, i, pos: pos[i], km: B.fmtKm(pos[i]), valor: v[i], elemento: !el ? '—' : (el.trecho ? (el.tipo === 'X' ? el.trecho : `${el.trecho} · ${el.sigla}`) : el.sigla) };
     });
   };
 

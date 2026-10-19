@@ -46,10 +46,10 @@ function linhasSintéticas() {
 const PLANTA_E2E = [
   ['Ramal', 'Linha', 'Eh', 'C/T', 'Lado curva', 'Nº Elemento Eh', 'Quilometragem', '', 'Raio'],
   ['', '', '', '', '', '', 'Inicial', 'Final', ''],
-  ['TST', 1, 11, 'C', 'E', 1, 1.530, 1.730, 667],
-  ['TST', 1, 10, 'T', '', 2, 1.760, 2.030, ''],
-  ['TST', 1, 10, 'C', 'D', 1, 2.030, 2.230, 500],
-  ['TST', 1, 10, 'T', '', 1, 2.230, 2.531, '']
+  ['TST', 1, 10, 'C', 'E', 1, 1.530, 1.730, 667],
+  ['TST', 1, 11, 'T', '', 1, 1.760, 2.030, ''],
+  ['TST', 1, 11, 'C', 'D', 1, 2.030, 2.230, 500],
+  ['TST', 1, 11, 'T', '', 2, 2.230, 2.531, '']
 ];
 const xlsxFalso = `window.XLSX = { read: () => ({ SheetNames: ['Planilha1'], Sheets: { Planilha1: {} } }), utils: { sheet_to_json: () => window.__linhasXlsx || ${JSON.stringify(linhasSintéticas())} } };`;
 
@@ -397,7 +397,7 @@ async function main() {
       await page.getByRole('tab', { name: 'Análise do arquivo' }).click();
       await page.locator('input[type="file"][accept=".csv,.txt"]').setInputFiles({ name: 'TESTE.csv', mimeType: 'text/csv', buffer: Buffer.from(gerarCSV(), 'latin1') });
       await page.locator('.graf-km svg').first().waitFor();
-      assert.deepEqual(await page.locator('.tabela:not(.tabela-offset)').first().locator('tbody .el-tag').allTextContents(), ['T01', 'C01', 'T02', 'C02']);
+      assert.deepEqual(await page.locator('.tabela:not(.tabela-offset)').first().locator('tbody .el-tag').allTextContents(), ['T02', 'T01', 'C01', 'C02']); // maior perda primeiro
       assert.equal(await page.locator('.kpi').first().locator('.kpi-valor').textContent(), '5,0%');
       const rk = page.locator('.tabela:not(.tabela-offset)').nth(1).locator('tbody tr').first();
       assert.equal(await rk.locator('td').nth(1).textContent(), '1+700');
@@ -415,7 +415,7 @@ async function main() {
       await page.waitForFunction(() => window.__impressoes === 1);
       const laudo = page.locator('#laudo');
       assert.equal(await laudo.locator('.laudo-resultado strong').textContent(), 'Reprovado');
-      assert.equal(await laudo.locator('.laudo-grafico svg').count(), 7);
+      assert.equal(await laudo.locator('.laudo-grafico svg').count(), 6);
       assert.ok((await laudo.textContent()).includes('Checklist de inspeção'), 'checklist incluído no laudo');
       assert.ok((await laudo.textContent()).includes('Tangente 02'));
       await page.emulateMedia({ media: 'print' });
@@ -429,8 +429,22 @@ async function main() {
       await page.getByText('Planta importada').waitFor();
       await page.evaluate(() => { delete window.__linhasXlsx; });
       const tabEls = page.locator('.tabela:not(.tabela-offset)').filter({ hasText: 'Lado' });
-      assert.deepEqual(await tabEls.locator('tbody .el-tag').allTextContents(), ['T01', 'C01', 'T02', 'Fora', 'C01']);
-      assert.ok((await tabEls.locator('tbody tr').nth(3).getAttribute('title') || await tabEls.locator('tbody tr').nth(3).textContent()).length > 0);
+      assert.deepEqual(await tabEls.locator('tbody .el-tag').allTextContents(), ['T01', 'T02', 'C01', 'RH', 'C01']);
+      const trechos = await tabEls.locator('tbody tr').evaluateAll((trs) => trs.map((tr) => tr.children[1].textContent));
+      assert.deepEqual(trechos, ['EH 11/12', 'EH 11/12', 'EH 11/12', 'RH-11', 'EH 10/11']);
+      assert.equal(await tabEls.locator('tbody tr').first().locator('td').first().textContent(), '1'); // linha do arquivo
+      // Gráfico de bitolas: escolher quais aparecem (F, T, KLD).
+      const selBit = page.locator('.bitolas-sel');
+      await selBit.getByLabel('KLD').check();
+      await page.locator('.graf-km-item').filter({ hasText: 'Bitolas (mm): Bitola F, Bitola T e KLD' }).waitFor();
+      await page.locator('.bitolas-sel').getByLabel('Bitola F').uncheck();
+      await page.locator('.graf-km-item').filter({ hasText: 'Bitolas (mm): Bitola T e KLD' }).waitFor();
+      // Gráfico selecionável: empeno, nivelamento, superelevação além do alinhamento.
+      await page.getByLabel(/Parâmetro do gráfico/).selectOption('emp10');
+      await page.locator('.graf-km-item h3', { hasText: 'Empeno e torção: EMP_10 (empeno)' }).waitFor();
+      await page.getByLabel(/Parâmetro do gráfico/).selectOption('sup');
+      await page.locator('.graf-km-item h3', { hasText: 'Superelevação: SUPerABS' }).waitFor();
+      await page.getByLabel(/Parâmetro do gráfico/).selectOption('alr10');
       // Offset: o melhor valor na bitola T zera a perda.
       const cartaoOff = page.locator('details').filter({ hasText: 'Simulação de offset' });
       await cartaoOff.locator('summary').click();

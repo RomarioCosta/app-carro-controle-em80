@@ -213,13 +213,13 @@
     return [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000, 10000].find((p) => p >= alvo) || 10000;
   }
 
-  function faixaY(listas, extras) {
+  function faixaY(listas, extras, corteY = 0.002) {
     const vals = [];
     listas.forEach((l) => l.forEach((v) => { if (Number.isFinite(v)) vals.push(v); }));
     extras.forEach((v) => { if (Number.isFinite(v)) vals.push(v); });
     if (!vals.length) return [-1, 1];
     vals.sort((a, b) => a - b);
-    const corte = vals.length > 400 ? Math.floor(vals.length * 0.002) : 0; // ignora picos isolados de leitura
+    const corte = vals.length > 400 ? Math.floor(vals.length * corteY) : 0; // ignora picos isolados de leitura
     let lo = vals[corte];
     let hi = vals[vals.length - 1 - corte];
     extras.forEach((v) => { if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } });
@@ -242,7 +242,7 @@
    * Retorna { el, guia(pos|null) }.
    */
   function graficoKm(op) {
-    const caixa = ui.h('div', { class: 'graf-caixa graf-km' });
+    const caixa = ui.h('div', { class: `graf-caixa graf-km ${op.classe || ''}` });
     const H = op.altura || 170;
     const m = { t: 18, r: 12, b: 26, l: 46 };
     let guiaLinha = null;
@@ -265,7 +265,7 @@
       const vis = [];
       for (let i = 0; i < pos.length; i++) if (pos[i] >= lo && pos[i] <= hi) vis.push(i);
       const visiveis = op.series.map((s) => vis.map((i) => s.valores[i]));
-      const [y0, y1] = op.yFaixa || faixaY(visiveis, op.referencias || []);
+      const [y0, y1] = op.yFaixa || faixaY(visiveis, op.referencias || [], op.corteY);
       const y = (v) => m.t + ih - ((Math.min(Math.max(v, y0), y1) - y0) / (y1 - y0)) * ih;
 
       const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, class: 'graf', role: 'img', 'aria-label': op.titulo || 'Gráfico por km' });
@@ -316,8 +316,9 @@
           if (!Number.isFinite(v)) return;
           const px = Math.round(x(pos[i]));
           const b = baldes.get(px);
-          if (!b) baldes.set(px, { min: v, max: v, iMin: i, iMax: i, primeiro: i, ultimo: i });
+          if (!b) baldes.set(px, { min: v, max: v, iMin: i, iMax: i, primeiro: i, ultimo: i, soma: v, n: 1 });
           else {
+            b.soma += v; b.n++;
             if (v < b.min) { b.min = v; b.iMin = i; }
             if (v > b.max) { b.max = v; b.iMax = i; }
             b.ultimo = i;
@@ -329,6 +330,26 @@
             const v = Math.abs(b.max) >= Math.abs(b.min) ? b.max : b.min;
             g.appendChild(s('rect', { x: px - 1.5, y: y(v) - 1.5, width: 3, height: 3, class: serie.classe }));
           });
+          return;
+        }
+        // Modo "faixa": com muitos pontos por pixel, desenha a faixa mín–máx clara e a média por cima,
+        // para as linhas não virarem um borrão quando o trecho é longo.
+        const densa = op.estilo === 'faixa' && vis.length / Math.max(1, colunas.length) > 3;
+        if (densa) {
+          let trechos = []; let atualT = []; let ult = null;
+          colunas.forEach(([px, b]) => {
+            if (ult !== null && Math.abs(b.primeiro - ult) > 4) { trechos.push(atualT); atualT = []; }
+            atualT.push([px, b]); ult = b.ultimo;
+          });
+          if (atualT.length) trechos.push(atualT);
+          let area = ''; let media = '';
+          trechos.forEach((t) => {
+            area += t.map(([px, b], k) => `${k ? 'L' : 'M'}${px},${y(b.max).toFixed(1)}`).join(' ');
+            area += ` ${t.slice().reverse().map(([px, b]) => `L${px},${y(b.min).toFixed(1)}`).join(' ')} Z `;
+            media += t.map(([px, b], k) => `${k ? 'L' : 'M'}${px},${y(b.soma / b.n).toFixed(1)}`).join(' ') + ' ';
+          });
+          if (area) g.appendChild(s('path', { d: area, class: `graf-envelope ${serie.classe || ''}` }));
+          if (media) g.appendChild(s('path', { d: media, class: `graf-serie ${serie.classe || ''}` }));
           return;
         }
         let d = '';
@@ -402,7 +423,7 @@
         op.series.forEach((sr) => {
           const v = sr.valores[i];
           if (sr.tipo === 'pontos' || !Number.isFinite(v)) return;
-          cursorG.appendChild(s('circle', { cx: estado.x(op.pos[i]), cy: estado.y(v), r: 3, class: `graf-cursor ${sr.classe || ''}` }));
+          cursorG.appendChild(s('circle', { cx: estado.x(op.pos[i]), cy: estado.y(v), r: 2.5, class: `graf-cursor ${sr.classe || ''}` }));
         });
       },
       destruir() { ro.disconnect(); }
