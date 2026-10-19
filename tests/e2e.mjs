@@ -9,6 +9,7 @@ import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { iniciarServidor } from './servidor-teste.mjs';
+import { gerarCSV } from './csv-sintetico.mjs';
 
 const require = createRequire(import.meta.url);
 let playwright;
@@ -317,7 +318,7 @@ async function main() {
       await aguardar(async () => { const x = await planilha(); return x.OMs.filter((o) => o['Data programada'] === isoLocal(diaRel(3))).length === 2; }, 'reprogramação na planilha');
     });
 
-    await passo('anomalia: gaveta lateral gera a mensagem do WhatsApp', async () => {
+    await passo('anomalia: gaveta lateral gera a mensagem e limpa o formulário', async () => {
       await page.getByRole('button', { name: 'Abrir relatório de anomalia' }).click();
       const g = page.locator('.gaveta');
       await g.getByRole('heading', { name: 'Relatório de Anomalia' }).waitFor();
@@ -381,6 +382,25 @@ async function main() {
       await page.getByRole('heading', { name: 'Registro de Eventos' }).waitFor();
       await page.getByText('Partida').first().waitFor();
       await ctx.setOffline(false);
+    });
+
+    await passo('análise do arquivo do carro: elementos, perda de bitola e ranking', async () => {
+      await page.getByRole('navigation').getByRole('button', { name: 'Checklist' }).click();
+      await page.getByRole('tab', { name: 'Análise do arquivo' }).click();
+      await page.locator('input[type="file"][accept=".csv,.txt"]').setInputFiles({ name: 'TESTE.csv', mimeType: 'text/csv', buffer: Buffer.from(gerarCSV(), 'latin1') });
+      await page.locator('.graf-km svg').first().waitFor();
+      assert.deepEqual(await page.locator('.tabela').first().locator('tbody .el-tag').allTextContents(), ['T01', 'C01', 'T02', 'C02']);
+      assert.equal(await page.locator('.kpi').first().locator('.kpi-valor').textContent(), '5,0%');
+      const rk = page.locator('.tabela').nth(1).locator('tbody tr').first();
+      assert.equal(await rk.locator('td').nth(1).textContent(), '1+700');
+      await page.screenshot({ path: `${SAIDA}13-analise.png`, fullPage: true });
+      await page.locator('.tabela').first().locator('tbody tr').nth(2).click();
+      await page.getByRole('button', { name: 'Ver tudo' }).waitFor();
+      // o arquivo fica guardado no aparelho
+      await page.reload();
+      await page.getByRole('tab', { name: 'Análise do arquivo' }).waitFor();
+      await page.getByText('TESTE.csv').waitFor();
+      await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 
     await ctx.close();
