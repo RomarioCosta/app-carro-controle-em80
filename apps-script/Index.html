@@ -436,6 +436,17 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .toast-erro { background: var(--erro); color: #fff; }
 .toast.saindo { opacity: 0; transform: translateY(8px); }
 
+/* ---------- Aviso de versão nova ---------- */
+.aviso-versao {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 55;
+  top: calc(env(safe-area-inset-top) + 64px); width: min(520px, calc(100% - 24px));
+  display: flex; align-items: center; gap: 10px; padding: 10px 8px 10px 14px;
+  background: var(--sup); color: var(--texto); border: 2px solid var(--acento); border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .25); font-weight: 600; font-size: .92rem;
+}
+.aviso-versao span { flex: 1; }
+@media (min-width: 900px) { .aviso-versao { top: 100px; } }
+
 /* ---------- Janela modal ---------- */
 .modal-fundo { position: fixed; inset: 0; z-index: 50; background: rgba(10, 15, 20, .5); display: flex; align-items: center; justify-content: center; padding: 16px; }
 .modal { width: min(520px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: var(--sup); border-radius: 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, .35); }
@@ -741,7 +752,9 @@ window.App = window.App || {};
 (function (App) {
   App.config = {
     versao: '1.0.0',
-    build: 'em80-fa0c801e07', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
+    siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
+    build: 'em80-8687908de6', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -4121,6 +4134,16 @@ window.App = window.App || {};
       h('section', { class: 'cartao' },
         h('h2', { text: 'Sobre' }),
         h('p', { class: 'sub', text: `App Carro Controle EM80 · versão ${config.versao} (${config.build}) · modo ${api.modo() === 'appsscript' ? 'Apps Script' : 'site (PWA)'}` }),
+        h('div', { class: 'linha-acoes' },
+          h('button', {
+            class: 'btn btn-secundario',
+            onclick: async () => {
+              const publicada = await App.versao.verificar();
+              if (publicada === null) ui.toast('Não foi possível conferir agora (sem internet?).', 'erro');
+              else if (publicada === config.build) ui.toast('Você já está na versão mais recente.', 'ok');
+            }
+          }, ui.icone('sync'), 'Procurar atualização'),
+          api.modo() === 'web' ? h('button', { class: 'btn btn-secundario', onclick: () => App.versao.atualizar() }, 'Recarregar app') : null),
         h('button', { class: 'btn btn-perigo', onclick: apagarDados }, ui.icone('lixo'), 'Apagar dados deste aparelho')));
     renderConexao();
     renderTema();
@@ -4642,6 +4665,49 @@ window.App = window.App || {};
 
   /* ---------------- Inicialização ---------------- */
 
+  /* ---------------- Versão nova ---------------- */
+
+  /** Apaga a cópia guardada do app (não mexe nos dados) e recarrega. */
+  async function atualizarApp() {
+    try {
+      if ('caches' in window) await Promise.all((await caches.keys()).map((k) => caches.delete(k)));
+      if (navigator.serviceWorker) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+    } catch (e) { /* segue para recarregar */ }
+    location.reload();
+  }
+
+  let avisoMostrado = false;
+  function avisarVersaoNova() {
+    if (avisoMostrado) return;
+    avisoMostrado = true;
+    const web = api.modo() === 'web';
+    const aviso = h('div', { class: 'aviso-versao', role: 'status' },
+      h('span', { text: web ? 'Há uma versão nova do app.' : 'Há uma versão nova do app no site.' }),
+      web
+        ? h('button', { class: 'btn btn-primario btn-pequeno', onclick: atualizarApp }, ui.icone('sync'), 'Atualizar agora')
+        : h('a', { class: 'btn btn-primario btn-pequeno', href: App.config.siteUrl, target: '_blank', rel: 'noopener' }, 'Abrir versão nova'),
+      h('button', { class: 'btn-icone', 'aria-label': 'Fechar aviso', onclick: () => aviso.remove() }, ui.icone('x')));
+    document.body.appendChild(aviso);
+  }
+
+  /** Compara a versão aberta com a publicada. Retorna a versão publicada (ou null). */
+  async function verificarVersao() {
+    if (navigator.onLine === false || !App.config.build || App.config.build === 'em80-dev') return null;
+    try {
+      const base = api.modo() === 'web' ? new URL('js/config.js', location.href).href : `${App.config.siteUrl}js/config.js`;
+      const resp = await fetch(`${base}?v=${Date.now()}`, { cache: 'no-store' });
+      if (!resp.ok) return null;
+      const m = /build: '([^']+)'/.exec(await resp.text());
+      if (m && m[1] !== App.config.build) avisarVersaoNova();
+      return m ? m[1] : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function registrarServiceWorker() {
     if (api.modo() !== 'web' || !('serviceWorker' in navigator)) return;
     if (location.protocol !== 'https:' && location.hostname !== 'localhost') return;
@@ -4675,6 +4741,10 @@ window.App = window.App || {};
 
     sync.iniciar();
     registrarServiceWorker();
+    setTimeout(verificarVersao, 3000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') verificarVersao();
+    });
   }
 
   // Erros inesperados aparecem na tela, para facilitar o diagnóstico em campo.
@@ -4692,6 +4762,7 @@ window.App = window.App || {};
   window.addEventListener('unhandledrejection', (e) => avisarErro(e.reason));
 
   App.iniciar = iniciar;
+  App.versao = { verificar: verificarVersao, atualizar: atualizarApp };
   App.ir = ir;
   iniciar();
 })(window.App);

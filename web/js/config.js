@@ -13,7 +13,9 @@
 (function (App) {
   App.config = {
     versao: '1.0.0',
-    build: 'em80-fa0c801e07', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
+    siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
+    build: 'em80-8687908de6', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {

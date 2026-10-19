@@ -29,6 +29,16 @@
       h('section', { class: 'cartao' },
         h('h2', { text: 'Sobre' }),
         h('p', { class: 'sub', text: `App Carro Controle EM80 · versão ${config.versao} (${config.build}) · modo ${api.modo() === 'appsscript' ? 'Apps Script' : 'site (PWA)'}` }),
+        h('div', { class: 'linha-acoes' },
+          h('button', {
+            class: 'btn btn-secundario',
+            onclick: async () => {
+              const publicada = await App.versao.verificar();
+              if (publicada === null) ui.toast('Não foi possível conferir agora (sem internet?).', 'erro');
+              else if (publicada === config.build) ui.toast('Você já está na versão mais recente.', 'ok');
+            }
+          }, ui.icone('sync'), 'Procurar atualização'),
+          api.modo() === 'web' ? h('button', { class: 'btn btn-secundario', onclick: () => App.versao.atualizar() }, 'Recarregar app') : null),
         h('button', { class: 'btn btn-perigo', onclick: apagarDados }, ui.icone('lixo'), 'Apagar dados deste aparelho')));
     renderConexao();
     renderTema();
