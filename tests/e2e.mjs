@@ -426,7 +426,7 @@ async function main() {
 
     /* ============ Computador ============ */
     await passo('computador: layout largo e gráficos com dica ao passar o mouse', async () => {
-      const ctxD = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' });
+      const ctxD = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', serviceWorkers: 'block' });
       const pd = await ctxD.newPage();
       vigiarErros(pd, erros);
       await pd.addInitScript(([url, token]) => {
@@ -442,6 +442,12 @@ async function main() {
       await pd.screenshot({ path: `${SAIDA}09-computador.png`, fullPage: true });
       await pd.getByRole('navigation').getByRole('button', { name: 'Checklist' }).click();
       await pd.screenshot({ path: `${SAIDA}10-computador-checklist.png` });
+      // Versão nova publicada: o app avisa e oferece atualizar.
+      await pd.route(/js\/config\.js\?v=/, (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: "build: 'em80-nova12345'" }));
+      await pd.evaluate(() => App.versao.verificar());
+      await pd.locator('.aviso-versao').getByRole('button', { name: 'Atualizar agora' }).waitFor();
+      await pd.locator('.aviso-versao').getByRole('button', { name: 'Fechar aviso' }).click();
+      await pd.unroute(/js\/config\.js\?v=/);
       await pd.getByRole('button', { name: 'Abrir relatório de anomalia' }).click();
       await pd.locator('.gaveta.aberta').waitFor();
       await pd.waitForTimeout(300);

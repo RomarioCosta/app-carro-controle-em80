@@ -169,6 +169,49 @@
 
   /* ---------------- Inicialização ---------------- */
 
+  /* ---------------- Versão nova ---------------- */
+
+  /** Apaga a cópia guardada do app (não mexe nos dados) e recarrega. */
+  async function atualizarApp() {
+    try {
+      if ('caches' in window) await Promise.all((await caches.keys()).map((k) => caches.delete(k)));
+      if (navigator.serviceWorker) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+    } catch (e) { /* segue para recarregar */ }
+    location.reload();
+  }
+
+  let avisoMostrado = false;
+  function avisarVersaoNova() {
+    if (avisoMostrado) return;
+    avisoMostrado = true;
+    const web = api.modo() === 'web';
+    const aviso = h('div', { class: 'aviso-versao', role: 'status' },
+      h('span', { text: web ? 'Há uma versão nova do app.' : 'Há uma versão nova do app no site.' }),
+      web
+        ? h('button', { class: 'btn btn-primario btn-pequeno', onclick: atualizarApp }, ui.icone('sync'), 'Atualizar agora')
+        : h('a', { class: 'btn btn-primario btn-pequeno', href: App.config.siteUrl, target: '_blank', rel: 'noopener' }, 'Abrir versão nova'),
+      h('button', { class: 'btn-icone', 'aria-label': 'Fechar aviso', onclick: () => aviso.remove() }, ui.icone('x')));
+    document.body.appendChild(aviso);
+  }
+
+  /** Compara a versão aberta com a publicada. Retorna a versão publicada (ou null). */
+  async function verificarVersao() {
+    if (navigator.onLine === false || !App.config.build || App.config.build === 'em80-dev') return null;
+    try {
+      const base = api.modo() === 'web' ? new URL('js/config.js', location.href).href : `${App.config.siteUrl}js/config.js`;
+      const resp = await fetch(`${base}?v=${Date.now()}`, { cache: 'no-store' });
+      if (!resp.ok) return null;
+      const m = /build: '([^']+)'/.exec(await resp.text());
+      if (m && m[1] !== App.config.build) avisarVersaoNova();
+      return m ? m[1] : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function registrarServiceWorker() {
     if (api.modo() !== 'web' || !('serviceWorker' in navigator)) return;
     if (location.protocol !== 'https:' && location.hostname !== 'localhost') return;
@@ -202,6 +245,10 @@
 
     sync.iniciar();
     registrarServiceWorker();
+    setTimeout(verificarVersao, 3000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') verificarVersao();
+    });
   }
 
   // Erros inesperados aparecem na tela, para facilitar o diagnóstico em campo.
@@ -219,6 +266,7 @@
   window.addEventListener('unhandledrejection', (e) => avisarErro(e.reason));
 
   App.iniciar = iniciar;
+  App.versao = { verificar: verificarVersao, atualizar: atualizarApp };
   App.ir = ir;
   iniciar();
 })(window.App);

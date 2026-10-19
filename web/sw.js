@@ -5,7 +5,7 @@
  */
 'use strict';
 
-const VERSAO = 'em80-fa0c801e07';
+const VERSAO = 'em80-8687908de6';
 const ARQUIVOS = [
   './',
   'index.html',
@@ -52,6 +52,7 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
+  if (url.search) return; // consultas de versão (?v=...) vão direto para a rede, sem guardar cópia
 
   const doCache = () => caches.match(req, { ignoreSearch: true })
     .then((r) => r || (req.mode === 'navigate' ? caches.match('index.html') : undefined));
