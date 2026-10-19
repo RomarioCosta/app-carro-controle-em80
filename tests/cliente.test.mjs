@@ -64,19 +64,19 @@ test('importação reconhece as colunas do SAP (inclusive "INSTALÇÃO")', () =>
   const linhas = [
     ['Relatório SAP'],
     ['Nº Ordem', 'Texto breve', 'Denominação do loc.instalação', 'Local de instalação', 'INSTALÇÃO', 'Plano de Manutenção', 'Item de Manutenção', 'Status do Usuario', 'Status da Ordem', 'Data Planejada', 'Data de Tolerância Mínima', 'Data de Tolerância Máxima', 'Ciclo', 'KM', 'KM2', 'STATUS', 'Data Programada'],
-    [202604915867, 'RFA 18V/19I L1 ', '18V19IL1, RAMAL', '03-FA', 'EFVM-RFA', 383503, 1096733, 'VPTS AGPL', 'SCDM', 46327, 46297, 46357, 2, 152908, 166542, 'ABER', 46330],
-    [202604914655, 'LPR 09i/09v L2', 'RAMAL 2', '', '', '', '', '', '', 46327, '', '', 2, '', '', 'LIB', '04/11/2026'],
-    [202604914655, 'duplicada', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+    [202600001234, 'RFA 01V/02I L1 ', '18V19IL1, RAMAL', '03-FA', 'EFVM-RFA', 383503, 1096733, 'VPTS AGPL', 'SCDM', 46327, 46297, 46357, 2, 152908, 166542, 'ABER', 46330],
+    [202600005678, 'LPR 09i/09v L2', 'RAMAL 2', '', '', '', '', '', '', 46327, '', '', 2, '', '', 'LIB', '04/11/2026'],
+    [202600005678, 'duplicada', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
     ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
-    [202604914700, 'RBH X', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'xx/yy']
+    [202600009999, 'RBH X', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'xx/yy']
   ];
   const r = OM.processarLinhas(linhas);
   assert.deepEqual(j(r.erros), []);
   assert.equal(r.oms.length, 3);
   assert.equal(r.temColunaProgramada, true);
   const [a, b, c] = r.oms;
-  assert.equal(a.nOrdem, '202604915867');
-  assert.equal(a.textoBreve, 'RFA 18V/19I L1');
+  assert.equal(a.nOrdem, '202600001234');
+  assert.equal(a.textoBreve, 'RFA 01V/02I L1');
   assert.equal(a.instalacao, 'EFVM-RFA');
   assert.equal(a.plano, '383503');
   assert.equal(a.dataProgramada, '2026-11-04');
