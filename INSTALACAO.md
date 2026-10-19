@@ -48,9 +48,35 @@ Tempo estimado: 15 minutos. Faça pelo **computador** (fica mais fácil copiar o
 2. Na primeira vez, o app pede o **código de acesso**: digite o código anotado.
 3. No menu do Chrome (⋮), toque em **Adicionar à tela inicial**.
 
-## Atualizar para uma nova versão
+## Usar como site (recomendado: atualiza sozinho e abre sem sinal)
 
-Quando o código mudar no GitHub:
+Com o site no GitHub Pages, cada correção aprovada no GitHub chega ao app **sem copiar código**.
+O Apps Script continua sendo o servidor que grava na planilha.
+
+**Configuração (uma vez só):**
+
+1. No GitHub, abra o repositório → **Settings** → **General** → no fim da página, em **Danger Zone**,
+   clique em **Change visibility → Make public** e confirme.
+2. Ainda em **Settings**, abra **Pages** (menu da esquerda). Em **Build and deployment → Source**, escolha **GitHub Actions**.
+3. Abra a aba **Actions** do repositório, clique em **Publicar app** → **Run workflow** → **Run workflow**.
+   Em cerca de 1 minuto o site fica no ar em:
+   **https://romariocosta.github.io/app-carro-controle-em80/**
+4. Abra esse endereço no celular. O app abre em **Ajustes**: informe
+   - **URL do servidor:** o link `/exec` da implantação do Apps Script;
+   - **Código de acesso:** o mesmo de antes (`API_TOKEN`);
+   e toque em **Salvar e testar**.
+5. No menu do Chrome (⋮), toque em **Adicionar à tela inicial** (ou **Instalar app**).
+
+> **O que fica público:** apenas o código do app e a documentação. Os dados continuam na sua planilha,
+> protegidos pelo código de acesso, que **não** está no repositório. O nome e o e-mail usados nos commits
+> também ficam visíveis no histórico.
+
+**Atualizações:** quando uma correção é aprovada (Merge) no GitHub, o site é republicado sozinho.
+No celular, basta abrir o app com internet para receber a versão nova.
+
+## Atualizar a versão do Apps Script
+
+Só é necessário quando o arquivo `Codigo.js` mudar (o servidor), ou se você usar o app pelo link `/exec`:
 
 1. Copie de novo os arquivos que mudaram (normalmente `Codigo.js` e `Index.html`).
 2. **Implantar → Gerenciar implantações → ✏️ (editar)** → em "Versão", escolha **Nova versão** → **Implantar**.
@@ -65,8 +91,7 @@ O link continua o mesmo. Os dados não são afetados.
   quando a conexão volta (o ícone de nuvem no topo mostra quantos registros estão pendentes).
 - Pelo link do Apps Script, o app **precisa de internet para abrir**. Se ele for fechado e o celular estiver sem sinal,
   só abre de novo quando houver conexão. Os dados já salvos não se perdem.
-- Para abrir **mesmo sem sinal**, o app pode ser publicado também como site (PWA), usando o mesmo código da pasta `web/`.
-  Nesse modo, em **Ajustes** informe a URL `/exec` e o código de acesso.
+- Pelo **site** (GitHub Pages), o app **abre mesmo sem sinal**, depois de ter sido aberto uma vez com internet.
 
 ## Roteiro de teste
 
@@ -74,5 +99,5 @@ O link continua o mesmo. Os dados não são afetados.
 2. **Eventos:** escolha um equipamento e toque em **Iniciar agora**; depois **Finalizar agora**. Teste também **Duplicar último** e o preenchimento manual dos horários.
 3. **Produção:** em **Importar**, informe o número do ciclo e escolha a planilha do SAP com a coluna **Data Programada**. Toque nas OMs do dia, veja os percentuais e os gráficos. Teste um toque duplo para desfazer.
 4. **Sem sinal:** ative o modo avião, marque uma OM e salve um evento; desative e veja o envio automático.
-5. **Anomalia:** toque na aba amarela **Anomalia** na lateral, preencha, salve e use **Copiar** ou **Enviar no WhatsApp**.
+5. **Anomalia:** toque na aba amarela **Anomalia** na lateral (ou no ícone de alerta no topo), preencha, salve e use **Copiar** ou **Enviar no WhatsApp**.
 6. **Tema:** use o botão de lua/sol no topo.
