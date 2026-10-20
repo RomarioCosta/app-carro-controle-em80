@@ -101,7 +101,12 @@ Posição = `KM × 1000 + LOCALIZACAO` (metros). Tudo é calculado no aparelho; 
 - **Linha do arquivo só informativa:** a coluna LINHA pode mudar dentro do arquivo (0, 1, 2, 3) ou ser um texto (ex.: "TESTE01"). O app lê a linha de cada ponto, mas a localização (EH/RH e elemento) é sempre feita pelo **km** na planta do ramal: a linha só escolhe qual linha da planta consultar primeiro (se não existir ou não tiver elemento naquele km, usa as outras). Nas tabelas, a coluna Linha mostra o valor do arquivo em cada elemento (ex.: "EH 06/07 · TESTE01").
 - **Ramal pelo arquivo e conferência pelas curvas:** o km sempre é lido junto com a coluna RAMAL (TU e LT, por exemplo, têm os mesmos km). O app compara as curvas do arquivo com as de todos os ramais/linhas da planta e avisa quando elas combinam muito mais com outro ramal do que com o do arquivo.
 - **Tangentes e curvas sem planta:** pela coluna `10000/R`, suavizada por média móvel (padrão 10 m). Ponto com |10000/R| ≥ 3 (raio ≈ 3.333 m) é curva; abaixo, tangente. Trechos menores que 20 m são unidos ao vizinho. Numeração na ordem da inspeção: Tangente 01 (T01), Curva 01 (C01), Tangente 02…
-- **Perda de bitola:** ponto em que |Bitola F − Bitola T| > 2 mm (só frontal × traseira). Percentual por elemento = pontos com perda ÷ pontos medidos.
+- **Perda de bitola (regra única para tela, laudo e simulação de offset):**
+  1. Diferença no ponto = Bitola F − Bitola T, **arredondada a 0,01 mm** (resolução do arquivo; evita que 2,00 mm vire 2,0000000000000004).
+  2. Ponto com perda: **|F − T| > 2 mm** (limite ajustável). Exatamente 2,00 mm não é perda. Só contam pontos com F e T lidas.
+  3. **% de perda = extensão com perda ÷ extensão medida, em metros.** Cada ponto vale a distância andada até o seguinte: carro parado ou em ré vale 0 (não conta duas vezes o mesmo lugar); salto de km vale só o espaçamento normal. Andando normalmente (0,25 m por ponto) é igual a contar pontos.
+  4. Totais (geral, tangentes, curvas, por EH) = soma das extensões dos elementos; pátios (RH) fora.
+  5. Elemento com menos de 90% de leitura de F e T é marcado (⚠ na tela, * no laudo).
 - **Bitolas exibidas:** 1000 mm + valor do arquivo (Bitola F, Bitola T e KLD).
 - **OGMS × KLD:** diferença Bitola F − Bit_KLD (leituras do KLD acima de 60 mm em módulo são descartadas como erro de sensor). Comparação no gráfico de bitolas, marcando KLD.
 - **Variação rápida da bitola:** desvio padrão da bitola F e da T numa janela de 1 m; acima do limite (padrão 1,5 mm, ajustável) indica provável erro de leitura. % por elemento e no geral.

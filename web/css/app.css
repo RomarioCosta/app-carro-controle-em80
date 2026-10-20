@@ -674,3 +674,4 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .leg-tv { display: inline-block; width: 22px; height: 12px; background: linear-gradient(to top right, transparent 42%, var(--texto) 42%, var(--texto) 58%, transparent 58%); border-top: 1.5px solid var(--texto); border-bottom: 1.5px solid var(--texto); }
 .seg-modos-analise { display: flex; flex-wrap: wrap; }
 .seg-modos-analise .seg-opcao { flex: 1 1 auto; }
+.baixa-cobertura { color: var(--alerta); }

@@ -334,45 +334,92 @@
     return { ...dados, [offset.bitola]: ajustado };
   };
 
-  /** Perda de bitola em todo o trecho (|F − T| > limite). */
-  B.perdaTotal = (dados, limite, i0 = 0, i1 = dados.bitF.length - 1, mascara = null) => {
-    let pontos = 0; let perdas = 0;
-    for (let i = i0; i <= i1; i++) {
-      if (mascara && !mascara[i]) continue;
-      const f = dados.bitF[i]; const t = dados.bitT[i];
-      if (Number.isNaN(f) || Number.isNaN(t)) continue;
-      pontos++;
-      if (abs(f - t) > limite) perdas++;
+  /* ------------------------------------------------------------------ */
+  /* Regra da perda de bitola (fonte única para tela, laudo e offset)    */
+  /* ------------------------------------------------------------------ */
+  //
+  // 1) Diferença no ponto: F − T, arredondada a 0,01 mm (resolução do arquivo). Sem o arredondamento,
+  //    contas como 2,7 − 0,7 dão 2,0000000000000004 e um ponto com diferença de exatamente 2,00 mm
+  //    seria contado como perda.
+  // 2) Ponto com perda: |F − T| > limite (padrão 2 mm; exatamente 2,00 mm não é perda).
+  //    Só entra ponto com Bitola F e Bitola T lidas; pontos sem leitura não contam para nada.
+  // 3) % de perda = extensão com perda ÷ extensão medida, em metros. Cada ponto vale a distância que o
+  //    carro andou até o ponto seguinte: parado ou em ré vale 0 (não conta duas vezes o mesmo lugar) e
+  //    salto de km (falha de gravação) vale só o espaçamento normal. Com o carro andando normalmente
+  //    (um ponto a cada 0,25 m) dá o mesmo que contar pontos.
+  // 4) Pátios (RH) ficam fora das estatísticas gerais (máscara).
+
+  /** Diferença F − T arredondada a 0,01 mm (NaN se faltar uma das duas). */
+  B.difBitola = (f, t) => (Number.isNaN(f) || Number.isNaN(t) ? NaN : Math.round((f - t) * 100) / 100);
+
+  /** Ponto com perda de bitola: |F − T| (arredondada) maior que o limite. */
+  B.ehPerda = (dif, limite) => !Number.isNaN(dif) && abs(dif) > limite;
+
+  /** Peso (m) de cada ponto: distância andada até o próximo, sem contar parada, ré nem salto de km. */
+  B.pesosDistancia = (pos) => {
+    const n = pos.length;
+    const w = new Float64Array(n);
+    if (!n) return w;
+    const esp = B.espacamento(pos) || 0.25;
+    const sentido = pos[n - 1] >= pos[0] ? 1 : -1;
+    const maxPasso = Math.max(1, esp * 4);
+    for (let i = 0; i < n; i++) {
+      const d = i < n - 1 ? (pos[i + 1] - pos[i]) * sentido : esp;
+      w[i] = d <= 0 ? 0 : d > maxPasso ? esp : d;
     }
-    return { pontos, perdas, pct: pontos ? (perdas / pontos) * 100 : null };
+    return w;
   };
 
   /**
-   * Offset (em mm) para a bitola F ou T que mais reduz a perda de bitola.
+   * Perda de bitola num intervalo de pontos (regra acima).
+   * Retorna pontos/perdas (contagem), metros/metrosPerda (extensão) e pct (sobre a extensão).
+   */
+  B.avaliarPerda = (dados, limite, i0 = 0, i1 = dados.bitF.length - 1, mascara = null, pesos = null) => {
+    let pontos = 0; let perdas = 0; let metros = 0; let metrosPerda = 0;
+    for (let i = i0; i <= i1; i++) {
+      if (mascara && !mascara[i]) continue;
+      const dif = B.difBitola(dados.bitF[i], dados.bitT[i]);
+      if (Number.isNaN(dif)) continue;
+      const w = pesos ? pesos[i] : 1;
+      pontos++; metros += w;
+      if (B.ehPerda(dif, limite)) { perdas++; metrosPerda += w; }
+    }
+    const pct = metros > 0 ? (metrosPerda / metros) * 100 : (pontos ? (perdas / pontos) * 100 : null);
+    return { pontos, perdas, metros, metrosPerda, pct };
+  };
+
+  /** Perda de bitola em todo o trecho (compatível com a versão anterior). */
+  B.perdaTotal = (dados, limite, i0 = 0, i1 = dados.bitF.length - 1, mascara = null, pesos = null) =>
+    B.avaliarPerda(dados, limite, i0, i1, mascara, pesos);
+
+  /**
+   * Offset (em mm) para a bitola F ou T que mais reduz a perda de bitola (mesma regra, mesmos pesos).
    * Testa de −10 a +10 mm em passos de 0,1 mm.
    */
-  B.melhorOffset = (dados, bitola, limite, mascara = null) => {
+  B.melhorOffset = (dados, bitola, limite, mascara = null, pesos = null) => {
     if (bitola !== 'bitF' && bitola !== 'bitT') return null;
-    const difs = [];
+    const difs = []; const ws = [];
     for (let i = 0; i < dados.bitF.length; i++) {
       if (mascara && !mascara[i]) continue;
-      const f = dados.bitF[i]; const t = dados.bitT[i];
-      if (!Number.isNaN(f) && !Number.isNaN(t)) difs.push(f - t);
+      const dif = B.difBitola(dados.bitF[i], dados.bitT[i]);
+      if (!Number.isNaN(dif)) { difs.push(dif); ws.push(pesos ? pesos[i] : 1); }
     }
     if (!difs.length) return null;
+    const total = ws.reduce((a, b) => a + b, 0) || difs.length;
     const sinal = bitola === 'bitF' ? 1 : -1; // offset em F soma na diferença; em T, subtrai
-    let melhor = { valor: 0, perdas: Infinity };
+    let melhor = { valor: 0, perdas: Infinity, metros: Infinity };
     for (let k = -100; k <= 100; k++) {
       const off = k / 10;
-      let perdas = 0;
-      for (const d of difs) if (abs(d + sinal * off) > limite) perdas++;
-      if (perdas < melhor.perdas || (perdas === melhor.perdas && abs(off) < abs(melhor.valor))) melhor = { valor: off, perdas };
+      let perdas = 0; let metros = 0;
+      difs.forEach((d, n) => { if (B.ehPerda(Math.round((d + sinal * off) * 100) / 100, limite)) { perdas++; metros += ws[n]; } });
+      if (metros < melhor.metros - 1e-9 || (abs(metros - melhor.metros) < 1e-9 && abs(off) < abs(melhor.valor))) melhor = { valor: off, perdas, metros };
     }
-    return { valor: melhor.valor, perdas: melhor.perdas, pontos: difs.length, pct: (melhor.perdas / difs.length) * 100 };
+    return { valor: melhor.valor, perdas: melhor.perdas, pontos: difs.length, metrosPerda: melhor.metros, pct: (melhor.metros / total) * 100 };
   };
 
   function resumoTrecho(d, i0, i1, opcoes, extras) {
-    let validos = 0; let perdas = 0; let maxDif = 0; let somaDif = 0;
+    let validos = 0; let perdas = 0; let maxDif = 0; let somaDif = 0; let metros = 0; let metrosPerda = 0; let metrosTotal = 0;
+    const pesos = extras.pesos;
     let nK = 0; let somaK = 0; let perdasK = 0;
     let nC = 0; let somaC = 0;
     let nA = 0; let somaA = 0; let maxA = 0;
@@ -381,31 +428,40 @@
     const mascara = extras.mascara; // 0 = fora da estatística (pátio/RH)
     for (let i = i0; i <= i1; i++) {
       if (mascara && !mascara[i]) continue;
-      const f = d.bitF[i]; const t = d.bitT[i];
-      if (!Number.isNaN(f) && !Number.isNaN(t)) {
-        const dif = f - t;
+      const f = d.bitF[i];
+      const w = pesos ? pesos[i] : 1;
+      metrosTotal += w;
+      const dif = B.difBitola(f, d.bitT[i]);
+      if (!Number.isNaN(dif)) {
         validos++;
+        metros += w;
         somaDif += abs(dif);
-        if (abs(dif) > opcoes.limitePerda) perdas++;
+        if (B.ehPerda(dif, opcoes.limitePerda)) { perdas++; metrosPerda += w; }
         if (abs(dif) > abs(maxDif)) maxDif = dif;
       }
       const k = d.kld[i];
       if (!Number.isNaN(f) && !Number.isNaN(k) && abs(k) < KLD_MAX) {
+        const dk = Math.round((f - k) * 100) / 100;
         nK++;
-        somaK += f - k;
-        if (abs(f - k) > opcoes.limitePerda) perdasK++;
+        somaK += dk;
+        if (B.ehPerda(dk, opcoes.limitePerda)) perdasK++;
       }
       if (!Number.isNaN(d.curv[i])) { nC++; somaC += d.curv[i]; }
       const a = alinhamento ? alinhamento[i] : NaN;
       if (!Number.isNaN(a)) { nA++; somaA += abs(a); if (abs(a) > abs(maxA)) maxA = a; }
       const v = extras.variacao[i];
-      if (!Number.isNaN(v)) { nV++; if (v > opcoes.limiteVariacao) varRapida++; }
+      if (!Number.isNaN(v)) { nV += w; if (v > opcoes.limiteVariacao) varRapida += w; } // também em metros
     }
     const curvMedia = nC ? somaC / nC : NaN;
     return {
       pontos: validos,
       perdas,
-      pctPerda: validos ? (perdas / validos) * 100 : null,
+      metros,
+      metrosPerda,
+      // % sobre a extensão medida (F e T lidas); sem pesos, sobre os pontos
+      pctPerda: metros > 0 ? (metrosPerda / metros) * 100 : (validos ? (perdas / validos) * 100 : null),
+      // fração da extensão do trecho com Bitola F e T lidas (abaixo de 90%, o resultado é pouco confiável)
+      cobertura: metrosTotal > 0 ? metros / metrosTotal : null,
       maxDif: validos ? maxDif : null,
       difMedia: validos ? somaDif / validos : null,
       difKldMedia: nK ? somaK / nK : null,
@@ -816,7 +872,8 @@
     const varF = B.desvioMovel(dados.bitF, janela);
     const varT = B.desvioMovel(dados.bitT, janela);
     const variacao = Float64Array.from(varF, (v, i) => Math.max(Number.isNaN(v) ? -1 : v, Number.isNaN(varT[i]) ? -1 : varT[i])).map((v) => (v < 0 ? NaN : v));
-    const extras = { alinhamento: alin, variacao };
+    const pesos = B.pesosDistancia(pos);
+    const extras = { alinhamento: alin, variacao, pesos };
 
     const temPlanta = !!(o.elementosPlanta && o.elementosPlanta.length);
     const modo = temPlanta && (o.modo === 'planta' || o.modo === 'hibrido') ? o.modo : 'curvatura';
@@ -833,10 +890,15 @@
     const geral = resumoTrecho(dados, 0, pos.length - 1, o, { ...extras, mascara });
     const extensaoRh = elementos.filter((e) => e.tipo === 'X').reduce((s2, e) => s2 + e.extensao, 0);
 
+    // Totais = soma das extensões medidas e com perda dos elementos (mesma regra do geral).
     const somar = (els) => {
-      const pontos = els.reduce((s, e) => s + e.pontos, 0);
-      const perdas = els.reduce((s, e) => s + e.perdas, 0);
-      return { quantidade: els.length, extensao: els.reduce((s, e) => s + e.extensao, 0), pontos, perdas, pctPerda: pontos ? (perdas / pontos) * 100 : null };
+      const soma = (k) => els.reduce((s, e) => s + (e[k] || 0), 0);
+      const metros = soma('metros'); const metrosPerda = soma('metrosPerda');
+      const pontos = soma('pontos'); const perdas = soma('perdas');
+      return {
+        quantidade: els.length, extensao: soma('extensao'), pontos, perdas, metros, metrosPerda,
+        pctPerda: metros > 0 ? (metrosPerda / metros) * 100 : (pontos ? (perdas / pontos) * 100 : null)
+      };
     };
 
     // Resumo por trecho (EH e RH; só no modo planta), na ordem da inspeção.
@@ -862,6 +924,7 @@
       opcoes: o,
       modo,
       mascara,
+      pesos,
       dados,
       elementos,
       porEh,
