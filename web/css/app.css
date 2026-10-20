@@ -575,3 +575,16 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .om-sel .om-texto { flex: 1; min-width: 0; }
 .om-retirar { flex: none; width: 36px; height: 36px; }
 .lista-disp { max-height: 60vh; overflow-y: auto; padding-right: 2px; }
+.cal-saidas { font-size: .66rem; color: var(--alerta); font-weight: 650; }
+.chip-info.reprog { color: var(--alerta); background: var(--alerta-fundo); }
+.chip-info.sap { color: var(--texto2); background: color-mix(in srgb, var(--serie-real) 10%, var(--sup2)); }
+.om-sap {
+  flex: none; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  width: 54px; border: 0; border-left: 1px solid var(--grade); background: transparent; color: var(--texto3);
+  font: inherit; font-size: .7rem; font-weight: 750; cursor: pointer;
+}
+.om-sap .ico { width: 16px; height: 16px; stroke-width: 3; }
+.om-sap.ok { color: var(--ok); background: color-mix(in srgb, var(--ok-fundo) 70%, transparent); }
+.saidas { margin-top: 12px; border-top: 1px solid var(--grade); padding-top: 10px; }
+.saidas summary { cursor: pointer; }
+.saidas .lista-om { margin-top: 8px; }

@@ -358,8 +358,30 @@ async function main() {
         const por = (n) => x.OMs.find((o) => o['Nº Ordem'] === String(202600000000 + n))['Data programada'];
         return por(23) === isoLocal(diaRel(0)) && por(33) === amanha && por(38) === '' && por(28) === isoLocal(diaRel(0));
       }, 'programação na planilha');
+      // histórico: as 2 OMs que saíram de hoje ficam registradas
+      const saidas = page.locator('details.saidas');
+      await saidas.locator('summary', { hasText: 'Reprogramadas deste dia (2)' }).waitFor();
+      assert.ok((await saidas.textContent()).includes('1 retirada(s)'));
+      await aguardar(async () => {
+        const x = await planilha();
+        return x.Reprogramacoes && x.Reprogramacoes.length === 3 // + a reprogramação do passo anterior
+          && x.Reprogramacoes.some((h) => h['Tipo'] === 'Movida' && h['Nova data'] === amanha)
+          && x.Reprogramacoes.some((h) => h['Tipo'] === 'Retirada');
+      }, 'histórico de reprogramação na planilha');
       await page.locator('.seg-modo').getByRole('button', { name: 'Execução' }).click();
       await page.getByRole('button', { name: /^Hoje \(\d+\)$/ }).waitFor();
+    });
+
+    await passo('produção: status SAP visível e apropriação das realizadas', async () => {
+      assert.ok((await page.locator('.lista-om .om').first().textContent()).includes('SAP LIB · VPTS AGDO'));
+      const aba = page.getByRole('button', { name: /^A apropriar \(\d+\)$/ });
+      const n0 = Number((await aba.textContent()).match(/\((\d+)\)/)[1]);
+      assert.ok(n0 > 0);
+      await aba.click();
+      await page.locator('.lista-om .om').first().getByRole('button', { name: /não apropriada no SAP/ }).click();
+      await aguardar(async () => (await page.getByRole('button', { name: /^A apropriar \(\d+\)$/ }).textContent()) === `A apropriar (${n0 - 1})`, 'contador a apropriar');
+      await aguardar(async () => { const x = await planilha(); return x.Execucoes.filter((e) => e['Apropriada no SAP em']).length === 1; }, 'apropriação na planilha');
+      await page.getByRole('button', { name: /^Hoje \(\d+\)$/ }).click();
     });
 
     await passo('anomalia: gaveta lateral gera a mensagem e limpa o formulário', async () => {

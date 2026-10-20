@@ -18,10 +18,19 @@ function novo(opcoes) {
 test('setup cria abas, remove a aba vazia padrão e gera código', () => {
   const s = novo();
   const nomes = s.ss.getSheets().map((x) => x.nome);
-  assert.deepEqual(nomes.sort(), ['Anomalias', 'Checklist_Amostras', 'Checklist_Respostas', 'Checklists', 'Eventos', 'Execucoes', 'OMs'].sort());
+  assert.deepEqual(nomes.sort(), ['Anomalias', 'Checklist_Amostras', 'Checklist_Respostas', 'Checklists', 'Eventos', 'Execucoes', 'OMs', 'Reprogramacoes'].sort());
   assert.match(s.token, /^[0-9A-F]{12}$/);
   s.ctx.setup(); // rodar de novo não quebra
-  assert.equal(s.ss.getSheets().length, 7);
+  assert.equal(s.ss.getSheets().length, 8);
+});
+
+test('versão nova cria sozinha a aba que falta (sem rodar setup de novo)', () => {
+  const s = novo();
+  s.ss.deleteSheet(s.ss.getSheetByName('Reprogramacoes'));
+  s.post('importarOMs', { ciclo: '5', oms: [{ nOrdem: '1', textoBreve: 'LPR 1' }] });
+  const r = s.post('getOMs', { ciclo: '5' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.ok(s.ss.getSheetByName('Reprogramacoes'));
 });
 
 test('código de acesso é exigido', () => {
@@ -170,4 +179,29 @@ test('muitas linhas: planilha cresce além do tamanho inicial', () => {
   const r = s.post('sync', { itens });
   assert.ok(r.dados.resultados.every((x) => x.ok));
   assert.equal(s.post('getOMs', { ciclo: '6' }).dados.execucoes.length, 100);
+});
+
+test('histórico de reprogramação, programação original e apropriação no SAP', () => {
+  const s = novo();
+  s.post('importarOMs', { ciclo: '5', oms: [{ nOrdem: '1', textoBreve: 'LPR 1' }, { nOrdem: '2', textoBreve: 'LPR 2' }] });
+  const it = (key, tipo, dados) => ({ key, tipo, dados });
+  let r = s.post('sync', { itens: [
+    it('reprogramacao:5|1', 'reprogramacao', { ciclo: '5', nOrdem: '1', dataProgramada: '2026-10-21', dataOriginal: '2026-10-19' }),
+    it('historicoProgramacao:h1', 'historicoProgramacao', { id: 'h1', ciclo: '5', nOrdem: '1', textoBreve: 'LPR 1', dataAnterior: '2026-10-19', dataNova: '2026-10-21', registradoEm: '2026-10-19T21:00:00' }),
+    it('historicoProgramacao:h2', 'historicoProgramacao', { id: 'h2', ciclo: '5', nOrdem: '2', textoBreve: 'LPR 2', dataAnterior: '2026-10-19', dataNova: '', registradoEm: '2026-10-19T21:01:00' }),
+    it('execucao:5|1', 'execucao', { ciclo: '5', nOrdem: '1', status: 'Realizado', dataRealizacao: '2026-10-21T09:00:00', atualizadoEm: '2026-10-22T08:00:00', apropriadaEm: '2026-10-22T08:00:00' })
+  ] });
+  assert.ok(r.dados.resultados.every((x) => x.ok), JSON.stringify(r.dados.resultados));
+  // reenviar o mesmo histórico não duplica
+  s.post('sync', { itens: [it('historicoProgramacao:h1', 'historicoProgramacao', { id: 'h1', ciclo: '5', nOrdem: '1', dataAnterior: '2026-10-19', dataNova: '2026-10-21', registradoEm: '2026-10-19T21:00:00' })] });
+  // reimportar mantém a programação original
+  s.post('importarOMs', { ciclo: '5', oms: [{ nOrdem: '1', textoBreve: 'LPR 1', status: 'ENTE' }, { nOrdem: '2', textoBreve: 'LPR 2' }] });
+  const d = s.post('getOMs', { ciclo: '5' }).dados;
+  assert.equal(d.historico.length, 2);
+  assert.deepEqual(d.historico.map((h) => h.tipo).sort(), ['Movida', 'Retirada']);
+  const om1 = d.oms.find((o) => o.nOrdem === '1');
+  assert.equal(om1.dataProgramada, '2026-10-21');
+  assert.equal(om1.dataOriginal, '2026-10-19');
+  assert.equal(om1.status, 'ENTE');
+  assert.equal(d.execucoes[0].apropriadaEm, '2026-10-22T08:00:00');
 });
