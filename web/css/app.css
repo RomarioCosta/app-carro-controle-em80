@@ -676,3 +676,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .seg-modos-analise .seg-opcao { flex: 1 1 auto; }
 .baixa-cobertura { color: var(--alerta); }
 .perdeu { color: var(--erro); font-weight: 750; }
+.conf-ok { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); font-weight: 750; font-size: .85rem; }
+.conf-ok .ico { width: 16px; height: 16px; }
+.conf-erro { border: 1px solid var(--erro); color: var(--erro); background: transparent; border-radius: 8px; padding: 4px 10px; font: inherit; font-weight: 750; cursor: pointer; }

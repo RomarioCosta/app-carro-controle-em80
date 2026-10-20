@@ -302,3 +302,24 @@ test('só curvatura com planta: elementos iguais, com EH/RH e elemento da planta
   assert.ok(r.geral.pontos < pura.geral.pontos);
   assert.equal(r.porEh.length >= 2, true);
 });
+
+test('dupla checagem: recontagem independente do CSV bate com a análise e acusa divergência', () => {
+  const texto = gerarCSV();
+  const a = B.lerCSV(texto);
+  const r = B.analisar(a);
+  const c = B.conferir(texto, r, 2);
+  assert.equal(c.ok, true, JSON.stringify(c.divergencias));
+  assert.equal(c.linhas, 4000);
+  assert.equal(c.perdasElementos, 200);
+  // se a análise tivesse contado errado, a conferência mostra o elemento
+  r.elementos[2].perdas += 1;
+  const c2 = B.conferir(texto, r, 2);
+  assert.equal(c2.ok, false);
+  assert.equal(c2.divergencias[0].sigla, r.elementos[2].sigla);
+  // com planta e circuito, também confere
+  const els = B.elementosDaPlanta(B.lerPlanta(plantaSintetica()), 'TST', '1');
+  for (const modo of ['curvatura', 'hibrido', 'planta']) {
+    const rp = B.analisar(a, { modo, elementosPlanta: els, ajusteKm: 30 });
+    assert.equal(B.conferir(texto, rp, 2).ok, true, modo);
+  }
+});

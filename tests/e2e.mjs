@@ -457,6 +457,12 @@ async function main() {
       await page.locator('.graf-km svg').first().waitFor();
       assert.deepEqual(await page.locator('.tabela:not(.tabela-offset)').first().locator('tbody .el-tag').allTextContents(), ['T02', 'T01', 'C01', 'C02']); // maior perda primeiro
       assert.equal(await page.locator('.kpi').first().locator('.kpi-valor').textContent(), '5,0%');
+      await page.locator('.conf-ok', { hasText: 'Conferido' }).waitFor(); // dupla checagem independente
+      const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Planilha de conferência' }).click()]);
+      const planilhaConf = await (async () => { const st = await download.createReadStream(); const parts = []; for await (const ch of st) parts.push(ch); return Buffer.concat(parts).toString('utf8'); })();
+      const linhasConf = planilhaConf.trim().split(/\r?\n/);
+      assert.equal(linhasConf.length, 4001); // cabeçalho + 4.000 pontos
+      assert.equal(linhasConf.slice(1).filter((l) => l.split(';')[6] === '1').length, 200); // pontos acima da regra
       const rk = page.locator('.tabela:not(.tabela-offset)').nth(1).locator('tbody tr').first();
       assert.equal(await rk.locator('td').nth(1).textContent(), '1+700');
       await page.screenshot({ path: `${SAIDA}13-analise.png`, fullPage: true });
@@ -488,7 +494,6 @@ async function main() {
       await page.evaluate(() => { delete window.__linhasXlsx; });
       // Ramal e linha vêm do arquivo CSV (sem escolha na planta).
       const criterios = page.locator('details').filter({ hasText: 'Critérios da análise' });
-      assert.ok((await criterios.textContent()).includes('Linha: 1 100%'));
       assert.equal(await criterios.getByLabel('Linha').count(), 0);
       const tabEls = page.locator('.tabela:not(.tabela-offset)').filter({ hasText: 'Lado' });
       assert.deepEqual(await tabEls.locator('tbody .el-tag').allTextContents(), ['T01', 'T02', 'C01', 'C01', 'RH']); // maior perda primeiro; pátio (RH) por último

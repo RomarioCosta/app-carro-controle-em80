@@ -15,6 +15,7 @@
 
   let raiz;
   let arquivo = null; // resultado de B.lerCSV
+  let textoArquivo = '';
   let nomeArquivo = '';
   let resultado = null; // resultado de B.analisar
   const OPCOES_PADRAO = { ...B.PADRAO, alinhamento: 'alr10', modo: 'hibrido', ajusteKm: 'auto', offset: { bitola: 'bitT', valor: 0, aplicar: false }, bitolas: ['bitF', 'bitT'] };
@@ -71,6 +72,7 @@
       return;
     }
     nomeArquivo = nome || 'arquivo.csv';
+    textoArquivo = texto; // texto original, usado na conferência independente
     zoom = null;
     recalcular();
     if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto }).catch(() => {});
@@ -283,7 +285,6 @@
           'aria-pressed': opcoes.modo === v ? 'true' : 'false',
           onclick: () => mudar('modo', v)
         }, r)))),
-      usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Ramal ${arquivo.meta.ramal} → ${infoPlanta.ramal} · Linha: ${infoPlanta.linhasArquivo.map((x) => `${x.valor} ${fmt(x.pct, 0)}%`).join(', ')}${conf ? ` · Curvas × planta: ${conf.nota}%` : ''}` }) : null,
       usandoPlanta && conf && conf.suspeito ? h('p', { class: 'aviso aviso-erro', text: `Atenção: as curvas deste arquivo combinam muito mais com o ramal ${conf.outro.ramal}, linha ${conf.outro.linha} (${conf.outro.nota}%) do que com o ramal do arquivo, ${infoPlanta.ramal} (${conf.nota}%). Vários ramais têm os mesmos km: confira a coluna RAMAL do arquivo.` }) : null,
       usandoPlanta && infoPlanta ? h('div', { class: 'grade-3' },
         ui.campo('Correção do km do carro (m)', h('input', {
@@ -296,7 +297,6 @@
             mudar('ajusteKm', e.target.value.trim() === '' || v === null ? 'auto' : v);
           }
         }))) : null,
-      usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Correção ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (auto)' : ''}${infoPlanta.acerto !== null ? ` · ${fmt(infoPlanta.acerto, 0)}% coincidente` : ''}` }) : null,
       !infoPlanta && problemaPlanta ? h('p', { class: 'aviso', text: problemaPlanta }) : null) : null;
 
     ui.trocar(secoes.parametros, h('details', { class: 'cartao detalhes' },
@@ -338,12 +338,11 @@
       h('div', { class: 'kpi-valor', text: valor }),
       h('div', { class: 'kpi-sub', text: sub }));
     ui.trocar(secoes.kpis, h('div', { class: 'kpis kpis-auto' },
-      kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${int(r.geral.perdas)} pontos acima da regra de ${int(r.geral.pontos)} pontos${r.geral.extensaoRh ? ` · sem os circuitos (RH, ${fmt(r.geral.extensaoRh / 1000, 2)} km)` : ''}${r.geral.cobertura !== null && r.geral.cobertura < 0.95 ? ` · atenção: ${fmt((1 - r.geral.cobertura) * 100, 0)}% sem leitura de F ou T` : ''}`),
-      kpi('Elementos que perderam a bitola', `${r.tangentes.comPerda + r.curvas.comPerda} de ${r.tangentes.quantidade + r.curvas.quantidade}`, `${r.tangentes.comPerda} de ${r.tangentes.quantidade} tangente(s) · ${r.curvas.comPerda} de ${r.curvas.quantidade} curva(s) · perda acima de ${fmt(opcoes.limiteElemento ?? 10, 0)}%`),
-      kpi('Em tangentes', `${fmt(r.tangentes.pctPerda)}%`, `${int(r.tangentes.perdas)} de ${int(r.tangentes.pontos)} pontos · ${r.tangentes.quantidade} tangente(s) · ${fmt(r.tangentes.extensao / 1000, 2)} km`),
-      kpi('Em curvas', `${fmt(r.curvas.pctPerda)}%`, `${int(r.curvas.perdas)} de ${int(r.curvas.pontos)} pontos · ${r.curvas.quantidade} curva(s) · ${fmt(r.curvas.extensao / 1000, 2)} km`),
-      kpi('Variação rápida', `${fmt(r.geral.pctVariacao)}%`, `desvio padrão em 1 m acima de ${fmt(opcoes.limiteVariacao, 1)} mm`),
-      kpi('OGMS − KLD', `${fmt(r.geral.difKldMedia, 2)} mm`, 'diferença média entre os sensores (não entra na perda)')));
+      kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${int(r.geral.perdas)} de ${int(r.geral.pontos)} pontos`),
+      kpi('Elementos com perda', `${r.tangentes.comPerda + r.curvas.comPerda} de ${r.tangentes.quantidade + r.curvas.quantidade}`, `acima de ${fmt(opcoes.limiteElemento ?? 10, 0)}%`),
+      kpi('Em tangentes', `${fmt(r.tangentes.pctPerda)}%`, `${r.tangentes.comPerda} de ${r.tangentes.quantidade} com perda`),
+      kpi('Em curvas', `${fmt(r.curvas.pctPerda)}%`, `${r.curvas.comPerda} de ${r.curvas.quantidade} com perda`),
+      kpi('OGMS − KLD', `${fmt(r.geral.difKldMedia, 2)} mm`, 'diferença média')));
   }
 
   /* ---------------- Gráficos ---------------- */
@@ -473,7 +472,8 @@
     const evs = arquivo.eventos;
     const eventosDo = (e) => {
       const lo = Math.min(e.ini, e.fim); const hi = Math.max(e.ini, e.fim);
-      return [...new Set(evs.filter((v) => v.pos >= lo && v.pos <= hi).map((v) => v.texto))].join(', ');
+      // todos os eventos registrados na faixa de km do elemento, com o km de cada um
+      return evs.filter((v) => v.pos >= lo && v.pos <= hi).map((v) => `${v.texto} (${B.fmtKm(v.pos)})`).join(', ');
     };
     const pct = (v) => (paraLaudo ? `${fmt(v)}%` : barraPct(v));
     const cols = [];
@@ -483,7 +483,6 @@
     cols.push({ t: 'Elemento', v: (e) => (paraLaudo ? (e.tipo === 'X' ? 'Circuito' : `${e.tipo === 'C' ? 'Curva' : 'Tangente'} ${e.sigla.slice(1)}`) : h('span', { class: `el-tag ${e.tipo === 'C' ? 'el-curva' : e.tipo === 'X' ? 'el-fora' : 'el-tangente'}`, text: e.sigla, title: e.nome })) });
     if (planta) cols.push({ t: 'Lado', v: (e) => (e.tipo === 'C' ? (e.lado === 'D' ? 'Dir.' : e.lado === 'E' ? 'Esq.' : '—') : '') });
     // Só curvatura: elemento(s) da planta a que o km do elemento pertence (o de mais pontos primeiro).
-    if (planta && resultado.modo === 'curvatura') cols.push({ t: 'Planta', v: (e) => e.elementoPlanta || '—' });
     cols.push(
       { t: 'Início', v: (e) => B.fmtKm(e.ini) },
       { t: 'Fim', v: (e) => B.fmtKm(e.fim) },
@@ -498,9 +497,8 @@
         const v = pct(e.pctPerda);
         return baixa ? h('span', { class: 'baixa-cobertura', title: `Só ${fmt(e.cobertura * 100, 0)}% dos pontos do elemento com Bitola F e T lidas` }, v, ' ⚠') : v;
       } },
-      { t: 'Perdeu a bitola', v: (e) => (e.tipo === 'X' ? '—' : e.perdeu ? (paraLaudo ? 'Sim' : h('span', { class: 'perdeu', text: 'Sim' })) : 'Não') },
       { t: `Máx ${nomeAlinhamento()}`, n: true, v: (e) => fmt(e.alinhMax, 2) });
-    if (!paraLaudo) cols.push({ t: 'Eventos', ev: true, v: eventosDo });
+    cols.push({ t: 'Eventos', ev: true, v: eventosDo });
     return cols;
   }
 
@@ -564,8 +562,59 @@
         h('h2', { text: 'Resumo por trecho (EH e RH)' }),
         tabelaTela(colunasEh(false), porPerda(r.porEh), (g) => (g.pior ? aproximar(g.pior.ini, g.pior.fim) : aproximar(g.ini, g.fim)))) : null,
       h('section', { class: 'cartao' },
-        h('h2', { text: planta ? 'Elementos da planta: tangentes e curvas' : 'Elementos: tangentes e curvas' }),
+        h('div', { class: 'cartao-cab' },
+          h('h2', { text: r.modo === 'curvatura' ? 'Elementos: tangentes e curvas' : 'Elementos da planta: tangentes e curvas' }),
+          cartaoConferencia()),
         tabelaTela(colunasElementos(false), porPerda(r.elementos), (e) => aproximar(e.ini, e.fim))));
+  }
+
+  /* ---------------- Dupla checagem ---------------- */
+
+  /** Selo da conferência independente (relê o CSV original e recalcula) e botão da planilha de conferência. */
+  function cartaoConferencia() {
+    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda) : null;
+    const selo = !c ? null : c.ok
+      ? h('span', { class: 'conf-ok', title: `Recontagem independente a partir do CSV original: ${c.linhas.toLocaleString('pt-BR')} linhas de medição; pontos e pontos acima de cada elemento iguais aos da análise.` }, ui.icone('check'), 'Conferido')
+      : h('button', { class: 'conf-erro', onclick: () => mostrarDivergencias(c) }, `⚠ ${c.divergencias.length} divergência(s)`);
+    return h('div', { class: 'linha-acoes' }, selo,
+      h('button', { class: 'btn btn-secundario btn-pequeno', onclick: baixarConferencia, title: 'Planilha com cada ponto: km, Bitola F, Bitola T, F − T e se está acima da regra' }, ui.icone('documento'), 'Planilha de conferência'));
+  }
+
+  function mostrarDivergencias(c) {
+    ui.modal({
+      titulo: 'Divergências na conferência',
+      conteudo: h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela tabela-centro' },
+        h('thead', null, h('tr', null, ['Elemento', 'Início', 'Fim', 'Pontos (app)', 'Pontos (conferência)', 'Acima (app)', 'Acima (conferência)'].map((t) => h('th', { text: t })))),
+        h('tbody', null, c.divergencias.map((d) => h('tr', null,
+          [d.sigla, B.fmtKm(d.ini), B.fmtKm(d.fim), d.app.pontos, d.conferido.pontos, d.app.perdas, d.conferido.perdas].map((v) => h('td', { text: String(v) }))))))),
+      acoes: [{ texto: 'Fechar', classe: 'btn-secundario', onClick: (f) => f() }]
+    });
+  }
+
+  /** Planilha (CSV para o Excel) com todos os pontos e o cálculo de cada um, para conferir na mão. */
+  function baixarConferencia() {
+    const r = resultado;
+    const { pos, dados } = arquivo;
+    const lim = opcoes.limitePerda;
+    const doPonto = new Array(pos.length);
+    r.elementos.forEach((e) => { for (let i = e.i0; i <= e.i1; i++) doPonto[i] = e; });
+    const num = (v, casas = 2) => (Number.isNaN(v) ? '' : v.toFixed(casas).replace('.', ','));
+    const linhas = ['KM;LOCALIZACAO;Linha;Bitola F;Bitola T;F - T;Acima do limite (1 = sim);Elemento;EH / RH;Fora da estatística (circuito)'];
+    for (let i = 0; i < pos.length; i++) {
+      const e = doPonto[i] || {};
+      const dif = B.difBitola(dados.bitF[i], dados.bitT[i]);
+      const km = Math.floor(pos[i] / 1000);
+      linhas.push([
+        km, num(pos[i] - km * 1000), arquivo.linhasValores ? arquivo.linhasValores[arquivo.linhaIdx[i]] : '',
+        num(dados.bitF[i]), num(dados.bitT[i]), num(dif),
+        Number.isNaN(dif) ? '' : (B.ehPerda(dif, lim) ? 1 : 0),
+        e.sigla || '', e.trecho || e.eh || '', r.mascara && !r.mascara[i] ? 1 : 0
+      ].join(';'));
+    }
+    const blob = new Blob(['\ufeff' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = h('a', { href: URL.createObjectURL(blob), download: `conferencia-${nomeArquivo.replace(/\.[^.]+$/, '')}.csv` });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   }
 
   /* ---------------- Simulação de offset ---------------- */

@@ -923,7 +923,7 @@
       elementos.forEach((e) => {
         if (e.rh) return;
         const r = resumoTrecho(dados, e.i0, e.i1, o, { ...extras, mascara });
-        if (r.pontos < e.pontos) Object.assign(e, { pontos: r.pontos, perdas: r.perdas, pctPerda: r.pctPerda });
+        if (r.pontos < e.pontos) Object.assign(e, { pontosTotal: e.pontos, perdasTotal: e.perdas, pontos: r.pontos, perdas: r.perdas, pctPerda: r.pctPerda });
       });
     }
     const geral = resumoTrecho(dados, 0, pos.length - 1, o, { ...extras, mascara });
@@ -980,6 +980,62 @@
       varF,
       varT,
       variacao
+    };
+  };
+
+  /**
+   * Dupla checagem (conferência independente): relê o texto original do CSV linha a linha, sem usar
+   * a leitura nem os cálculos da análise, e recalcula com números inteiros (centésimos de mm):
+   * pontos e pontos acima da regra de cada elemento (pela faixa de km dele) e do geral.
+   * Compara com a análise e devolve as divergências.
+   */
+  B.conferir = (texto, resultado, limite) => {
+    const linhas = String(texto || '').split(/\r?\n/);
+    let iF = -1; let iT = -1; let iKm = -1; let iLoc = -1;
+    const norm = (x) => String(x || '').trim().toUpperCase().replace(/\s+/g, ' ');
+    const pontos = [];
+    for (const ln of linhas) {
+      const c = ln.split(';');
+      const tipo = (c[0] || '').trim();
+      if (tipo === 'H' && iF < 0) {
+        const cab = c.map(norm);
+        iF = cab.indexOf('BITOLA F'); iT = cab.indexOf('BITOLA T'); iKm = cab.indexOf('KM'); iLoc = cab.indexOf('LOCALIZACAO');
+        continue;
+      }
+      if (tipo !== 'D' || iF < 0) continue;
+      const km = parseFloat(String(c[iKm]).replace(',', '.'));
+      const loc = parseFloat(String(c[iLoc]).replace(',', '.'));
+      if (!Number.isFinite(km) || !Number.isFinite(loc)) continue;
+      const ler = (v) => { const t = String(v || '').trim(); if (!t || t.includes('*')) return null; const n = parseFloat(t.replace(',', '.')); return Number.isFinite(n) ? Math.round(n * 100) : null; };
+      pontos.push({ m: Math.round((km * 1000 + loc) * 100), f: ler(c[iF]), t: ler(c[iT]) });
+    }
+    const lim100 = Math.round(limite * 100);
+    const contar = (ini, fim) => {
+      const a = Math.round(Math.min(ini, fim) * 100); const b = Math.round(Math.max(ini, fim) * 100);
+      let n = 0; let acima = 0;
+      for (const p of pontos) {
+        if (p.m < a || p.m > b || p.f === null || p.t === null) continue;
+        n++;
+        if (Math.abs(p.f - p.t) > lim100) acima++;
+      }
+      return { pontos: n, perdas: acima };
+    };
+    const divergencias = [];
+    let somaPontos = 0; let somaPerdas = 0;
+    resultado.elementos.forEach((e) => {
+      const c = contar(e.ini, e.fim);
+      const fora = e.tipo === 'X' || e.rh;
+      // elemento que atravessa um circuito tem os pontos do RH fora da conta da análise: confere o elemento inteiro
+      const anal = e.pontosTotal !== undefined ? { pontos: e.pontosTotal, perdas: e.perdasTotal } : { pontos: e.pontos, perdas: e.perdas };
+      if (c.pontos !== anal.pontos || c.perdas !== anal.perdas) divergencias.push({ sigla: e.sigla, ini: e.ini, fim: e.fim, app: anal, conferido: c });
+      if (!fora) { somaPontos += c.pontos; somaPerdas += c.perdas; }
+    });
+    return {
+      ok: !divergencias.length,
+      linhas: pontos.length,
+      pontosElementos: somaPontos,
+      perdasElementos: somaPerdas,
+      divergencias
     };
   };
 
