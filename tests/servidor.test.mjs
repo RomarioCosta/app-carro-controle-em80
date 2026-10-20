@@ -124,6 +124,16 @@ test('importação de OMs substitui o ciclo e preserva as realizações', () => 
   assert.equal(d.execucoes.length, 1);
   assert.equal(d.execucoes[0].dataRealizacao, '2026-10-19T10:15:00');
   assert.equal(d.oms.find((o) => o.nOrdem === '100').dataProgramada, '2026-10-19');
+  // a programação feita no app (reprogramação) não é perdida ao reimportar
+  assert.equal(d.oms.find((o) => o.nOrdem === '200').dataProgramada, '2026-10-22');
+  assert.equal(d.oms.find((o) => o.nOrdem === '300').dataProgramada, '2026-10-21');
+
+  // retirar da programação: data vazia
+  const rr = s.post('sync', { itens: [{ key: 'reprogramacao:5|200', tipo: 'reprogramacao', dados: { ciclo: '5', nOrdem: '200', dataProgramada: '' } }] });
+  assert.equal(rr.dados.resultados[0].ok, true);
+  assert.equal(s.post('getOMs', { ciclo: '5' }).dados.oms.find((o) => o.nOrdem === '200').dataProgramada, '');
+  const ruim = s.post('sync', { itens: [{ key: 'reprogramacao:5|200', tipo: 'reprogramacao', dados: { ciclo: '5', nOrdem: '200', dataProgramada: '22/10' } }] });
+  assert.equal(ruim.dados.resultados[0].ok, false);
   assert.equal(s.post('getOMs', { ciclo: '4' }).dados.oms.length, 1);
   assert.deepEqual(s.post('getCiclos').dados.map((c) => c.ciclo), ['5', '4']);
 

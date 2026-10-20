@@ -57,6 +57,22 @@
     agendar();
   }
 
+  /** Vários registros de uma vez (ex.: programar 30 OMs): uma só gravação na fila. */
+  async function enfileirarVarios(lista) {
+    if (!lista.length) return;
+    await store.atualizar(CHAVE_FILA, (fila) => {
+      const f = fila || {};
+      lista.forEach(({ tipo, id, dados }) => {
+        const key = `${tipo}:${id}`;
+        const anterior = f[key];
+        f[key] = { key, tipo, dados: JSON.parse(JSON.stringify(dados)), seq: (anterior ? anterior.seq : 0) + 1, tentativas: 0, erro: null, em: U.agora() };
+      });
+      return f;
+    });
+    await atualizarContagem();
+    agendar();
+  }
+
   /** Dados pendentes de um tipo, indexados pelo id (para mesclar com o servidor). */
   async function pendentesDoTipo(tipo) {
     const mapa = new Map();
@@ -143,5 +159,5 @@
     atualizarContagem().then(() => sincronizar());
   }
 
-  App.sync = { enfileirar, sincronizar, iniciar, listar, pendentesDoTipo, estado, atualizarContagem };
+  App.sync = { enfileirar, enfileirarVarios, sincronizar, iniciar, listar, pendentesDoTipo, estado, atualizarContagem };
 })(window.App);
