@@ -260,27 +260,25 @@ test('perda: diferença arredondada a 0,01 mm; exatamente 2,00 mm não é perda'
   assert.deepEqual(j({ pontos: r.pontos, perdas: r.perdas }), { pontos: 3, perdas: 1 }); // sem leitura não conta
 });
 
-test('perda: carro parado ou em ré não conta duas vezes o mesmo lugar', () => {
-  // 8 pontos andando 0,25 m; o 3º ponto se repete 4 vezes (parado) com perda
-  const pos = Float64Array.of(100, 99.75, 99.5, 99.5, 99.5, 99.5, 99.25, 99, 98.75);
-  const difs = [0, 0, 3, 3, 3, 3, 0, 0, 0];
-  const a = arquivoSimples(difs, { pos });
-  const w = B.pesosDistancia(pos);
-  assert.deepEqual(j(Array.from(w)), [0.25, 0.25, 0, 0, 0, 0.25, 0.25, 0.25, 0.25]);
-  const r = B.avaliarPerda(a.dados, 2, 0, 8, null, w);
-  assert.equal(r.metrosPerda, 0.25); // só uma vez o trecho com perda
-  assert.equal(r.metros, 1.5); // 9 pontos, mas o carro andou 1,5 m (+ o último ponto)
-  assert.ok(Math.abs(r.pct - (0.25 / 1.5) * 100) < 1e-9);
-});
-
-test('perda: geral = tangentes + curvas; offset sugerido bate com a regra', () => {
+test('perda: % = pontos acima ÷ total de pontos; geral = tangentes + curvas; regra dos 10%', () => {
   const a = B.lerCSV(gerarCSV());
   const r = B.analisar(a);
-  assert.ok(Math.abs(r.geral.metrosPerda - (r.tangentes.metrosPerda + r.curvas.metrosPerda)) < 1e-6);
-  assert.ok(Math.abs(r.geral.metros - (r.tangentes.metros + r.curvas.metros)) < 1e-6);
-  assert.ok(Math.abs(r.geral.metrosPerda - 50) < 0.5); // 50 m de perda na T02
-  const m = B.melhorOffset(a.dados, 'bitT', 2, null, r.pesos);
-  const depois = B.avaliarPerda(B.dadosComOffset(a.dados, { bitola: 'bitT', valor: m.valor }), 2, 0, a.pos.length - 1, null, r.pesos);
+  assert.equal(r.geral.pontos, 4000); // todos os pontos do arquivo
+  assert.equal(r.geral.perdas, 200);
+  assert.equal(r.geral.pctPerda, 5);
+  assert.equal(r.geral.perdas, r.tangentes.perdas + r.curvas.perdas);
+  assert.equal(r.geral.pontos, r.tangentes.pontos + r.curvas.pontos);
+  const t02 = r.elementos.find((e) => e.sigla === 'T02');
+  assert.ok(Math.abs(t02.pctPerda - (200 / t02.pontos) * 100) < 1e-9);
+  // T02 tem ~16,7% de perda (> 10%): perdeu a bitola; as outras não
+  assert.equal(t02.perdeu, true);
+  assert.equal(r.tangentes.comPerda, 1);
+  assert.equal(r.curvas.comPerda, 0);
+  assert.equal(B.analisar(a, { limiteElemento: 20 }).tangentes.comPerda, 0);
+  assert.equal(B.elementoPerdeu(10, 10), false); // exatamente 10% não perdeu
+  assert.equal(B.elementoPerdeu(10.01, 10), true);
+  const m = B.melhorOffset(a.dados, 'bitT', 2);
+  const depois = B.avaliarPerda(B.dadosComOffset(a.dados, { bitola: 'bitT', valor: m.valor }), 2);
   assert.ok(Math.abs(depois.pct - m.pct) < 1e-9);
   assert.equal(depois.perdas, 0);
 });
