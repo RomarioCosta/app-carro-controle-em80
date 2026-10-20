@@ -153,6 +153,16 @@
     };
 
     const n = brutos.length;
+    // Linha de cada ponto (pode mudar dentro do arquivo: 0, 1, 2, 3 ou até um texto como "TESTE01").
+    const iLinha = iCampo('linha');
+    const linhasValores = [];
+    const linhaIdxBruto = new Uint16Array(n);
+    const indiceValor = new Map();
+    brutos.forEach((c, i) => {
+      const v = iLinha >= 0 ? String(c[iLinha] || '').trim() : '';
+      if (!indiceValor.has(v)) { indiceValor.set(v, linhasValores.length); linhasValores.push(v); }
+      linhaIdxBruto[i] = indiceValor.get(v);
+    });
     const pos = new Float64Array(n);
     const dados = {};
     Object.keys(B.COLUNAS).forEach((campo) => { dados[campo] = new Float64Array(n).fill(NaN); });
@@ -177,6 +187,7 @@
     const filtrar = (arr) => Float64Array.from(manter, (i) => arr[i]);
     const posF = filtrar(pos);
     Object.keys(dados).forEach((k) => { dados[k] = filtrar(dados[k]); });
+    const linhaIdx = Uint16Array.from(manter, (i) => linhaIdxBruto[i]);
 
     const evs = eventos.map((c) => {
       const km = num(c[7]);
@@ -184,7 +195,7 @@
       return { pos: km === null || loc === null ? NaN : km * 1000 + loc, codigo: String(c[13] || '').trim(), texto: String(c[14] || '').trim() };
     }).filter((e) => !Number.isNaN(e.pos) && e.texto);
 
-    return { meta, pos: posF, dados, eventos: evs, avisos };
+    return { meta, pos: posF, dados, eventos: evs, avisos, linhaIdx, linhasValores };
   };
 
   /* ------------------------------------------------------------------ */
@@ -501,6 +512,41 @@
     .filter((e) => e.ramal === ramal && String(e.linha) === String(linha))
     .sort((a, b) => a.ini - b.ini);
 
+  /** Linha da planta correspondente ao valor da coluna LINHA ("1", "01", "L1", "LINHA 2"…); null se não for linha. */
+  B.linhaDaPlanta = (valor, linhasPlanta) => {
+    const m = /^\s*(?:L|LINHA)?\s*0*(\d{1,2})\s*$/i.exec(String(valor ?? ''));
+    if (!m) return null;
+    const l = String(Number(m[1]));
+    return linhasPlanta.map(String).includes(l) ? l : null;
+  };
+
+  /**
+   * Localização pelo km: para cada ponto, o elemento da planta que contém o km (com a correção).
+   * A linha do arquivo só escolhe qual linha da planta consultar primeiro; se ela não existir
+   * (ou não tiver elemento naquele km), usa as outras linhas do ramal. Nunca bloqueia pela linha.
+   */
+  B.localizador = (planta, ramal, arquivo, linhaRef) => {
+    const linhasPlanta = (planta.ramais[ramal] || []).map(String);
+    const porLinha = new Map(linhasPlanta.map((l) => [l, B.elementosDaPlanta(planta, ramal, l)]));
+    const ordem = [linhaRef, ...linhasPlanta.filter((l) => l !== linhaRef)].filter((l) => porLinha.has(l));
+    const valores = (arquivo.linhasValores || []).map((v) => B.linhaDaPlanta(v, linhasPlanta));
+    const idx = arquivo.linhaIdx;
+    return (i, km) => {
+      const propria = idx && valores[idx[i]];
+      if (propria) { const el = naPlanta(porLinha.get(propria), km); if (el) return el; }
+      for (const l of ordem) { if (l === propria) continue; const el = naPlanta(porLinha.get(l), km); if (el) return el; }
+      return null;
+    };
+  };
+
+  /** Valores da coluna LINHA num intervalo de pontos (mais frequentes primeiro), ex.: "1" ou "1 / TESTE01". */
+  B.linhaDoTrecho = (arquivo, i0, i1) => {
+    if (!arquivo.linhaIdx || !arquivo.linhasValores) return String((arquivo.meta && arquivo.meta.linha) || '');
+    const cont = new Map();
+    for (let i = i0; i <= i1; i++) { const k = arquivo.linhaIdx[i]; cont.set(k, (cont.get(k) || 0) + 1); }
+    return [...cont.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => arquivo.linhasValores[k] || '—').join(' / ');
+  };
+
   /** Elemento da planta que contém a posição (busca binária). */
   function naPlanta(els, p) {
     let lo = 0; let hi = els.length - 1;
@@ -593,7 +639,7 @@
    * Curvatura + planta: os limites de cada elemento vêm da curvatura medida (o que o carro realmente viu)
    * e o nome vem da planta (Curva 01, Tangente 02 do EH x/y). Trechos fora da planta viram RH (pátio).
    */
-  B.segmentarHibrido = (pos, curv, els, ajuste = 0, opcoes = {}) => {
+  B.segmentarHibrido = (pos, curv, els, ajuste = 0, opcoes = {}, achar = null) => {
     const o = { ...B.PADRAO, ...opcoes };
     const n = pos.length;
     if (!n) return [];
@@ -602,7 +648,7 @@
     const linhaPlanta = els.length ? els[0].linha : '';
     const medidos = B.segmentar(pos, curv, o);
     const ref = new Array(n);
-    for (let i = 0; i < n; i++) ref[i] = naPlanta(els, pos[i] + ajuste);
+    for (let i = 0; i < n; i++) ref[i] = achar ? achar(i, pos[i] + ajuste) : naPlanta(els, pos[i] + ajuste);
     const minRh = Math.max(o.comprimentoMin, 25); // pátios reais têm ~260 m; buracos menores são falha da planta
 
     // 1) Pátios: trechos contínuos fora da planta com pelo menos o comprimento mínimo (no arquivo todo).
@@ -714,7 +760,7 @@
    * Elementos pela planta: cada ponto do arquivo (posição + ajuste) é atribuído ao elemento da planta.
    * Trechos sem elemento na planta são as RH (pátios).
    */
-  B.segmentarPorPlanta = (pos, els, ajuste = 0) => {
+  B.segmentarPorPlanta = (pos, els, ajuste = 0, achar = null) => {
     const n = pos.length;
     const esp = B.espacamento(pos) || 0.25;
     const nomes = B.nomesTrechos(els);
@@ -722,7 +768,7 @@
     const seg = [];
     let atual = null;
     for (let i = 0; i < n; i++) {
-      const el = naPlanta(els, pos[i] + ajuste);
+      const el = achar ? achar(i, pos[i] + ajuste) : naPlanta(els, pos[i] + ajuste);
       if (!atual || atual.ref !== el) {
         atual = { ref: el, i0: i, i1: i };
         seg.push(atual);
@@ -776,10 +822,11 @@
     const modo = temPlanta && (o.modo === 'planta' || o.modo === 'hibrido') ? o.modo : 'curvatura';
     const usarPlanta = modo !== 'curvatura';
     let brutos;
-    if (modo === 'planta') brutos = B.segmentarPorPlanta(pos, o.elementosPlanta, o.ajusteKm || 0);
-    else if (modo === 'hibrido') brutos = B.segmentarHibrido(pos, dados.curv, o.elementosPlanta, o.ajusteKm || 0, o);
+    if (modo === 'planta') brutos = B.segmentarPorPlanta(pos, o.elementosPlanta, o.ajusteKm || 0, o.localizar || null);
+    else if (modo === 'hibrido') brutos = B.segmentarHibrido(pos, dados.curv, o.elementosPlanta, o.ajusteKm || 0, o, o.localizar || null);
     else brutos = B.segmentar(pos, dados.curv, o);
-    const elementos = brutos.map((e) => ({ ...e, ...resumoTrecho(dados, e.i0, e.i1, o, extras) }));
+    // A linha mostrada é a da coluna LINHA do arquivo em cada trecho (só informativa).
+    const elementos = brutos.map((e) => ({ ...e, linha: B.linhaDoTrecho(arquivo, e.i0, e.i1), ...resumoTrecho(dados, e.i0, e.i1, o, extras) }));
     // Pátios (RH) ficam fora das estatísticas gerais (perda de bitola, OGMS × KLD, variação).
     const mascara = new Uint8Array(pos.length).fill(1);
     elementos.forEach((e) => { if (e.tipo === 'X') mascara.fill(0, e.i0, e.i1 + 1); });
@@ -802,6 +849,7 @@
       });
       porEh.forEach((g) => {
         const r = resumoTrecho(dados, Math.min(...g.els.map((e) => e.i0)), Math.max(...g.els.map((e) => e.i1)), o, extras);
+        g.linha = [...new Set(g.els.flatMap((e) => String(e.linha || '').split(' / ')).filter(Boolean))].join(' / ');
         Object.assign(g, somar(g.els), { pctVariacao: r.pctVariacao, ini: g.els[0].ini, fim: g.els[g.els.length - 1].fim, curvas: g.els.filter((e) => e.tipo === 'C').length, tangentes: g.els.filter((e) => e.tipo === 'T').length });
         // Elemento com a maior perda de bitola no trecho (na RH, o próprio pátio).
         const pior = g.els.reduce((m, e) => ((e.pctPerda ?? -1) > (m ? m.pctPerda ?? -1 : -2) ? e : m), null);

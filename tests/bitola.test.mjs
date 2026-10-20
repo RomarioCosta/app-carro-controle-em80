@@ -218,3 +218,22 @@ test('conferência do ramal pelas curvas (ramais com o mesmo km)', () => {
   assert.equal(B.ramalDaPlanta('RTU', { TU: ['1'], LT: ['1'] }), 'TU');
   assert.equal(B.ramalDaPlanta('RLT', { TU: ['1'], LT: ['1'] }), 'LT');
 });
+
+test('linha do arquivo muda ou é texto (TESTE01): EH e elemento continuam pelo km', () => {
+  const a = B.lerCSV(gerarCSV());
+  assert.deepEqual(j(a.linhasValores), ['1']);
+  // metade do arquivo com a coluna LINHA = "TESTE01"
+  a.linhasValores = ['1', 'TESTE01'];
+  a.linhaIdx = Uint16Array.from(a.pos, (_, i) => (i >= 2400 ? 1 : 0)); // muda no meio da T01
+  const planta = B.lerPlanta(plantaSintetica());
+  const localizar = B.localizador(planta, 'TST', a, '1');
+  const els = B.elementosDaPlanta(planta, 'TST', '1');
+  const r = B.analisar(a, { modo: 'planta', elementosPlanta: els, localizar, ajusteKm: 30 });
+  assert.deepEqual(j(r.elementos.map((e) => e.sigla)), ['T02', 'C01', 'T01', 'RH', 'C01']);
+  assert.deepEqual(j(r.elementos.map((e) => e.linha)), ['1', '1', 'TESTE01 / 1', 'TESTE01', 'TESTE01']);
+  assert.equal(r.elementos[4].eh, 'EH 10/11');
+  assert.equal(B.linhaDaPlanta('L2', ['1', '2']), '2');
+  assert.equal(B.linhaDaPlanta('02', ['1', '2']), '2');
+  assert.equal(B.linhaDaPlanta('TESTE01', ['1', '2']), null);
+  assert.equal(B.linhaDaPlanta('3', ['1', '2']), null);
+});
