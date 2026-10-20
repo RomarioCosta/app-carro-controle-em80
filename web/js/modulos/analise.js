@@ -34,7 +34,7 @@
     raiz.append(
       h('div', { class: 'tela-cab' },
         h('h1', { text: 'Análise do arquivo do carro controle' }),
-        h('p', { class: 'sub', text: 'Bitola frontal × traseira, OGMS × KLD, tangentes e curvas, alinhamento e nivelamento.' })),
+        null),
       secoes.arquivo, secoes.planta, secoes.parametros, secoes.kpis, secoes.offset, secoes.graficos, secoes.elementos, secoes.ranking);
     renderArquivo();
     carregarPlanta().then(carregarUltimo);
@@ -85,7 +85,7 @@
   function configurarPlanta() {
     infoPlanta = null;
     problemaPlanta = '';
-    if (!arquivo || !planta || opcoes.modo === 'curvatura') return null;
+    if (!arquivo || !planta) return null; // com planta, todos os modos mostram EH/RH
     // O ramal vem do arquivo CSV. A localização (EH/RH e elemento) é feita pelo km; a coluna LINHA
     // só escolhe a linha da planta consultada primeiro e é mostrada como informação (pode ser 0, 1, 2, 3 ou um texto).
     const ramal = B.ramalDaPlanta(arquivo.meta.ramal, planta.ramais);
@@ -181,7 +181,7 @@
       planta = { nome: f.name, importadoEm: U.agora(), elementos: lida.elementos, ramais: lida.ramais };
       await store.set(CHAVE_PLANTA, planta);
       cacheAjuste.clear();
-      opcoes = { ...opcoes, modo: opcoes.modo === 'curvatura' ? 'hibrido' : opcoes.modo, ajusteKm: 'auto' };
+      opcoes = { ...opcoes, ajusteKm: 'auto' };
       salvarOpcoes();
       ui.toast(`Planta importada: ${lida.elementos.length.toLocaleString('pt-BR')} elementos.`, 'ok', 5000);
       if (arquivo) recalcular(); else renderPlanta();
@@ -199,7 +199,7 @@
       h('summary', null, h('strong', { text: 'Planta da linha' }), h('span', { class: 'sub', text: planta ? ` · ${planta.elementos.length.toLocaleString('pt-BR')} elementos` : ' · não importada' })),
       h('div', { class: 'pilha', style: { marginTop: '10px' } },
         h('p', { class: 'sub', text: resumo }),
-        ui.campo(planta ? 'Substituir planta (.xls ou .xlsx)' : 'Planta da linha (.xls ou .xlsx)', input, { ajuda: 'Fica guardada neste aparelho. Precisa de internet só na importação.' }),
+        ui.campo(planta ? 'Substituir planta (.xls ou .xlsx)' : 'Planta da linha (.xls ou .xlsx)', input),
         planta ? h('button', {
           class: 'btn btn-fantasma',
           onclick: async () => {
@@ -252,7 +252,7 @@
             await store.del(CHAVE).catch(() => {});
             renderTudo();
           }
-        }, ui.icone('lixo'), 'Remover arquivo')) : h('p', { class: 'sub', text: 'O arquivo fica guardado neste aparelho até você remover ou abrir outro.' })));
+        }, ui.icone('lixo'), 'Remover arquivo')) : null));
   }
 
   /* ---------------- Parâmetros ---------------- */
@@ -270,16 +270,11 @@
         salvarOpcoes();
         recalcular();
       }
-    }), { ajuda });
+    }));
 
     const mudar = (campo, valor) => { opcoes = { ...opcoes, [campo]: valor }; salvarOpcoes(); recalcular(); };
-    const usandoPlanta = resultado && resultado.modo !== 'curvatura';
+    const usandoPlanta = resultado && resultado.comLocais;
     const conf = infoPlanta && infoPlanta.conferencia;
-    const explicacao = {
-      hibrido: 'Os limites de cada elemento vêm da curvatura medida pelo carro; o nome (Curva 01, Tangente 02, EH x/y ou RH) vem da planta.',
-      planta: 'Os limites vêm do km da planta (depende do km do carro estar certo).',
-      curvatura: 'Só a curvatura medida, sem planta: elementos numerados na ordem da inspeção, sem EH/RH.'
-    };
     const blocoPlanta = planta ? h('div', { class: 'pilha' },
       ui.campo('Elementos', h('div', { class: 'seg seg-modos-analise', role: 'group' },
         [['hibrido', 'Curvatura + planta'], ['planta', 'Pelo km da planta'], ['curvatura', 'Só curvatura']].map(([v, r]) => h('button', {
@@ -287,8 +282,8 @@
           class: `seg-opcao${opcoes.modo === v ? ' ativo' : ''}`,
           'aria-pressed': opcoes.modo === v ? 'true' : 'false',
           onclick: () => mudar('modo', v)
-        }, r))), { ajuda: explicacao[opcoes.modo] || '' }),
-      usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Ramal ${arquivo.meta.ramal} → planta ${infoPlanta.ramal}. EH/RH e elementos localizados pelo km. Coluna LINHA do arquivo (só informativa): ${infoPlanta.linhasArquivo.map((x) => `${x.valor}${x.valida ? '' : ' (não é linha da planta)'} ${fmt(x.pct, 0)}%`).join(' · ')}.${conf ? ` Curvas do arquivo × curvas da planta: ${conf.nota}% de correspondência.` : ''}` }) : null,
+        }, r)))),
+      usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Ramal ${arquivo.meta.ramal} → ${infoPlanta.ramal} · Linha: ${infoPlanta.linhasArquivo.map((x) => `${x.valor} ${fmt(x.pct, 0)}%`).join(', ')}${conf ? ` · Curvas × planta: ${conf.nota}%` : ''}` }) : null,
       usandoPlanta && conf && conf.suspeito ? h('p', { class: 'aviso aviso-erro', text: `Atenção: as curvas deste arquivo combinam muito mais com o ramal ${conf.outro.ramal}, linha ${conf.outro.linha} (${conf.outro.nota}%) do que com o ramal do arquivo, ${infoPlanta.ramal} (${conf.nota}%). Vários ramais têm os mesmos km: confira a coluna RAMAL do arquivo.` }) : null,
       usandoPlanta && infoPlanta ? h('div', { class: 'grade-3' },
         ui.campo('Correção do km do carro (m)', h('input', {
@@ -300,9 +295,9 @@
             const v = U.numero(e.target.value);
             mudar('ajusteKm', e.target.value.trim() === '' || v === null ? 'auto' : v);
           }
-        }), { ajuda: 'O km registrado pelo carro costuma diferir alguns metros do km da planta. Vazio = automático: o app compara as curvas medidas com as curvas da planta e acha a diferença. Digite um valor só se o automático errar.' })) : null,
-      usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Correção de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automática)' : ' (digitada)'}${infoPlanta.acerto !== null ? ` · curvas do arquivo coincidem com as da planta em ${fmt(infoPlanta.acerto, 0)}% do trecho` : ''}.` }) : null,
-      opcoes.modo !== 'curvatura' && !infoPlanta && problemaPlanta ? h('p', { class: 'aviso', text: problemaPlanta }) : null) : null;
+        }))) : null,
+      usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Correção ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (auto)' : ''}${infoPlanta.acerto !== null ? ` · ${fmt(infoPlanta.acerto, 0)}% coincidente` : ''}` }) : null,
+      !infoPlanta && problemaPlanta ? h('p', { class: 'aviso', text: problemaPlanta }) : null) : null;
 
     ui.trocar(secoes.parametros, h('details', { class: 'cartao detalhes' },
       h('summary', null, h('strong', { text: 'Critérios da análise' }),
@@ -452,7 +447,6 @@
         h('div', { class: 'linha-campo' },
           h('span', { class: 'sub', text: zoom ? `Trecho: ${B.fmtKm(x0)} → ${B.fmtKm(x1)}` : 'Trecho completo' }),
           zoom ? h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => { zoom = null; renderGraficos(); } }, 'Ver tudo') : null)),
-      h('p', { class: 'sub', text: `Bitola = ${B.NOMINAL} mm + valor do arquivo. Faixas azuis = curvas${r.modo !== 'curvatura' ? '; cinza = RH (circuito)' : ''}. Em trechos longos, as bitolas aparecem como faixa (mín–máx) com a média. Toque numa linha da tabela de elementos ou do ranking para aproximar.` }),
       info,
       conteudo));
   }
@@ -475,7 +469,7 @@
 
   /** Colunas da tabela de elementos (usadas na tela e no laudo). */
   function colunasElementos(paraLaudo) {
-    const planta = resultado.modo !== 'curvatura';
+    const planta = resultado.comLocais;
     const evs = arquivo.eventos;
     const eventosDo = (e) => {
       const lo = Math.min(e.ini, e.fim); const hi = Math.max(e.ini, e.fim);
@@ -488,6 +482,8 @@
     cols.push({ t: 'Linha', v: (e) => e.linha || linhaAtual() });
     cols.push({ t: 'Elemento', v: (e) => (paraLaudo ? (e.tipo === 'X' ? 'Circuito' : `${e.tipo === 'C' ? 'Curva' : 'Tangente'} ${e.sigla.slice(1)}`) : h('span', { class: `el-tag ${e.tipo === 'C' ? 'el-curva' : e.tipo === 'X' ? 'el-fora' : 'el-tangente'}`, text: e.sigla, title: e.nome })) });
     if (planta) cols.push({ t: 'Lado', v: (e) => (e.tipo === 'C' ? (e.lado === 'D' ? 'Dir.' : e.lado === 'E' ? 'Esq.' : '—') : '') });
+    // Só curvatura: elemento(s) da planta a que o km do elemento pertence (o de mais pontos primeiro).
+    if (planta && resultado.modo === 'curvatura') cols.push({ t: 'Planta', v: (e) => e.elementoPlanta || '—' });
     cols.push(
       { t: 'Início', v: (e) => B.fmtKm(e.ini) },
       { t: 'Fim', v: (e) => B.fmtKm(e.fim) },
@@ -562,15 +558,13 @@
   function renderElementos() {
     if (!resultado) return ui.limpar(secoes.elementos);
     const r = resultado;
-    const planta = r.modo !== 'curvatura';
+    const planta = r.comLocais;
     ui.trocar(secoes.elementos,
       planta && r.porEh.length ? h('section', { class: 'cartao' },
         h('h2', { text: 'Resumo por trecho (EH e RH)' }),
-        h('p', { class: 'sub', text: `Ramal ${infoPlanta.ramal}. Do trecho com maior perda para o com menor, com o elemento de maior perda em cada um. Toque para aproximar esse elemento.` }),
         tabelaTela(colunasEh(false), porPerda(r.porEh), (g) => (g.pior ? aproximar(g.pior.ini, g.pior.fim) : aproximar(g.ini, g.fim)))) : null,
       h('section', { class: 'cartao' },
         h('h2', { text: planta ? 'Elementos da planta: tangentes e curvas' : 'Elementos: tangentes e curvas' }),
-        h('p', { class: 'sub', text: `Do elemento com maior perda para o com menor. ${planta ? 'Elementos e numeração da planta, por trecho (EH x/y; RH = circuito).' : 'Identificados pela curvatura e numerados na ordem da inspeção.'} Ponto acima da regra: |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm (diferença arredondada a 0,01 mm). % perda = pontos acima da regra ÷ total de pontos do elemento. O elemento perdeu a bitola quando a % de perda passa de ${fmt(opcoes.limiteElemento ?? 10, 0)}%. Ext. acima = pontos acima × ${fmt((resultado && resultado.esp) || 0.25, 2)} m. ⚠ = menos de 90% dos pontos com leitura.` }),
         tabelaTela(colunasElementos(false), porPerda(r.elementos), (e) => aproximar(e.ini, e.fim))));
   }
 
@@ -625,11 +619,10 @@
       h('summary', null, h('strong', { text: 'Simulação de offset' }),
         h('span', { class: 'sub', text: off.valor ? ` · ${fmt(off.valor, 1)} mm em ${NOMES_BITOLA[off.bitola]}${off.aplicar ? ' (aplicado)' : ''} · perda ${fmt(antes.pct)}% → ${fmt(depois.pct)}%` : ' · escolha uma bitola e um valor' })),
       h('div', { class: 'pilha', style: { marginTop: '12px' } },
-        h('p', { class: 'sub', text: 'Soma um valor fixo (mm) a uma das bitolas e mostra quanto a perda de bitola diminui. Use para avaliar se a diferença é um desvio de calibração.' }),
         h('div', { class: 'grade-3' },
           ui.campo('Bitola', h('select', { value: off.bitola, onchange: (e) => mudar({ bitola: e.target.value }) },
             Object.entries(NOMES_BITOLA).map(([k, n]) => h('option', { value: k, text: n })))),
-          ui.campo('Offset (mm)', valor, { ajuda: 'Pode ser negativo. Ex.: −0,5' }),
+          ui.campo('Offset (mm)', valor),
           ui.campo('Aplicar', h('label', { class: 'check' },
             h('input', { type: 'checkbox', checked: off.aplicar, onchange: (e) => mudar({ aplicar: e.target.checked }) }),
             ' Usar nos gráficos, tabelas e laudo'))),
@@ -655,7 +648,6 @@
     const nome = (B.NIVELAMENTO.find((p) => p.id === rankingCampo) || {}).nome || rankingCampo;
     ui.trocar(secoes.ranking, h('section', { class: 'cartao' },
       h('h2', { text: 'Ranking de nivelamento' }),
-      h('p', { class: 'sub', text: 'Os 10 maiores valores (em módulo) do teste. Picos a menos de 10 m entre si contam como um só ponto.' }),
       h('div', { style: { marginBottom: '10px' } },
         h('select', {
           class: 'select-auto',
@@ -692,7 +684,6 @@
     ui.modal({
       titulo: 'Gerar laudo',
       conteudo: h('div', { class: 'pilha' },
-        h('p', { class: 'sub', text: 'O laudo reúne a análise do arquivo, o checklist escolhido e o campo de aceite. Na janela de impressão, escolha "Salvar como PDF".' }),
         ui.campo('Responsável pela análise', responsavel),
         ui.campo('Resultado', res),
         ui.campo('Parecer', parecer),
@@ -783,9 +774,9 @@
 
       secao('Gráficos ao longo do km', graficosLaudo.map(({ titulo, g }) => h('div', { class: 'laudo-grafico' }, h('h3', { text: titulo }), g.el))),
 
-      r.modo !== 'curvatura' && r.porEh.length ? secao('Resumo por trecho (EH e RH) — maior perda primeiro', tabelaCols(colunasEh(true), porPerda(r.porEh))) : null,
+      r.comLocais && r.porEh.length ? secao('Resumo por trecho (EH e RH) — maior perda primeiro', tabelaCols(colunasEh(true), porPerda(r.porEh))) : null,
 
-      secao(`${r.modo !== 'curvatura' ? 'Elementos da planta: tangentes e curvas' : 'Elementos: tangentes e curvas'} — maior perda primeiro`, tabelaCols(colunasElementos(true), porPerda(r.elementos))),
+      secao(`${r.comLocais ? 'Elementos com EH/RH da planta: tangentes e curvas' : 'Elementos: tangentes e curvas'} — maior perda primeiro`, tabelaCols(colunasElementos(true), porPerda(r.elementos))),
 
       secao('Ranking de nivelamento (5 maiores valores por parâmetro)',
         h('div', { class: 'laudo-ranking' }, nivel.map((p) => h('div', { class: 'laudo-rank' },
