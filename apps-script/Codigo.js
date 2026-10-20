@@ -14,7 +14,7 @@
  * Primeira instalação: execute a função setup() uma vez pelo editor.
  */
 
-var APP_VERSAO = '1.1.0';
+var APP_VERSAO = '1.2.0';
 var TZ = 'America/Sao_Paulo';
 
 /* ------------------------------------------------------------------ */
@@ -386,8 +386,10 @@ function gravarExecucao_(d, tabela) {
 }
 
 function gravarReprogramacao_(d, tabela) {
-  exigir_(d, ['ciclo', 'nOrdem', 'dataProgramada']);
-  validarData_(d.dataProgramada, 'data programada');
+  exigir_(d, ['ciclo', 'nOrdem']);
+  // Data vazia = OM retirada da programação.
+  d.dataProgramada = String(d.dataProgramada || '').trim();
+  if (d.dataProgramada) validarData_(d.dataProgramada, 'data programada');
   var ok = tabela('OMs').atualizarCampos(chaveOM_(d.ciclo, d.nOrdem), { dataProgramada: d.dataProgramada });
   if (!ok) throw erro_('VALIDACAO', 'OM ' + d.nOrdem + ' não encontrada no ciclo ' + d.ciclo + '.');
 }
@@ -424,6 +426,13 @@ function acaoImportarOMs_(dados) {
   var agora = agoraISO_();
   var vistos = {};
   var novas = [];
+  var t = new Tabela_('OMs');
+  var existentes = t.todos();
+  // A programação feita no app vale mais que a do arquivo (o SAP normalmente nem traz essa coluna).
+  var programadas = {};
+  existentes.forEach(function (o) {
+    if (o.ciclo === ciclo && o.dataProgramada) programadas[String(o.nOrdem)] = o.dataProgramada;
+  });
   lista.forEach(function (o) {
     var n = String(o.nOrdem || '').trim();
     if (!n || vistos[n]) return;
@@ -433,6 +442,7 @@ function acaoImportarOMs_(dados) {
     });
     var obj = copiar_(o, ['textoBreve', 'denominacao', 'localInstalacao', 'instalacao', 'plano', 'item',
       'statusUsuario', 'statusOrdem', 'dataPlanejada', 'tolMin', 'tolMax', 'km', 'km2', 'status', 'dataProgramada']);
+    if (programadas[n]) obj.dataProgramada = programadas[n];
     obj.chave = chaveOM_(ciclo, n);
     obj.ciclo = ciclo;
     obj.nOrdem = n;
@@ -440,8 +450,7 @@ function acaoImportarOMs_(dados) {
     novas.push(obj);
   });
 
-  var t = new Tabela_('OMs');
-  var outras = t.todos().filter(function (o) { return o.ciclo !== ciclo; });
+  var outras = existentes.filter(function (o) { return o.ciclo !== ciclo; });
   t.substituirTudo(outras.concat(novas));
   return { ciclo: ciclo, importadas: novas.length };
 }

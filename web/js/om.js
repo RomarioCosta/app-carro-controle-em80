@@ -19,6 +19,18 @@
     return m ? m[1].toUpperCase() : 'OUTROS';
   };
 
+  /** Linha da via pelo texto breve (ex.: "RFA 18V/19I L1" -> "1"). '' se não houver. */
+  OM.linha = (texto) => {
+    const m = /\bL\s?0*(\d{1,2})\s*$/i.exec(String(texto || '').trim());
+    return m ? m[1] : '';
+  };
+
+  /** Ordem de trabalho: ramal, linha e km. */
+  OM.ordemCampo = (a, b) => a.ramal.localeCompare(b.ramal)
+    || OM.linha(a.textoBreve).localeCompare(OM.linha(b.textoBreve))
+    || (Number(a.km) || 0) - (Number(b.km) || 0)
+    || a.textoBreve.localeCompare(b.textoBreve);
+
   /* ------------------------------------------------------------------ */
   /* Importação da planilha                                              */
   /* ------------------------------------------------------------------ */
@@ -97,7 +109,7 @@
     if (pos.textoBreve === undefined) resultado.avisos.push('Coluna "Texto breve" não encontrada.');
     resultado.temColunaProgramada = pos.dataProgramada !== undefined;
     if (!resultado.temColunaProgramada) {
-      resultado.avisos.push('Coluna "Data Programada" não encontrada: as OMs entram no ciclo, mas sem meta diária.');
+      resultado.avisos.push('A planilha não tem a coluna "Data Programada": faça a programação no app (aba Programação). A programação já feita é mantida.');
     }
 
     const vistos = new Set();
@@ -215,6 +227,12 @@
   }
 
   OM.importar = async (ciclo, oms) => {
+    // Mantém a programação feita no app quando a planilha não traz a data programada.
+    const local = await OM.carregarLocal(String(ciclo));
+    if (local) {
+      const prog = new Map(local.oms.filter((o) => o.dataProgramada).map((o) => [o.nOrdem, o.dataProgramada]));
+      oms = oms.map((o) => (prog.has(o.nOrdem) ? { ...o, dataProgramada: prog.get(o.nOrdem) } : o));
+    }
     const r = await api.chamar('importarOMs', { ciclo, oms });
     OM.definirCicloAtivo(r.ciclo);
     await OM.atualizarDoServidor(r.ciclo);
@@ -238,6 +256,54 @@
     await sync.enfileirar('execucao', OM.chave(ciclo, nOrdem), { ciclo: String(ciclo), nOrdem, ...novo });
     return novo;
   };
+
+  /**
+   * Programa várias OMs para uma data (ou retira da programação com data '').
+   * Grava no aparelho na hora e envia ao servidor pela fila.
+   */
+  OM.programarVarios = async (ciclo, nOrdens, data) => {
+    const alvo = new Set(nOrdens.map(String));
+    if (!alvo.size) return 0;
+    if (data && !U.parseData(data)) throw new Error('Data inválida.');
+    let n = 0;
+    await store.atualizar(chaveCache(ciclo), (dados) => {
+      if (!dados) throw new Error('Ciclo não carregado.');
+      dados.oms.forEach((o) => {
+        if (alvo.has(o.nOrdem)) { o.dataProgramada = data; n++; }
+      });
+      return dados;
+    });
+    await sync.enfileirarVarios([...alvo].map((nOrdem) => ({
+      tipo: 'reprogramacao', id: OM.chave(ciclo, nOrdem), dados: { ciclo: String(ciclo), nOrdem, dataProgramada: data }
+    })));
+    return n;
+  };
+
+  /** Quantidade de OMs programadas e realizadas por dia de um mês (para o calendário). */
+  OM.calendario = (dados, mesRef) => {
+    const ini = U.inicioMes(mesRef);
+    const fim = U.fimMes(mesRef);
+    const dias = {};
+    for (let d = ini; d <= fim; d = U.somarDias(d, 1)) dias[d] = { programadas: 0, feitas: 0, realizadasNoDia: 0 };
+    dados.oms.forEach((o) => {
+      const p = o.dataProgramada;
+      if (p && dias[p]) {
+        dias[p].programadas++;
+        if (OM.realizada(dados, o.nOrdem)) dias[p].feitas++;
+      }
+      const r = OM.diaRealizacao(dados, o.nOrdem);
+      if (r && dias[r]) dias[r].realizadasNoDia++;
+    });
+    return dias;
+  };
+
+  /**
+   * OMs que podem ser programadas: não realizadas.
+   * Por padrão só as sem programação; com "todas", também as programadas em outras datas.
+   */
+  OM.disponiveis = (dados, { todas = false, exceto = '' } = {}) => dados.oms
+    .filter((o) => !OM.realizada(dados, o.nOrdem) && (todas ? o.dataProgramada !== exceto : !o.dataProgramada))
+    .sort(OM.ordemCampo);
 
   OM.reprogramar = async (ciclo, nOrdem, dataProgramada) => {
     await store.atualizar(chaveCache(ciclo), (dados) => {

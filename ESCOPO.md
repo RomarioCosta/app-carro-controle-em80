@@ -129,9 +129,14 @@ Registro de falhas durante a inspeção.
 
 ### Fluxo por ciclo
 1. Exportar a planilha de OMs do SAP (xlsx).
-2. Adicionar a coluna **Data Programada** com o dia previsto de cada OM. A programação é feita no próprio arquivo, antes da importação.
-3. Importar o arquivo no app e **digitar o número do ciclo** (a coluna "Ciclo" do SAP é ignorada).
-4. Em campo, a tela mostra as OMs do dia, com filtro por data e por ramal.
+2. Importar o arquivo no app e **digitar o número do ciclo** (a coluna "Ciclo" do SAP é ignorada). A coluna **Data Programada** é opcional.
+3. **Programação no app** (aba "Programação" da Produção):
+   - calendário do mês com a quantidade de OMs programadas e realizadas por dia; tocar num dia seleciona o dia (e atualiza o painel do dia, da semana e do mês);
+   - lista das OMs do dia: marcar várias e **mover para outra data** ou **retirar da programação** (ou o "×" de cada OM);
+   - lista para **adicionar** OMs ao dia: "Sem programação" ou "Todas não realizadas" (inclui as de outras datas, que mudam para o dia escolhido), com filtro por ramal, busca e "selecionar todas as visíveis"; ordenada por ramal, linha e km;
+   - o painel (meta do dia, semana e mês) é recalculado na hora; funciona sem internet e sincroniza depois.
+   - Reimportar a planilha **mantém a programação feita no app**.
+4. Em campo, a aba "Execução" mostra as OMs do dia, com filtro por data e por ramal.
 5. Ao tocar no botão de uma OM:
    - 1º toque → **Realizado** (grava a data e a hora da realização)
    - 2º toque → **Não realizado** (apaga a data de realização)

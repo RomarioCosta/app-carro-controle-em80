@@ -11,6 +11,11 @@
   let painelEl;
   let listaCab;
   let listaEl;
+  let modoEl; // abas Execução | Programação
+  let execEl; // cartão da lista (execução)
+  let progEl; // programação (calendário + listas)
+  let modo = U.pref.get('producao:modo', 'execucao');
+  let versaoServidor = null; // conferida ao abrir a programação
   let dados = null; // { ciclo, oms, exec }
   let ref = U.hoje();
   let refManual = false; // true quando o usuário escolheu outra data
@@ -28,10 +33,12 @@
     raiz.append(
       h('div', { class: 'tela-cab' },
         h('h1', { text: 'Produção de OMs' }),
-        h('p', { class: 'sub', text: 'Toque na OM para marcar como realizada. Toque de novo para desfazer.' })),
+        h('p', { class: 'sub', text: 'Programe as OMs por dia na aba Programação e marque as realizadas na aba Execução.' })),
       topoEl,
       painelEl,
-      h('section', { class: 'cartao' }, listaCab, listaEl));
+      modoEl = h('div'),
+      execEl = h('section', { class: 'cartao' }, listaCab, listaEl),
+      progEl = h('div', { class: 'pilha' }));
     renderTudo();
   }
 
@@ -74,7 +81,29 @@
   function renderTudo() {
     renderTopo();
     renderPainel();
-    renderLista();
+    renderModo();
+    if (modo === 'programacao') renderProgramacao(); else renderLista();
+  }
+
+  function renderModo() {
+    const tem = !!(dados && dados.oms.length);
+    modoEl.hidden = !tem;
+    execEl.hidden = !tem || modo !== 'execucao';
+    progEl.hidden = !tem || modo !== 'programacao';
+    if (!tem) return;
+    const botao = (id, rotulo, icone) => h('button', {
+      class: `seg-opcao${modo === id ? ' ativo' : ''}`,
+      'aria-pressed': modo === id ? 'true' : 'false',
+      onclick: () => {
+        if (modo === id) return;
+        modo = id;
+        U.pref.set('producao:modo', id);
+        renderTudo();
+      }
+    }, ui.icone(icone), rotulo);
+    ui.trocar(modoEl, h('div', { class: 'seg seg-abas seg-modo', role: 'group', 'aria-label': 'Modo' },
+      botao('execucao', 'Execução', 'check'),
+      botao('programacao', 'Programação', 'calendario')));
   }
 
   async function renderTopo() {
@@ -125,7 +154,7 @@
     if (!dados || !dados.oms.length) {
       ui.trocar(painelEl, h('section', { class: 'cartao vazio-grande' },
         h('p', { text: OM.cicloAtivo() ? `O ciclo ${OM.cicloAtivo()} ainda não foi carregado neste aparelho.` : 'Nenhum ciclo importado ainda.' }),
-        h('p', { class: 'sub', text: 'Importe a planilha de OMs do SAP com a coluna "Data Programada".' }),
+        h('p', { class: 'sub', text: 'Importe a planilha de OMs do SAP. Depois, monte a programação do dia, da semana e do mês na aba Programação.' }),
         h('button', { class: 'btn btn-primario', onclick: abrirImportacao }, ui.icone('upload'), 'Importar planilha')));
       return;
     }
@@ -252,6 +281,276 @@
     botoes.forEach((b, i) => { b.textContent = b.textContent.replace(/\(\d+\)$/, `(${n[i]})`); });
   }
 
+  /* ---------------- Programação (calendário) ---------------- */
+
+  const selProg = new Set(); // OMs marcadas na lista do dia
+  const selDisp = new Set(); // OMs marcadas na lista para adicionar
+  let dispTodas = false; // false = só sem programação; true = também as de outras datas
+  let dispRamal = '';
+  let dispBusca = '';
+  let selDia = null; // dia a que as seleções pertencem
+
+  const fmtDiaLongo = (d) => `${U.diaSemanaCurto(d)} ${U.fmtData(d).slice(0, 5)}`;
+  const linhaVia = (o) => { const l = OM.linha(o.textoBreve); return l ? `L${l}` : ''; };
+  const kmTxt = (o) => {
+    const m = Number(o.km);
+    if (!Number.isFinite(m) || m <= 0) return '';
+    const fim = Number(o.km2);
+    const fmt = (x) => `${Math.floor(x / 1000)}+${String(Math.round(x % 1000)).padStart(3, '0')}`;
+    return Number.isFinite(fim) && fim > m ? `km ${fmt(m)} a ${fmt(fim)}` : `km ${fmt(m)}`;
+  };
+
+  async function conferirServidor() {
+    if (versaoServidor !== null || !api.configurado() || navigator.onLine === false) return;
+    try {
+      const r = await api.chamar('ping');
+      versaoServidor = (r && r.versao) || '0';
+      if (modo === 'programacao') renderProgramacao();
+    } catch (e) { /* sem conexão: confere depois */ }
+  }
+  const servidorAntigo = () => {
+    if (!versaoServidor) return false;
+    const [a, b] = versaoServidor.split('.').map((x) => parseInt(x, 10) || 0);
+    return a < 1 || (a === 1 && b < 2);
+  };
+
+  async function programar(nOrdens, data, msg) {
+    if (!nOrdens.length) return;
+    try {
+      await OM.programarVarios(dados.ciclo, nOrdens, data);
+      const alvo = new Set(nOrdens);
+      dados.oms.forEach((o) => { if (alvo.has(o.nOrdem)) o.dataProgramada = data; });
+      nOrdens.forEach((n) => { selProg.delete(n); selDisp.delete(n); });
+      renderPainel();
+      renderProgramacao();
+      ui.toast(msg, 'ok', 2500);
+      if (navigator.vibrate) navigator.vibrate(15);
+    } catch (e) {
+      ui.toast(`Não foi possível programar: ${e.message}`, 'erro', 5000);
+    }
+  }
+
+  function renderProgramacao() {
+    if (!dados || !dados.oms.length) return ui.limpar(progEl);
+    if (selDia !== ref) { selProg.clear(); selDisp.clear(); selDia = ref; }
+    conferirServidor();
+    ui.trocar(progEl,
+      servidorAntigo() ? h('p', { class: 'aviso', text: 'O servidor (Apps Script) está numa versão antiga: programar funciona, mas para RETIRAR OMs da programação e manter a programação ao reimportar a planilha, atualize o Codigo.js no Apps Script e publique uma nova versão (veja INSTALACAO.md).' }) : null,
+      cartaoCalendario(),
+      cartaoDoDia(),
+      cartaoAdicionar());
+  }
+
+  function cartaoCalendario() {
+    const cal = OM.calendario(dados, ref);
+    const ini = U.inicioMes(ref);
+    const hoje = U.hoje();
+    const seg = U.inicioSemana(ref);
+    const sex = U.somarDias(seg, 4);
+    const dom = U.somarDias(seg, 6);
+    const contar = (a, b) => dados.oms.filter((o) => o.dataProgramada && o.dataProgramada >= a && o.dataProgramada <= b).length;
+    const semProg = dados.oms.filter((o) => !o.dataProgramada && !OM.realizada(dados, o.nOrdem)).length;
+    const naoFeitas = dados.oms.filter((o) => !OM.realizada(dados, o.nOrdem)).length;
+
+    const celulas = [];
+    const desloc = (new Date(`${ini}T12:00:00`).getDay() + 6) % 7; // segunda = 0
+    for (let i = 0; i < desloc; i++) celulas.push(h('span', { class: 'cal-vazio' }));
+    Object.entries(cal).forEach(([d, c]) => {
+      const classes = ['cal-dia'];
+      if (d === ref) classes.push('sel');
+      if (d === hoje) classes.push('hoje');
+      if (U.ehFimDeSemana(d)) classes.push('fds');
+      if (d >= seg && d <= dom) classes.push('semana');
+      if (c.programadas && c.feitas === c.programadas) classes.push('completo');
+      else if (c.programadas && d < hoje) classes.push('pendente');
+      celulas.push(h('button', {
+        class: classes.join(' '),
+        'aria-pressed': d === ref ? 'true' : 'false',
+        'aria-label': `${U.fmtData(d)}: ${c.programadas} OMs programadas, ${c.feitas} realizadas`,
+        onclick: () => mudarData(d)
+      },
+      h('span', { class: 'cal-num', text: String(Number(d.slice(8))) }),
+      c.programadas ? h('span', { class: 'cal-qtd', text: String(c.programadas) }) : h('span', { class: 'cal-qtd zero', text: '·' }),
+      c.programadas ? h('span', { class: 'cal-feitas', text: `${c.feitas} ✓` }) : null));
+    });
+
+    const mesAnt = U.somarDias(ini, -1).slice(0, 8) + '01';
+    const mesSeg = U.somarDias(U.fimMes(ref), 1);
+    return h('section', { class: 'cartao' },
+      h('div', { class: 'cal-topo' },
+        h('button', { class: 'btn-icone', 'aria-label': 'Mês anterior', onclick: () => mudarData(mesAnt) }, ui.icone('esquerda')),
+        h('h2', { text: U.fmtMesAno(ref).replace(/^./, (c) => c.toUpperCase()) }),
+        h('button', { class: 'btn-icone', 'aria-label': 'Próximo mês', onclick: () => mudarData(mesSeg) }, ui.icone('direita'))),
+      h('div', { class: 'cal-grade cal-cab' }, ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((t) => h('span', { text: t }))),
+      h('div', { class: 'cal-grade' }, celulas),
+      h('p', { class: 'sub cal-resumo' },
+        h('strong', { text: `Semana ${U.fmtData(seg).slice(0, 5)}–${U.fmtData(sex).slice(0, 5)}: ${contar(seg, sex)} OMs` }),
+        ` · Mês: ${contar(ini, U.fimMes(ref))} OMs · Sem programação: ${semProg} de ${naoFeitas} não realizadas`),
+      h('p', { class: 'sub', text: 'Toque num dia para ver e montar a programação dele. Número grande = OMs programadas; ✓ = realizadas.' }));
+  }
+
+  function linhaSelecionavel(o, conjunto, extras, aoMudar) {
+    const feita = OM.realizada(dados, o.nOrdem);
+    const chk = h('input', {
+      type: 'checkbox',
+      checked: conjunto.has(o.nOrdem),
+      'aria-label': `Selecionar ${o.textoBreve}`,
+      onchange: (e) => { if (e.target.checked) conjunto.add(o.nOrdem); else conjunto.delete(o.nOrdem); aoMudar(); }
+    });
+    const info = [linhaVia(o), kmTxt(o)].filter(Boolean).join(' · ');
+    return h('label', { class: `om-sel${feita ? ' om-feita' : ''}${conjunto.has(o.nOrdem) ? ' marcada' : ''}`, dataset: { n: o.nOrdem } },
+      chk,
+      h('span', { class: 'om-texto' },
+        h('strong', { text: o.textoBreve }),
+        h('span', { class: 'om-sub', text: `${o.nOrdem}${info ? ` · ${info}` : ''}${o.denominacao ? ` · ${o.denominacao}` : ''}` })),
+      extras);
+  }
+
+  function cartaoDoDia() {
+    const doDia = dados.oms.filter((o) => o.dataProgramada === ref).sort(OM.ordemCampo);
+    const feitas = doDia.filter((o) => OM.realizada(dados, o.nOrdem)).length;
+    const lista = h('div', { class: 'lista-om' });
+    const barra = h('div', { class: 'barra-acoes' });
+    const destino = h('input', { type: 'date', 'aria-label': 'Mover para a data', value: U.somarDias(ref, 1) });
+
+    function desenharBarra() {
+      const n = selProg.size;
+      ui.trocar(barra,
+        h('label', { class: 'check' }, h('input', {
+          type: 'checkbox',
+          checked: n > 0 && n === doDia.length,
+          'aria-label': 'Selecionar todas do dia',
+          onchange: (e) => {
+            selProg.clear();
+            if (e.target.checked) doDia.forEach((o) => selProg.add(o.nOrdem));
+            desenharLista();
+          }
+        }), n ? ` ${n} selecionada(s)` : ' Selecionar todas'),
+        n ? h('div', { class: 'linha-campo' },
+          destino,
+          h('button', {
+            class: 'btn btn-secundario btn-pequeno',
+            onclick: () => {
+              if (!U.parseData(destino.value)) return ui.marcarErro(destino, 'Escolha a data.');
+              if (destino.value === ref) return;
+              programar([...selProg], destino.value, `${n} OM(s) movida(s) para ${fmtDiaLongo(destino.value)}.`);
+            }
+          }, ui.icone('calendario'), 'Mover'),
+          h('button', {
+            class: 'btn btn-fantasma btn-pequeno',
+            onclick: () => programar([...selProg], '', `${n} OM(s) retirada(s) da programação.`)
+          }, ui.icone('x'), 'Retirar')) : null);
+    }
+
+    function desenharLista() {
+      if (!doDia.length) {
+        ui.trocar(lista, h('p', { class: 'vazio', text: 'Nenhuma OM programada para este dia. Adicione abaixo.' }));
+      } else {
+        ui.trocar(lista, doDia.map((o) => {
+          const feita = OM.realizada(dados, o.nOrdem);
+          return linhaSelecionavel(o, selProg, [
+            feita ? h('span', { class: 'chip-info feita', text: 'Feita' }) : null,
+            h('button', {
+              class: 'btn-icone om-retirar',
+              'aria-label': `Retirar ${o.textoBreve} da programação`,
+              title: 'Retirar da programação',
+              onclick: (e) => { e.preventDefault(); programar([o.nOrdem], '', `${o.textoBreve} retirada da programação.`); }
+            }, ui.icone('x'))
+          ], () => { desenharBarra(); marcarLinhas(lista, selProg); });
+        }));
+      }
+      desenharBarra();
+    }
+    desenharLista();
+
+    return h('section', { class: 'cartao' },
+      h('h2', { text: `Programadas para ${fmtDiaLongo(ref)} (${doDia.length})` }),
+      doDia.length ? h('p', { class: 'sub', text: `${feitas} realizada(s). Marque para mover a outra data ou retirar da programação.` }) : null,
+      barra,
+      lista);
+  }
+
+  function marcarLinhas(lista, conjunto) {
+    lista.querySelectorAll('.om-sel').forEach((el) => el.classList.toggle('marcada', conjunto.has(el.dataset.n)));
+  }
+
+  function cartaoAdicionar() {
+    const base = OM.disponiveis(dados, { todas: dispTodas, exceto: ref });
+    const ramais = [...new Set(base.map((o) => o.ramal))].sort();
+    if (dispRamal && !ramais.includes(dispRamal)) dispRamal = '';
+    const lista = h('div', { class: 'lista-om lista-disp' });
+    const rodape = h('div', { class: 'barra-acoes' });
+    let visiveis = [];
+
+    function filtrar() {
+      const termo = U.normalizar(dispBusca);
+      visiveis = base.filter((o) => (!dispRamal || o.ramal === dispRamal)
+        && (!termo || U.normalizar(`${o.textoBreve} ${o.nOrdem} ${o.denominacao}`).includes(termo)));
+    }
+
+    function desenharRodape() {
+      const n = selDisp.size;
+      ui.trocar(rodape,
+        h('label', { class: 'check' }, h('input', {
+          type: 'checkbox',
+          checked: visiveis.length > 0 && visiveis.every((o) => selDisp.has(o.nOrdem)),
+          'aria-label': 'Selecionar todas as visíveis',
+          onchange: (e) => {
+            visiveis.forEach((o) => { if (e.target.checked) selDisp.add(o.nOrdem); else selDisp.delete(o.nOrdem); });
+            marcarLinhas(lista, selDisp);
+            lista.querySelectorAll('.om-sel input').forEach((c) => { c.checked = selDisp.has(c.closest('.om-sel').dataset.n); });
+            desenharRodape();
+          }
+        }), ` Todas as ${visiveis.length} visíveis`),
+        h('button', {
+          class: 'btn btn-primario',
+          disabled: !n,
+          onclick: () => programar([...selDisp], ref, `${n} OM(s) programada(s) para ${fmtDiaLongo(ref)}.`)
+        }, ui.icone('mais'), n ? `Programar ${n} em ${U.fmtData(ref).slice(0, 5)}` : 'Selecione as OMs'));
+    }
+
+    function desenharLista() {
+      filtrar();
+      if (!visiveis.length) {
+        ui.trocar(lista, h('p', { class: 'vazio', text: base.length ? 'Nenhuma OM com esse filtro.' : (dispTodas ? 'Todas as OMs não realizadas já estão neste dia.' : 'Todas as OMs não realizadas já estão programadas.') }));
+      } else {
+        const frag = document.createDocumentFragment();
+        visiveis.forEach((o) => frag.appendChild(linhaSelecionavel(o, selDisp,
+          o.dataProgramada ? h('span', { class: `chip-info${o.dataProgramada < U.hoje() ? ' atrasada' : ''}`, text: `Prog. ${U.fmtData(o.dataProgramada).slice(0, 5)}` }) : null,
+          () => { marcarLinhas(lista, selDisp); desenharRodape(); })));
+        ui.trocar(lista, frag);
+      }
+      desenharRodape();
+    }
+
+    const filtros = h('div', { class: 'linha-campo filtros' },
+      h('select', {
+        'aria-label': 'Ramal',
+        value: dispRamal,
+        onchange: (e) => { dispRamal = e.target.value; desenharLista(); }
+      }, h('option', { value: '', text: 'Ramal: todos' }), ramais.map((r) => h('option', { value: r, text: r }))),
+      h('input', {
+        type: 'search', placeholder: 'Buscar OM ou trecho', 'aria-label': 'Buscar OM para adicionar', value: dispBusca,
+        oninput: U.debounce((e) => { dispBusca = e.target.value; desenharLista(); }, 200)
+      }));
+    desenharLista();
+
+    const semProg = OM.disponiveis(dados).length;
+    const outras = OM.disponiveis(dados, { todas: true, exceto: ref }).length;
+    return h('section', { class: 'cartao' },
+      h('h2', { text: `Adicionar OMs em ${fmtDiaLongo(ref)}` }),
+      h('div', { class: 'seg seg-abas', role: 'group', 'aria-label': 'Quais OMs mostrar' },
+        [[false, `Sem programação (${semProg})`], [true, `Todas não realizadas (${outras})`]].map(([v, rot]) => h('button', {
+          class: `seg-opcao${dispTodas === v ? ' ativo' : ''}`,
+          'aria-pressed': dispTodas === v ? 'true' : 'false',
+          onclick: () => { dispTodas = v; renderProgramacao(); }
+        }, rot))),
+      h('p', { class: 'sub', text: dispTodas ? 'Inclui OMs já programadas em outras datas: ao adicionar, elas mudam para este dia.' : 'Ordenadas por ramal, linha e km.' }),
+      filtros,
+      rodape,
+      lista);
+  }
+
   /* ---------------- Reprogramação ---------------- */
 
   function abrirReprogramacao(o) {
@@ -364,7 +663,7 @@
     const m = ui.modal({
       titulo: 'Importar planilha de OMs',
       conteudo: h('div', { class: 'pilha' },
-        h('p', { class: 'sub', text: 'Use a exportação do SAP com a coluna "Data Programada" preenchida.' }),
+        h('p', { class: 'sub', text: 'Use a exportação do SAP. A coluna "Data Programada" é opcional: a programação pode ser feita no app, e a que já foi feita é mantida ao reimportar.' }),
         ui.campo('Número do ciclo', cicloInput, { obrigatorio: true }),
         ui.campo('Arquivo (.xlsx)', arquivoInput, { obrigatorio: true }),
         resumo),

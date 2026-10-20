@@ -326,6 +326,42 @@ async function main() {
       await aguardar(async () => { const x = await planilha(); return x.OMs.filter((o) => o['Data programada'] === isoLocal(diaRel(3))).length === 2; }, 'reprogramação na planilha');
     });
 
+    await passo('produção: programação no calendário (adicionar, mover, retirar)', async () => {
+      await page.locator('.seg-modo').getByRole('button', { name: 'Programação' }).click();
+      await page.locator('.cal-dia.sel').waitFor();
+      const kpiDia = () => page.locator('.kpi').first().locator('.kpi-sub').textContent();
+      assert.equal(await kpiDia(), '5 de 6 OMs');
+      await page.getByRole('heading', { name: /^Programadas para .* \(6\)$/ }).waitFor();
+      const cartaoAdd = page.locator('section.cartao').filter({ hasText: 'Adicionar OMs em' });
+      await cartaoAdd.getByRole('button', { name: 'Sem programação (20)' }).waitFor();
+      await cartaoAdd.locator('select[aria-label="Ramal"]').selectOption('RFA');
+      assert.equal(await cartaoAdd.locator('.om-sel').count(), 4);
+      await cartaoAdd.getByLabel('Selecionar todas as visíveis').check();
+      await cartaoAdd.getByRole('button', { name: /^Programar 4 em/ }).click();
+      await page.getByText('4 OM(s) programada(s)', { exact: false }).waitFor();
+      await aguardar(async () => (await kpiDia()) === '5 de 10 OMs', 'kpi após programar');
+      await page.screenshot({ path: `${SAIDA}16-programacao.png`, fullPage: true });
+
+      // mover uma para outra data (amanhã, padrão do campo)
+      const cartaoDia = page.locator('section.cartao').filter({ hasText: 'Programadas para' });
+      await cartaoDia.locator('.om-sel').filter({ hasText: 'RFA 43I' }).locator('input[type="checkbox"]').check();
+      await cartaoDia.getByRole('button', { name: 'Mover' }).click();
+      await page.getByText('1 OM(s) movida(s)', { exact: false }).waitFor();
+      await aguardar(async () => (await kpiDia()) === '5 de 9 OMs', 'kpi após mover');
+      // retirar uma da programação
+      await page.locator('section.cartao').filter({ hasText: 'Programadas para' }).locator('.om-sel').filter({ hasText: 'RFA 48I' }).getByRole('button', { name: /^Retirar/ }).click();
+      await aguardar(async () => (await kpiDia()) === '5 de 8 OMs', 'kpi após retirar');
+      // o dia seguinte mostra a OM movida; a planilha recebe tudo
+      const amanha = isoLocal(diaRel(1));
+      await aguardar(async () => {
+        const x = await planilha();
+        const por = (n) => x.OMs.find((o) => o['Nº Ordem'] === String(202600000000 + n))['Data programada'];
+        return por(23) === isoLocal(diaRel(0)) && por(33) === amanha && por(38) === '' && por(28) === isoLocal(diaRel(0));
+      }, 'programação na planilha');
+      await page.locator('.seg-modo').getByRole('button', { name: 'Execução' }).click();
+      await page.getByRole('button', { name: /^Hoje \(\d+\)$/ }).waitFor();
+    });
+
     await passo('anomalia: gaveta lateral gera a mensagem e limpa o formulário', async () => {
       await page.getByRole('button', { name: 'Abrir relatório de anomalia' }).click();
       const g = page.locator('.gaveta');

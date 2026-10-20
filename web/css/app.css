@@ -542,3 +542,36 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+
+/* ---------- Produção: programação ---------- */
+.seg-modo .seg-opcao { gap: 6px; display: inline-flex; align-items: center; justify-content: center; font-weight: 650; }
+.seg-modo .ico { width: 18px; height: 18px; }
+.cal-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.cal-topo h2 { margin: 0; }
+.cal-grade { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.cal-cab span { text-align: center; font-size: .72rem; font-weight: 650; color: var(--texto3); padding: 2px 0; }
+.cal-dia {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 1px;
+  min-height: 58px; padding: 4px 2px; border: 1px solid var(--grade); border-radius: 8px;
+  background: var(--sup); color: var(--texto); cursor: pointer; font: inherit;
+}
+.cal-dia.fds { background: var(--sup2); }
+.cal-dia.semana { border-color: color-mix(in srgb, var(--serie-real) 35%, var(--grade)); }
+.cal-dia.hoje .cal-num { background: var(--acento-forte); color: #1b1b1b; border-radius: 999px; padding: 0 6px; }
+.cal-dia.sel { outline: 2px solid var(--serie-real); outline-offset: 0; border-color: var(--serie-real); }
+.cal-dia.completo { background: var(--ok-fundo); }
+.cal-dia.pendente .cal-feitas { color: var(--alerta); }
+.cal-num { font-size: .78rem; font-weight: 650; color: var(--texto2); }
+.cal-qtd { font-size: 1.05rem; font-weight: 750; line-height: 1.1; }
+.cal-qtd.zero { color: var(--texto3); font-weight: 400; }
+.cal-feitas { font-size: .68rem; color: var(--ok); font-weight: 650; }
+.cal-resumo { margin-top: 10px; }
+.barra-acoes { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 8px 0; }
+.barra-acoes .linha-campo input[type="date"] { width: auto; }
+.barra-fixa { position: sticky; bottom: calc(var(--nav-alt) + env(safe-area-inset-bottom)); background: var(--sup); border-top: 1px solid var(--grade); z-index: 2; margin: 0 -16px -16px; padding: 10px 16px; border-radius: 0 0 var(--raio) var(--raio); }
+.om-sel { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--borda); border-radius: 12px; background: var(--sup); cursor: pointer; }
+.om-sel > input[type="checkbox"] { width: 20px; height: 20px; flex: none; margin: 0; }
+.om-sel.marcada { border-color: var(--serie-real); background: color-mix(in srgb, var(--serie-real) 8%, var(--sup)); }
+.om-sel .om-texto { flex: 1; min-width: 0; }
+.om-retirar { flex: none; width: 36px; height: 36px; }
+.lista-disp { max-height: 60vh; overflow-y: auto; padding-right: 2px; }
