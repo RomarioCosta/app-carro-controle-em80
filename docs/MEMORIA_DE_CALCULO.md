@@ -10,6 +10,7 @@ O código está em `web/js/bitola.js`. Os valores padrão podem ser alterados em
 | Linhas usadas | `H` = cabeçalho, `D` = medição, `E` = evento. |
 | Posição do ponto | `KM × 1000 + LOCALIZACAO` (metros). Pontos sem posição são descartados. |
 | Valor ausente | `*******` → sem leitura (não entra em nenhuma conta daquele parâmetro). |
+| Decimal | Aceita ponto ou vírgula (`2.15` ou `2,15`). |
 | Espaçamento | Mediana das distâncias entre pontos seguidos (normalmente 0,25 m). |
 | Ramal | Coluna `RAMAL` do arquivo (ex.: `RLT` → `LT` da planta). |
 | Linha | Coluna `LINHA`, lida em **todos os pontos**. É só informativa: pode ser 0, 1, 2, 3 ou um texto (ex.: `TESTE01`). |
@@ -112,6 +113,7 @@ O código está em `web/js/bitola.js`. Os valores padrão podem ser alterados em
 
 - Soma um valor fixo (mm) a uma das bitolas (F, T ou KLD) e recalcula a perda com a **mesma regra** do item 3.
 - **Melhor offset**: testa de −10 a +10 mm (passo 0,1 mm) e escolhe o que deixa **menos pontos acima da regra**; em empate, o de menor módulo.
+- **Laudo:** tabela "Melhor offset e resultado se aplicado", uma linha para a Bitola F e outra para a Bitola T: melhor offset e, sem offset → com offset, a perda de bitola, a perda em tangentes, em curvas e os elementos com perda (a análise é refeita com o offset, mesmos elementos e mesma regra).
 
 ## 11. Ranking de nivelamento
 
@@ -128,9 +130,11 @@ O código está em `web/js/bitola.js`. Os valores padrão podem ser alterados em
 
 ## 13. Dupla checagem (conferência)
 
-- **Conferência automática:** a cada análise, o app relê o **texto original do CSV** linha a linha, sem usar a leitura nem as contas da análise, e recalcula com números inteiros (centésimos de mm): para cada elemento (pela faixa de km dele), total de pontos com F e T lidas e pontos com |F − T| > limite.
+- **Conferência automática:** a cada análise, o app relê o **texto original do CSV** linha a linha, sem usar a leitura nem as contas da análise, e recalcula com números inteiros (centésimos de mm): para cada elemento, total de pontos com F e T lidas e pontos com |F − T| > limite.
+  - Os pontos de cada elemento são tomados **pela ordem das linhas do arquivo** (do primeiro ao último ponto do elemento), não pela faixa de km. O km pode voltar ou repetir no arquivo (km corrigido durante a inspeção, nova passada no mesmo km); contar pela faixa de km puxaria pontos de outro trecho.
+  - Confere também se o número de linhas de medição lidas pelo app é igual ao do arquivo.
   - Tudo igual: selo **✓ Conferido** na tabela de elementos.
-  - Diferente: botão **⚠ N divergência(s)** com o elemento, os pontos e os pontos acima pelo app e pela conferência.
+  - Diferente: botão **⚠ N divergência(s)** com o elemento, os pontos e os pontos acima pelo app e pela conferência, e a lista dos pontos onde o km volta.
   - Elemento que atravessa um circuito é conferido inteiro (antes de tirar os pontos do RH).
-- **Planilha de conferência (CSV para o Excel):** um ponto por linha, com KM, LOCALIZACAO, Linha, Bitola F, Bitola T, F − T (arredondada), "Acima do limite" (1 = sim), Elemento, EH/RH e "Fora da estatística" (circuito).
-  Para conferir um elemento no Excel: filtre a coluna Elemento; **pontos** = quantidade de linhas com F − T preenchida; **pontos acima** = soma da coluna "Acima do limite"; **% perda** = pontos acima ÷ pontos.
+- **Planilha de conferência (CSV para o Excel):** um ponto por linha, com KM, LOCALIZACAO, Linha, Bitola F, Bitola T, F − T (arredondada), **|F − T| (módulo)**, "Acima do limite" (1 = sim), Elemento, EH/RH e "Fora da estatística" (circuito).
+  Para conferir um elemento no Excel: filtre a coluna Elemento; **pontos** = quantidade de linhas com F − T preenchida; **pontos acima** = soma da coluna "Acima do limite" (ou contar |F − T| > 2); **% perda** = pontos acima ÷ pontos.

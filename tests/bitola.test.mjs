@@ -323,3 +323,25 @@ test('dupla checagem: recontagem independente do CSV bate com a análise e acusa
     assert.equal(B.conferir(texto, rp, 2).ok, true, modo);
   }
 });
+
+test('dupla checagem com km que volta (correção de km no meio da inspeção): sem falsa divergência', () => {
+  // a partir do ponto 2000 o km "volta" 50 m (ex.: 231+200 → 231+250), como num ajuste de km em campo
+  let k = 0;
+  const texto = gerarCSV().split('\r\n').map((l) => {
+    const c = l.split(';');
+    if (c[0] !== 'D') return l;
+    if (k++ >= 2000) {
+      const pos = Number(c[7]) * 1000 + Number(c[9]) + 50;
+      c[7] = String(Math.floor(pos / 1000)); c[9] = `${(pos - Math.floor(pos / 1000) * 1000).toFixed(2)}  `;
+    }
+    return c.join(';');
+  }).join('\r\n');
+  const a = B.lerCSV(texto);
+  const r = B.analisar(a);
+  const c = B.conferir(texto, r, 2);
+  assert.equal(c.ok, true, JSON.stringify(c.divergencias));
+  assert.equal(c.voltas.length, 1);
+  assert.equal(c.linhas, 4000);
+  // vírgula decimal também é lida pela análise
+  assert.equal(B.lerCSV(texto.replace(/(;\s*)3\.00(\s*;)/, '$13,00$2')).dados.bitF.some((v) => v === 3), true);
+});

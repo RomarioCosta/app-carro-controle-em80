@@ -93,7 +93,7 @@
   const num = (s) => {
     const t = String(s ?? '').trim();
     if (!t || t.includes('*')) return null;
-    const n = Number(t);
+    const n = Number(t.includes(',') && !t.includes('.') ? t.replace(',', '.') : t); // aceita vírgula decimal
     return Number.isFinite(n) ? n : null;
   };
 
@@ -993,6 +993,12 @@
     const linhas = String(texto || '').split(/\r?\n/);
     let iF = -1; let iT = -1; let iKm = -1; let iLoc = -1;
     const norm = (x) => String(x || '').trim().toUpperCase().replace(/\s+/g, ' ');
+    const ler = (v) => {
+      const t = String(v || '').trim();
+      if (!t || t.includes('*')) return null;
+      const n = parseFloat(t.replace(',', '.'));
+      return Number.isFinite(n) ? Math.round(n * 100) : null; // centésimos de mm (inteiro)
+    };
     const pontos = [];
     for (const ln of linhas) {
       const c = ln.split(';');
@@ -1006,35 +1012,46 @@
       const km = parseFloat(String(c[iKm]).replace(',', '.'));
       const loc = parseFloat(String(c[iLoc]).replace(',', '.'));
       if (!Number.isFinite(km) || !Number.isFinite(loc)) continue;
-      const ler = (v) => { const t = String(v || '').trim(); if (!t || t.includes('*')) return null; const n = parseFloat(t.replace(',', '.')); return Number.isFinite(n) ? Math.round(n * 100) : null; };
       pontos.push({ m: Math.round((km * 1000 + loc) * 100), f: ler(c[iF]), t: ler(c[iT]) });
     }
     const lim100 = Math.round(limite * 100);
-    const contar = (ini, fim) => {
-      const a = Math.round(Math.min(ini, fim) * 100); const b = Math.round(Math.max(ini, fim) * 100);
+    // Os elementos são conferidos pela posição de cada ponto no arquivo (ordem das linhas "D"),
+    // e não pela faixa de km: o mesmo km pode aparecer mais de uma vez no arquivo (km corrigido
+    // durante a inspeção, passagem pela outra linha…), e aí a faixa de km pegaria pontos de outro trecho.
+    const contar = (i0, i1) => {
       let n = 0; let acima = 0;
-      for (const p of pontos) {
-        if (p.m < a || p.m > b || p.f === null || p.t === null) continue;
+      for (let i = i0; i <= i1 && i < pontos.length; i++) {
+        const p = pontos[i];
+        if (p.f === null || p.t === null) continue;
         n++;
         if (Math.abs(p.f - p.t) > lim100) acima++;
       }
       return { pontos: n, perdas: acima };
     };
+    // Trechos onde o km volta ou se repete (informativo).
+    const sentido = pontos.length > 1 && pontos[pontos.length - 1].m >= pontos[0].m ? 1 : -1;
+    const voltas = [];
+    for (let i = 1; i < pontos.length; i++) {
+      if ((pontos[i].m - pontos[i - 1].m) * sentido < 0) voltas.push({ de: pontos[i - 1].m / 100, para: pontos[i].m / 100 });
+    }
+    const totalApp = resultado.dados ? resultado.dados.bitF.length : null;
     const divergencias = [];
     let somaPontos = 0; let somaPerdas = 0;
     resultado.elementos.forEach((e) => {
-      const c = contar(e.ini, e.fim);
+      const c = contar(e.i0, e.i1);
       const fora = e.tipo === 'X' || e.rh;
-      // elemento que atravessa um circuito tem os pontos do RH fora da conta da análise: confere o elemento inteiro
+      // elemento que atravessa um circuito: confere o elemento inteiro (antes de tirar os pontos do RH)
       const anal = e.pontosTotal !== undefined ? { pontos: e.pontosTotal, perdas: e.perdasTotal } : { pontos: e.pontos, perdas: e.perdas };
       if (c.pontos !== anal.pontos || c.perdas !== anal.perdas) divergencias.push({ sigla: e.sigla, ini: e.ini, fim: e.fim, app: anal, conferido: c });
       if (!fora) { somaPontos += c.pontos; somaPerdas += c.perdas; }
     });
     return {
-      ok: !divergencias.length,
+      ok: !divergencias.length && (totalApp === null || totalApp === pontos.length),
       linhas: pontos.length,
+      linhasApp: totalApp,
       pontosElementos: somaPontos,
       perdasElementos: somaPerdas,
+      voltas,
       divergencias
     };
   };
