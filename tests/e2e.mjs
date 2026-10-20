@@ -491,9 +491,9 @@ async function main() {
       assert.ok((await criterios.textContent()).includes('linha 1 (do arquivo CSV)'));
       assert.equal(await criterios.getByLabel('Linha').count(), 0);
       const tabEls = page.locator('.tabela:not(.tabela-offset)').filter({ hasText: 'Lado' });
-      assert.deepEqual(await tabEls.locator('tbody .el-tag').allTextContents(), ['T01', 'T02', 'C01', 'RH', 'C01']);
+      assert.deepEqual(await tabEls.locator('tbody .el-tag').allTextContents(), ['T01', 'T02', 'C01', 'C01', 'RH']); // maior perda primeiro; pátio (RH) por último
       const trechos = await tabEls.locator('tbody tr').evaluateAll((trs) => trs.map((tr) => tr.children[0].textContent)); // EH/RH primeiro
-      assert.deepEqual(trechos, ['EH 11/12', 'EH 11/12', 'EH 11/12', 'RH-11', 'EH 10/11']);
+      assert.deepEqual(trechos, ['EH 11/12', 'EH 11/12', 'EH 11/12', 'EH 10/11', 'RH-11']);
       assert.equal(await tabEls.locator('tbody tr').first().locator('td').nth(1).textContent(), '1'); // depois a linha do arquivo
       // Gráfico de bitolas: escolher quais aparecem (F, T, KLD).
       const selBit = page.locator('.bitolas-sel');

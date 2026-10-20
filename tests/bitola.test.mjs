@@ -187,3 +187,34 @@ test('offset: aplicado numa bitola e melhor valor que zera a perda', () => {
   const r = B.analisar(a, { offset: { bitola: 'bitT', valor: 1.5, aplicar: true } });
   assert.equal(r.geral.perdas, 0);
 });
+
+test('curvatura + planta: limites medidos, nomes da planta e RH fora da estatística', () => {
+  const a = B.lerCSV(gerarCSV());
+  const els = B.elementosDaPlanta(B.lerPlanta(plantaSintetica()), 'TST', '1');
+  const r = B.analisar(a, { modo: 'hibrido', elementosPlanta: els, ajusteKm: 30 });
+  assert.equal(r.modo, 'hibrido');
+  assert.deepEqual(j(r.elementos.map((e) => e.sigla)), ['T02', 'C01', 'T01', 'RH', 'C01']);
+  assert.deepEqual(j(r.elementos.map((e) => e.eh)), ['EH 11/12', 'EH 11/12', 'EH 11/12', 'RH-11', 'EH 10/11']);
+  // a curva C01 do EH 11/12 tem os limites da curvatura medida (200 m), com a suavização de poucos metros
+  assert.ok(Math.abs(r.elementos[1].extensao - 200) <= 12, `C01 = ${r.elementos[1].extensao}`);
+  // RH-11 (30 m = 120 pontos) fica fora da estatística geral
+  const rh = r.elementos[3];
+  assert.ok(rh.pontos > 100);
+  assert.equal(r.geral.pontos, 4000 - rh.pontos);
+  assert.equal(r.geral.perdas, 200);
+  assert.ok(Math.abs(r.geral.extensaoRh - 30) <= 1);
+  assert.equal(B.perdaTotal(a.dados, 2, 0, 3999, r.mascara).pontos, r.geral.pontos);
+});
+
+test('conferência do ramal pelas curvas (ramais com o mesmo km)', () => {
+  const a = B.lerCSV(gerarCSV());
+  const certo = B.elementosDaPlanta(B.lerPlanta(plantaSintetica()), 'TST', '1');
+  const errado = [{ ramal: 'OUT', linha: '1', eh: '1', tipo: 'T', ini: 1000, fim: 3000 }]; // mesmo km, sem curvas
+  const c1 = B.compatibilidade(a.pos, a.dados.curv, certo);
+  const c2 = B.compatibilidade(a.pos, a.dados.curv, errado);
+  assert.ok(c1.nota >= 90, `certo = ${c1.nota}`);
+  assert.equal(c2.nota, 0);
+  assert.ok(Math.abs(c1.ajuste - 30) <= 10);
+  assert.equal(B.ramalDaPlanta('RTU', { TU: ['1'], LT: ['1'] }), 'TU');
+  assert.equal(B.ramalDaPlanta('RLT', { TU: ['1'], LT: ['1'] }), 'LT');
+});
