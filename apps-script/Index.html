@@ -692,6 +692,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .leg-tv { display: inline-block; width: 22px; height: 12px; background: linear-gradient(to top right, transparent 42%, var(--texto) 42%, var(--texto) 58%, transparent 58%); border-top: 1.5px solid var(--texto); border-bottom: 1.5px solid var(--texto); }
 .seg-modos-analise { display: flex; flex-wrap: wrap; }
 .seg-modos-analise .seg-opcao { flex: 1 1 auto; }
+.baixa-cobertura { color: var(--alerta); }
 
 </style>
 </head>
@@ -914,7 +915,7 @@ window.App = window.App || {};
     versao: '1.0.0',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-8498691d71', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-763086b8f9', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -2881,45 +2882,92 @@ window.App = window.App || {};
     return { ...dados, [offset.bitola]: ajustado };
   };
 
-  /** Perda de bitola em todo o trecho (|F − T| > limite). */
-  B.perdaTotal = (dados, limite, i0 = 0, i1 = dados.bitF.length - 1, mascara = null) => {
-    let pontos = 0; let perdas = 0;
-    for (let i = i0; i <= i1; i++) {
-      if (mascara && !mascara[i]) continue;
-      const f = dados.bitF[i]; const t = dados.bitT[i];
-      if (Number.isNaN(f) || Number.isNaN(t)) continue;
-      pontos++;
-      if (abs(f - t) > limite) perdas++;
+  /* ------------------------------------------------------------------ */
+  /* Regra da perda de bitola (fonte única para tela, laudo e offset)    */
+  /* ------------------------------------------------------------------ */
+  //
+  // 1) Diferença no ponto: F − T, arredondada a 0,01 mm (resolução do arquivo). Sem o arredondamento,
+  //    contas como 2,7 − 0,7 dão 2,0000000000000004 e um ponto com diferença de exatamente 2,00 mm
+  //    seria contado como perda.
+  // 2) Ponto com perda: |F − T| > limite (padrão 2 mm; exatamente 2,00 mm não é perda).
+  //    Só entra ponto com Bitola F e Bitola T lidas; pontos sem leitura não contam para nada.
+  // 3) % de perda = extensão com perda ÷ extensão medida, em metros. Cada ponto vale a distância que o
+  //    carro andou até o ponto seguinte: parado ou em ré vale 0 (não conta duas vezes o mesmo lugar) e
+  //    salto de km (falha de gravação) vale só o espaçamento normal. Com o carro andando normalmente
+  //    (um ponto a cada 0,25 m) dá o mesmo que contar pontos.
+  // 4) Pátios (RH) ficam fora das estatísticas gerais (máscara).
+
+  /** Diferença F − T arredondada a 0,01 mm (NaN se faltar uma das duas). */
+  B.difBitola = (f, t) => (Number.isNaN(f) || Number.isNaN(t) ? NaN : Math.round((f - t) * 100) / 100);
+
+  /** Ponto com perda de bitola: |F − T| (arredondada) maior que o limite. */
+  B.ehPerda = (dif, limite) => !Number.isNaN(dif) && abs(dif) > limite;
+
+  /** Peso (m) de cada ponto: distância andada até o próximo, sem contar parada, ré nem salto de km. */
+  B.pesosDistancia = (pos) => {
+    const n = pos.length;
+    const w = new Float64Array(n);
+    if (!n) return w;
+    const esp = B.espacamento(pos) || 0.25;
+    const sentido = pos[n - 1] >= pos[0] ? 1 : -1;
+    const maxPasso = Math.max(1, esp * 4);
+    for (let i = 0; i < n; i++) {
+      const d = i < n - 1 ? (pos[i + 1] - pos[i]) * sentido : esp;
+      w[i] = d <= 0 ? 0 : d > maxPasso ? esp : d;
     }
-    return { pontos, perdas, pct: pontos ? (perdas / pontos) * 100 : null };
+    return w;
   };
 
   /**
-   * Offset (em mm) para a bitola F ou T que mais reduz a perda de bitola.
+   * Perda de bitola num intervalo de pontos (regra acima).
+   * Retorna pontos/perdas (contagem), metros/metrosPerda (extensão) e pct (sobre a extensão).
+   */
+  B.avaliarPerda = (dados, limite, i0 = 0, i1 = dados.bitF.length - 1, mascara = null, pesos = null) => {
+    let pontos = 0; let perdas = 0; let metros = 0; let metrosPerda = 0;
+    for (let i = i0; i <= i1; i++) {
+      if (mascara && !mascara[i]) continue;
+      const dif = B.difBitola(dados.bitF[i], dados.bitT[i]);
+      if (Number.isNaN(dif)) continue;
+      const w = pesos ? pesos[i] : 1;
+      pontos++; metros += w;
+      if (B.ehPerda(dif, limite)) { perdas++; metrosPerda += w; }
+    }
+    const pct = metros > 0 ? (metrosPerda / metros) * 100 : (pontos ? (perdas / pontos) * 100 : null);
+    return { pontos, perdas, metros, metrosPerda, pct };
+  };
+
+  /** Perda de bitola em todo o trecho (compatível com a versão anterior). */
+  B.perdaTotal = (dados, limite, i0 = 0, i1 = dados.bitF.length - 1, mascara = null, pesos = null) =>
+    B.avaliarPerda(dados, limite, i0, i1, mascara, pesos);
+
+  /**
+   * Offset (em mm) para a bitola F ou T que mais reduz a perda de bitola (mesma regra, mesmos pesos).
    * Testa de −10 a +10 mm em passos de 0,1 mm.
    */
-  B.melhorOffset = (dados, bitola, limite, mascara = null) => {
+  B.melhorOffset = (dados, bitola, limite, mascara = null, pesos = null) => {
     if (bitola !== 'bitF' && bitola !== 'bitT') return null;
-    const difs = [];
+    const difs = []; const ws = [];
     for (let i = 0; i < dados.bitF.length; i++) {
       if (mascara && !mascara[i]) continue;
-      const f = dados.bitF[i]; const t = dados.bitT[i];
-      if (!Number.isNaN(f) && !Number.isNaN(t)) difs.push(f - t);
+      const dif = B.difBitola(dados.bitF[i], dados.bitT[i]);
+      if (!Number.isNaN(dif)) { difs.push(dif); ws.push(pesos ? pesos[i] : 1); }
     }
     if (!difs.length) return null;
+    const total = ws.reduce((a, b) => a + b, 0) || difs.length;
     const sinal = bitola === 'bitF' ? 1 : -1; // offset em F soma na diferença; em T, subtrai
-    let melhor = { valor: 0, perdas: Infinity };
+    let melhor = { valor: 0, perdas: Infinity, metros: Infinity };
     for (let k = -100; k <= 100; k++) {
       const off = k / 10;
-      let perdas = 0;
-      for (const d of difs) if (abs(d + sinal * off) > limite) perdas++;
-      if (perdas < melhor.perdas || (perdas === melhor.perdas && abs(off) < abs(melhor.valor))) melhor = { valor: off, perdas };
+      let perdas = 0; let metros = 0;
+      difs.forEach((d, n) => { if (B.ehPerda(Math.round((d + sinal * off) * 100) / 100, limite)) { perdas++; metros += ws[n]; } });
+      if (metros < melhor.metros - 1e-9 || (abs(metros - melhor.metros) < 1e-9 && abs(off) < abs(melhor.valor))) melhor = { valor: off, perdas, metros };
     }
-    return { valor: melhor.valor, perdas: melhor.perdas, pontos: difs.length, pct: (melhor.perdas / difs.length) * 100 };
+    return { valor: melhor.valor, perdas: melhor.perdas, pontos: difs.length, metrosPerda: melhor.metros, pct: (melhor.metros / total) * 100 };
   };
 
   function resumoTrecho(d, i0, i1, opcoes, extras) {
-    let validos = 0; let perdas = 0; let maxDif = 0; let somaDif = 0;
+    let validos = 0; let perdas = 0; let maxDif = 0; let somaDif = 0; let metros = 0; let metrosPerda = 0; let metrosTotal = 0;
+    const pesos = extras.pesos;
     let nK = 0; let somaK = 0; let perdasK = 0;
     let nC = 0; let somaC = 0;
     let nA = 0; let somaA = 0; let maxA = 0;
@@ -2928,31 +2976,40 @@ window.App = window.App || {};
     const mascara = extras.mascara; // 0 = fora da estatística (pátio/RH)
     for (let i = i0; i <= i1; i++) {
       if (mascara && !mascara[i]) continue;
-      const f = d.bitF[i]; const t = d.bitT[i];
-      if (!Number.isNaN(f) && !Number.isNaN(t)) {
-        const dif = f - t;
+      const f = d.bitF[i];
+      const w = pesos ? pesos[i] : 1;
+      metrosTotal += w;
+      const dif = B.difBitola(f, d.bitT[i]);
+      if (!Number.isNaN(dif)) {
         validos++;
+        metros += w;
         somaDif += abs(dif);
-        if (abs(dif) > opcoes.limitePerda) perdas++;
+        if (B.ehPerda(dif, opcoes.limitePerda)) { perdas++; metrosPerda += w; }
         if (abs(dif) > abs(maxDif)) maxDif = dif;
       }
       const k = d.kld[i];
       if (!Number.isNaN(f) && !Number.isNaN(k) && abs(k) < KLD_MAX) {
+        const dk = Math.round((f - k) * 100) / 100;
         nK++;
-        somaK += f - k;
-        if (abs(f - k) > opcoes.limitePerda) perdasK++;
+        somaK += dk;
+        if (B.ehPerda(dk, opcoes.limitePerda)) perdasK++;
       }
       if (!Number.isNaN(d.curv[i])) { nC++; somaC += d.curv[i]; }
       const a = alinhamento ? alinhamento[i] : NaN;
       if (!Number.isNaN(a)) { nA++; somaA += abs(a); if (abs(a) > abs(maxA)) maxA = a; }
       const v = extras.variacao[i];
-      if (!Number.isNaN(v)) { nV++; if (v > opcoes.limiteVariacao) varRapida++; }
+      if (!Number.isNaN(v)) { nV += w; if (v > opcoes.limiteVariacao) varRapida += w; } // também em metros
     }
     const curvMedia = nC ? somaC / nC : NaN;
     return {
       pontos: validos,
       perdas,
-      pctPerda: validos ? (perdas / validos) * 100 : null,
+      metros,
+      metrosPerda,
+      // % sobre a extensão medida (F e T lidas); sem pesos, sobre os pontos
+      pctPerda: metros > 0 ? (metrosPerda / metros) * 100 : (validos ? (perdas / validos) * 100 : null),
+      // fração da extensão do trecho com Bitola F e T lidas (abaixo de 90%, o resultado é pouco confiável)
+      cobertura: metrosTotal > 0 ? metros / metrosTotal : null,
       maxDif: validos ? maxDif : null,
       difMedia: validos ? somaDif / validos : null,
       difKldMedia: nK ? somaK / nK : null,
@@ -3363,7 +3420,8 @@ window.App = window.App || {};
     const varF = B.desvioMovel(dados.bitF, janela);
     const varT = B.desvioMovel(dados.bitT, janela);
     const variacao = Float64Array.from(varF, (v, i) => Math.max(Number.isNaN(v) ? -1 : v, Number.isNaN(varT[i]) ? -1 : varT[i])).map((v) => (v < 0 ? NaN : v));
-    const extras = { alinhamento: alin, variacao };
+    const pesos = B.pesosDistancia(pos);
+    const extras = { alinhamento: alin, variacao, pesos };
 
     const temPlanta = !!(o.elementosPlanta && o.elementosPlanta.length);
     const modo = temPlanta && (o.modo === 'planta' || o.modo === 'hibrido') ? o.modo : 'curvatura';
@@ -3380,10 +3438,15 @@ window.App = window.App || {};
     const geral = resumoTrecho(dados, 0, pos.length - 1, o, { ...extras, mascara });
     const extensaoRh = elementos.filter((e) => e.tipo === 'X').reduce((s2, e) => s2 + e.extensao, 0);
 
+    // Totais = soma das extensões medidas e com perda dos elementos (mesma regra do geral).
     const somar = (els) => {
-      const pontos = els.reduce((s, e) => s + e.pontos, 0);
-      const perdas = els.reduce((s, e) => s + e.perdas, 0);
-      return { quantidade: els.length, extensao: els.reduce((s, e) => s + e.extensao, 0), pontos, perdas, pctPerda: pontos ? (perdas / pontos) * 100 : null };
+      const soma = (k) => els.reduce((s, e) => s + (e[k] || 0), 0);
+      const metros = soma('metros'); const metrosPerda = soma('metrosPerda');
+      const pontos = soma('pontos'); const perdas = soma('perdas');
+      return {
+        quantidade: els.length, extensao: soma('extensao'), pontos, perdas, metros, metrosPerda,
+        pctPerda: metros > 0 ? (metrosPerda / metros) * 100 : (pontos ? (perdas / pontos) * 100 : null)
+      };
     };
 
     // Resumo por trecho (EH e RH; só no modo planta), na ordem da inspeção.
@@ -3409,6 +3472,7 @@ window.App = window.App || {};
       opcoes: o,
       modo,
       mascara,
+      pesos,
       dados,
       elementos,
       porEh,
@@ -4246,7 +4310,7 @@ window.App = window.App || {};
       h('div', { class: 'kpi-valor', text: valor }),
       h('div', { class: 'kpi-sub', text: sub }));
     ui.trocar(secoes.kpis, h('div', { class: 'kpis kpis-auto' },
-      kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${r.geral.perdas.toLocaleString('pt-BR')} de ${r.geral.pontos.toLocaleString('pt-BR')} pontos${r.geral.extensaoRh ? ` · sem os pátios (RH, ${fmt(r.geral.extensaoRh / 1000, 2)} km)` : ''}`),
+      kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${fmt(r.geral.metrosPerda, 0)} m com perda de ${fmt(r.geral.metros, 0)} m medidos${r.geral.extensaoRh ? ` · sem os pátios (RH, ${fmt(r.geral.extensaoRh / 1000, 2)} km)` : ''}${r.geral.cobertura !== null && r.geral.cobertura < 0.95 ? ` · atenção: ${fmt((1 - r.geral.cobertura) * 100, 0)}% sem leitura de F ou T` : ''}`),
       kpi('Em tangentes', `${fmt(r.tangentes.pctPerda)}%`, `${r.tangentes.quantidade} tangente(s) · ${fmt(r.tangentes.extensao / 1000, 2)} km`),
       kpi('Em curvas', `${fmt(r.curvas.pctPerda)}%`, `${r.curvas.quantidade} curva(s) · ${fmt(r.curvas.extensao / 1000, 2)} km`),
       kpi('Variação rápida', `${fmt(r.geral.pctVariacao)}%`, `desvio padrão em 1 m acima de ${fmt(opcoes.limiteVariacao, 1)} mm`),
@@ -4395,11 +4459,19 @@ window.App = window.App || {};
       { t: 'Fim', v: (e) => B.fmtKm(e.fim) },
       { t: 'Ext. (m)', n: true, v: (e) => Math.round(e.extensao).toLocaleString('pt-BR') },
       { t: planta ? 'Raio planta (m)' : 'Raio (m)', n: true, v: (e) => { const raio = planta ? e.raioPlanta : e.raioMedio; return e.tipo === 'C' && raio ? Math.round(raio).toLocaleString('pt-BR') : '—'; } },
-      { t: '% perda', n: true, v: (e) => pct(e.pctPerda) },
+      { t: '% perda', n: true, v: (e) => {
+        // pouca leitura de F e T no elemento: resultado pouco confiável
+        const baixa = e.cobertura !== null && e.cobertura !== undefined && e.cobertura < 0.9;
+        if (paraLaudo) return `${fmt(e.pctPerda)}%${baixa ? ' *' : ''}`;
+        const v = h('span', { title: `${fmt(e.metrosPerda, 0)} m com perda de ${fmt(e.metros, 0)} m medidos` }, pct(e.pctPerda));
+        return baixa ? h('span', { class: 'baixa-cobertura', title: `Só ${fmt(e.cobertura * 100, 0)}% do elemento com Bitola F e T lidas` }, v, ' ⚠') : v;
+      } },
+
       { t: '% var. rápida', n: true, v: (e) => `${fmt(e.pctVariacao)}%` },
       { t: 'Máx F−T', n: true, v: (e) => fmt(e.maxDif, 2) },
       { t: 'OGMS−KLD', n: true, v: (e) => fmt(e.difKldMedia, 2) },
       { t: `Máx ${nomeAlinhamento()}`, n: true, v: (e) => fmt(e.alinhMax, 2) });
+    if (paraLaudo) cols.splice(cols.findIndex((c) => c.t === '% perda') + 1, 0, { t: 'Ext. c/ perda (m)', n: true, v: (e) => (e.metrosPerda !== undefined ? Math.round(e.metrosPerda).toLocaleString('pt-BR') : '—') });
     if (!paraLaudo) cols.push({ t: 'Eventos', ev: true, v: eventosDo });
     return cols;
   }
@@ -4463,7 +4535,7 @@ window.App = window.App || {};
         tabelaTela(colunasEh(false), porPerda(r.porEh), (g) => (g.pior ? aproximar(g.pior.ini, g.pior.fim) : aproximar(g.ini, g.fim)))) : null,
       h('section', { class: 'cartao' },
         h('h2', { text: planta ? 'Elementos da planta: tangentes e curvas' : 'Elementos: tangentes e curvas' }),
-        h('p', { class: 'sub', text: `Do elemento com maior perda para o com menor. ${planta ? 'Elementos e numeração da planta, por trecho (EH x/y; RH = pátio).' : 'Identificados pela curvatura e numerados na ordem da inspeção.'} Perda de bitola considera só a frontal e a traseira: % perda = pontos com |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm ÷ pontos medidos no elemento.` }),
+        h('p', { class: 'sub', text: `Do elemento com maior perda para o com menor. ${planta ? 'Elementos e numeração da planta, por trecho (EH x/y; RH = pátio).' : 'Identificados pela curvatura e numerados na ordem da inspeção.'} Perda de bitola: ponto com |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm (diferença arredondada a 0,01 mm; exatamente ${fmt(opcoes.limitePerda, 0)},00 mm não é perda). % perda = extensão com perda ÷ extensão medida (F e T lidas) no elemento; parado ou em ré não conta duas vezes. ⚠ = menos de 90% do elemento com leitura.` }),
         tabelaTela(colunasElementos(false), porPerda(r.elementos), (e) => aproximar(e.ini, e.fim))));
   }
 
@@ -4477,15 +4549,16 @@ window.App = window.App || {};
     const lim = opcoes.limitePerda;
     const simulado = B.dadosComOffset(original, { ...off, valor: off.valor || 0 });
     const mascara = resultado.mascara; // pátios (RH) fora da estatística
-    const antes = B.perdaTotal(original, lim, 0, original.bitF.length - 1, mascara);
-    const depois = B.perdaTotal(simulado, lim, 0, simulado.bitF.length - 1, mascara);
+    const pesos = resultado.pesos; // mesma regra e mesmos pesos (m) da análise
+    const antes = B.avaliarPerda(original, lim, 0, original.bitF.length - 1, mascara, pesos);
+    const depois = B.avaliarPerda(simulado, lim, 0, simulado.bitF.length - 1, mascara, pesos);
     const porTipo = (dados, tipo) => {
-      let pontos = 0; let perdas = 0;
+      let metros = 0; let metrosPerda = 0;
       resultado.elementos.filter((e) => e.tipo === tipo).forEach((e) => {
-        const x = B.perdaTotal(dados, lim, e.i0, e.i1);
-        pontos += x.pontos; perdas += x.perdas;
+        const x = B.avaliarPerda(dados, lim, e.i0, e.i1, null, pesos);
+        metros += x.metros; metrosPerda += x.metrosPerda;
       });
-      return pontos ? (perdas / pontos) * 100 : null;
+      return metros ? (metrosPerda / metros) * 100 : null;
     };
     const mediaKld = (dados) => {
       let n = 0; let soma = 0;
@@ -4513,7 +4586,7 @@ window.App = window.App || {};
         h('td', { class: `num ${classe}`, text: ok ? `${b - a > 0 ? '+' : ''}${fmt(b - a, casas)}` : '—' }));
     };
 
-    const sugestao = off.bitola !== 'kld' ? B.melhorOffset(original, off.bitola, lim, mascara) : null;
+    const sugestao = off.bitola !== 'kld' ? B.melhorOffset(original, off.bitola, lim, mascara, pesos) : null;
     ui.trocar(secoes.offset, h('details', { class: 'cartao detalhes', open: off.valor || offsetAberto ? true : null, ontoggle: (e) => { offsetAberto = e.target.open; } },
       h('summary', null, h('strong', { text: 'Simulação de offset' }),
         h('span', { class: 'sub', text: off.valor ? ` · ${fmt(off.valor, 1)} mm em ${NOMES_BITOLA[off.bitola]}${off.aplicar ? ' (aplicado)' : ''} · perda ${fmt(antes.pct)}% → ${fmt(depois.pct)}%` : ' · escolha uma bitola e um valor' })),
@@ -4635,7 +4708,7 @@ window.App = window.App || {};
     const off = opcoes.offset;
     const criterios = [
       `Bitola = ${B.NOMINAL} mm + valor do arquivo.`,
-      `Perda de bitola quando |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm.`,
+      `Perda de bitola: ponto com |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm, com a diferença arredondada a 0,01 mm (exatamente ${fmt(opcoes.limitePerda, 0)},00 mm não é perda); só pontos com Bitola F e T lidas. % perda = extensão com perda ÷ extensão medida, em metros (parado ou em ré não conta duas vezes). * = elemento com menos de 90% de leitura.`,
       `Variação rápida quando o desvio padrão da bitola em 1 m passa de ${fmt(opcoes.limiteVariacao, 1)} mm.`,
       r.modo !== 'curvatura'
         ? `${r.modo === 'hibrido' ? 'Elementos com limites pela curvatura medida e nomes da planta da linha' : 'Elementos pelo km da planta da linha'} (${planta.nome}), por trecho EH x/y e RH (pátio); pátios (RH) fora das estatísticas gerais: ramal ${infoPlanta.ramal} do arquivo CSV, localização pelo km (a coluna LINHA é só informativa), correção do km de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automático' + (infoPlanta.acerto !== null ? `, curvas coincidentes em ${fmt(infoPlanta.acerto, 0)}% do trecho` : '') + ')' : ''}.`

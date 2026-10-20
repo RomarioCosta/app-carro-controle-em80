@@ -237,3 +237,50 @@ test('linha do arquivo muda ou é texto (TESTE01): EH e elemento continuam pelo 
   assert.equal(B.linhaDaPlanta('TESTE01', ['1', '2']), null);
   assert.equal(B.linhaDaPlanta('3', ['1', '2']), null);
 });
+
+/* ---------------- Regra da perda de bitola ---------------- */
+
+const arquivoSimples = (difs, { pos = null } = {}) => {
+  const n = difs.length;
+  const p = pos || Float64Array.from({ length: n }, (_, i) => 1000 - i * 0.25);
+  const t = new Float64Array(n).fill(0.7);
+  const f = Float64Array.from(difs, (d) => (Number.isNaN(d) ? NaN : 0.7 + d));
+  const vazio = () => new Float64Array(n).fill(0);
+  return { pos: p, eventos: [], meta: {}, dados: { bitF: f, bitT: t, kld: new Float64Array(n).fill(NaN), curv: vazio(), alr10: vazio() } };
+};
+
+test('perda: diferença arredondada a 0,01 mm; exatamente 2,00 mm não é perda', () => {
+  assert.equal(4.03 - 2.03 > 2, true); // a conta "crua" dá 2,0000000000000004 e erraria
+  assert.equal(B.difBitola(4.03, 2.03), 2);
+  assert.equal(B.ehPerda(B.difBitola(4.03, 2.03), 2), false);
+  assert.equal(B.ehPerda(B.difBitola(2.71, 0.7), 2), true);
+  assert.equal(B.ehPerda(B.difBitola(0.7, 2.71), 2), true); // em módulo
+  assert.equal(B.ehPerda(B.difBitola(NaN, 0.7), 2), false);
+  const r = B.avaliarPerda({ bitF: Float64Array.of(2.7, 2.71, NaN, 0.7), bitT: Float64Array.of(0.7, 0.7, 0.7, 0.7) }, 2);
+  assert.deepEqual(j({ pontos: r.pontos, perdas: r.perdas }), { pontos: 3, perdas: 1 }); // sem leitura não conta
+});
+
+test('perda: carro parado ou em ré não conta duas vezes o mesmo lugar', () => {
+  // 8 pontos andando 0,25 m; o 3º ponto se repete 4 vezes (parado) com perda
+  const pos = Float64Array.of(100, 99.75, 99.5, 99.5, 99.5, 99.5, 99.25, 99, 98.75);
+  const difs = [0, 0, 3, 3, 3, 3, 0, 0, 0];
+  const a = arquivoSimples(difs, { pos });
+  const w = B.pesosDistancia(pos);
+  assert.deepEqual(j(Array.from(w)), [0.25, 0.25, 0, 0, 0, 0.25, 0.25, 0.25, 0.25]);
+  const r = B.avaliarPerda(a.dados, 2, 0, 8, null, w);
+  assert.equal(r.metrosPerda, 0.25); // só uma vez o trecho com perda
+  assert.equal(r.metros, 1.5); // 9 pontos, mas o carro andou 1,5 m (+ o último ponto)
+  assert.ok(Math.abs(r.pct - (0.25 / 1.5) * 100) < 1e-9);
+});
+
+test('perda: geral = tangentes + curvas; offset sugerido bate com a regra', () => {
+  const a = B.lerCSV(gerarCSV());
+  const r = B.analisar(a);
+  assert.ok(Math.abs(r.geral.metrosPerda - (r.tangentes.metrosPerda + r.curvas.metrosPerda)) < 1e-6);
+  assert.ok(Math.abs(r.geral.metros - (r.tangentes.metros + r.curvas.metros)) < 1e-6);
+  assert.ok(Math.abs(r.geral.metrosPerda - 50) < 0.5); // 50 m de perda na T02
+  const m = B.melhorOffset(a.dados, 'bitT', 2, null, r.pesos);
+  const depois = B.avaliarPerda(B.dadosComOffset(a.dados, { bitola: 'bitT', valor: m.valor }), 2, 0, a.pos.length - 1, null, r.pesos);
+  assert.ok(Math.abs(depois.pct - m.pct) < 1e-9);
+  assert.equal(depois.perdas, 0);
+});

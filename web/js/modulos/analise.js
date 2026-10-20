@@ -338,7 +338,7 @@
       h('div', { class: 'kpi-valor', text: valor }),
       h('div', { class: 'kpi-sub', text: sub }));
     ui.trocar(secoes.kpis, h('div', { class: 'kpis kpis-auto' },
-      kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${r.geral.perdas.toLocaleString('pt-BR')} de ${r.geral.pontos.toLocaleString('pt-BR')} pontos${r.geral.extensaoRh ? ` · sem os pátios (RH, ${fmt(r.geral.extensaoRh / 1000, 2)} km)` : ''}`),
+      kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${fmt(r.geral.metrosPerda, 0)} m com perda de ${fmt(r.geral.metros, 0)} m medidos${r.geral.extensaoRh ? ` · sem os pátios (RH, ${fmt(r.geral.extensaoRh / 1000, 2)} km)` : ''}${r.geral.cobertura !== null && r.geral.cobertura < 0.95 ? ` · atenção: ${fmt((1 - r.geral.cobertura) * 100, 0)}% sem leitura de F ou T` : ''}`),
       kpi('Em tangentes', `${fmt(r.tangentes.pctPerda)}%`, `${r.tangentes.quantidade} tangente(s) · ${fmt(r.tangentes.extensao / 1000, 2)} km`),
       kpi('Em curvas', `${fmt(r.curvas.pctPerda)}%`, `${r.curvas.quantidade} curva(s) · ${fmt(r.curvas.extensao / 1000, 2)} km`),
       kpi('Variação rápida', `${fmt(r.geral.pctVariacao)}%`, `desvio padrão em 1 m acima de ${fmt(opcoes.limiteVariacao, 1)} mm`),
@@ -487,11 +487,19 @@
       { t: 'Fim', v: (e) => B.fmtKm(e.fim) },
       { t: 'Ext. (m)', n: true, v: (e) => Math.round(e.extensao).toLocaleString('pt-BR') },
       { t: planta ? 'Raio planta (m)' : 'Raio (m)', n: true, v: (e) => { const raio = planta ? e.raioPlanta : e.raioMedio; return e.tipo === 'C' && raio ? Math.round(raio).toLocaleString('pt-BR') : '—'; } },
-      { t: '% perda', n: true, v: (e) => pct(e.pctPerda) },
+      { t: '% perda', n: true, v: (e) => {
+        // pouca leitura de F e T no elemento: resultado pouco confiável
+        const baixa = e.cobertura !== null && e.cobertura !== undefined && e.cobertura < 0.9;
+        if (paraLaudo) return `${fmt(e.pctPerda)}%${baixa ? ' *' : ''}`;
+        const v = h('span', { title: `${fmt(e.metrosPerda, 0)} m com perda de ${fmt(e.metros, 0)} m medidos` }, pct(e.pctPerda));
+        return baixa ? h('span', { class: 'baixa-cobertura', title: `Só ${fmt(e.cobertura * 100, 0)}% do elemento com Bitola F e T lidas` }, v, ' ⚠') : v;
+      } },
+
       { t: '% var. rápida', n: true, v: (e) => `${fmt(e.pctVariacao)}%` },
       { t: 'Máx F−T', n: true, v: (e) => fmt(e.maxDif, 2) },
       { t: 'OGMS−KLD', n: true, v: (e) => fmt(e.difKldMedia, 2) },
       { t: `Máx ${nomeAlinhamento()}`, n: true, v: (e) => fmt(e.alinhMax, 2) });
+    if (paraLaudo) cols.splice(cols.findIndex((c) => c.t === '% perda') + 1, 0, { t: 'Ext. c/ perda (m)', n: true, v: (e) => (e.metrosPerda !== undefined ? Math.round(e.metrosPerda).toLocaleString('pt-BR') : '—') });
     if (!paraLaudo) cols.push({ t: 'Eventos', ev: true, v: eventosDo });
     return cols;
   }
@@ -555,7 +563,7 @@
         tabelaTela(colunasEh(false), porPerda(r.porEh), (g) => (g.pior ? aproximar(g.pior.ini, g.pior.fim) : aproximar(g.ini, g.fim)))) : null,
       h('section', { class: 'cartao' },
         h('h2', { text: planta ? 'Elementos da planta: tangentes e curvas' : 'Elementos: tangentes e curvas' }),
-        h('p', { class: 'sub', text: `Do elemento com maior perda para o com menor. ${planta ? 'Elementos e numeração da planta, por trecho (EH x/y; RH = pátio).' : 'Identificados pela curvatura e numerados na ordem da inspeção.'} Perda de bitola considera só a frontal e a traseira: % perda = pontos com |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm ÷ pontos medidos no elemento.` }),
+        h('p', { class: 'sub', text: `Do elemento com maior perda para o com menor. ${planta ? 'Elementos e numeração da planta, por trecho (EH x/y; RH = pátio).' : 'Identificados pela curvatura e numerados na ordem da inspeção.'} Perda de bitola: ponto com |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm (diferença arredondada a 0,01 mm; exatamente ${fmt(opcoes.limitePerda, 0)},00 mm não é perda). % perda = extensão com perda ÷ extensão medida (F e T lidas) no elemento; parado ou em ré não conta duas vezes. ⚠ = menos de 90% do elemento com leitura.` }),
         tabelaTela(colunasElementos(false), porPerda(r.elementos), (e) => aproximar(e.ini, e.fim))));
   }
 
@@ -569,15 +577,16 @@
     const lim = opcoes.limitePerda;
     const simulado = B.dadosComOffset(original, { ...off, valor: off.valor || 0 });
     const mascara = resultado.mascara; // pátios (RH) fora da estatística
-    const antes = B.perdaTotal(original, lim, 0, original.bitF.length - 1, mascara);
-    const depois = B.perdaTotal(simulado, lim, 0, simulado.bitF.length - 1, mascara);
+    const pesos = resultado.pesos; // mesma regra e mesmos pesos (m) da análise
+    const antes = B.avaliarPerda(original, lim, 0, original.bitF.length - 1, mascara, pesos);
+    const depois = B.avaliarPerda(simulado, lim, 0, simulado.bitF.length - 1, mascara, pesos);
     const porTipo = (dados, tipo) => {
-      let pontos = 0; let perdas = 0;
+      let metros = 0; let metrosPerda = 0;
       resultado.elementos.filter((e) => e.tipo === tipo).forEach((e) => {
-        const x = B.perdaTotal(dados, lim, e.i0, e.i1);
-        pontos += x.pontos; perdas += x.perdas;
+        const x = B.avaliarPerda(dados, lim, e.i0, e.i1, null, pesos);
+        metros += x.metros; metrosPerda += x.metrosPerda;
       });
-      return pontos ? (perdas / pontos) * 100 : null;
+      return metros ? (metrosPerda / metros) * 100 : null;
     };
     const mediaKld = (dados) => {
       let n = 0; let soma = 0;
@@ -605,7 +614,7 @@
         h('td', { class: `num ${classe}`, text: ok ? `${b - a > 0 ? '+' : ''}${fmt(b - a, casas)}` : '—' }));
     };
 
-    const sugestao = off.bitola !== 'kld' ? B.melhorOffset(original, off.bitola, lim, mascara) : null;
+    const sugestao = off.bitola !== 'kld' ? B.melhorOffset(original, off.bitola, lim, mascara, pesos) : null;
     ui.trocar(secoes.offset, h('details', { class: 'cartao detalhes', open: off.valor || offsetAberto ? true : null, ontoggle: (e) => { offsetAberto = e.target.open; } },
       h('summary', null, h('strong', { text: 'Simulação de offset' }),
         h('span', { class: 'sub', text: off.valor ? ` · ${fmt(off.valor, 1)} mm em ${NOMES_BITOLA[off.bitola]}${off.aplicar ? ' (aplicado)' : ''} · perda ${fmt(antes.pct)}% → ${fmt(depois.pct)}%` : ' · escolha uma bitola e um valor' })),
@@ -727,7 +736,7 @@
     const off = opcoes.offset;
     const criterios = [
       `Bitola = ${B.NOMINAL} mm + valor do arquivo.`,
-      `Perda de bitola quando |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm.`,
+      `Perda de bitola: ponto com |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm, com a diferença arredondada a 0,01 mm (exatamente ${fmt(opcoes.limitePerda, 0)},00 mm não é perda); só pontos com Bitola F e T lidas. % perda = extensão com perda ÷ extensão medida, em metros (parado ou em ré não conta duas vezes). * = elemento com menos de 90% de leitura.`,
       `Variação rápida quando o desvio padrão da bitola em 1 m passa de ${fmt(opcoes.limiteVariacao, 1)} mm.`,
       r.modo !== 'curvatura'
         ? `${r.modo === 'hibrido' ? 'Elementos com limites pela curvatura medida e nomes da planta da linha' : 'Elementos pelo km da planta da linha'} (${planta.nome}), por trecho EH x/y e RH (pátio); pátios (RH) fora das estatísticas gerais: ramal ${infoPlanta.ramal} do arquivo CSV, localização pelo km (a coluna LINHA é só informativa), correção do km de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automático' + (infoPlanta.acerto !== null ? `, curvas coincidentes em ${fmt(infoPlanta.acerto, 0)}% do trecho` : '') + ')' : ''}.`
