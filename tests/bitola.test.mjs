@@ -282,3 +282,23 @@ test('perda: % = pontos acima ÷ total de pontos; geral = tangentes + curvas; re
   assert.ok(Math.abs(depois.pct - m.pct) < 1e-9);
   assert.equal(depois.perdas, 0);
 });
+
+test('só curvatura com planta: elementos iguais, com EH/RH e elemento da planta pelo km', () => {
+  const a = B.lerCSV(gerarCSV());
+  const els = B.elementosDaPlanta(B.lerPlanta(plantaSintetica()), 'TST', '1');
+  const pura = B.analisar(a);
+  const r = B.analisar(a, { modo: 'curvatura', elementosPlanta: els, ajusteKm: 30 });
+  assert.equal(r.modo, 'curvatura');
+  assert.equal(r.comLocais, true);
+  // mesmos elementos e numeração da curvatura
+  assert.deepEqual(j(r.elementos.map((e) => [e.sigla, e.i0, e.i1])), j(pura.elementos.map((e) => [e.sigla, e.i0, e.i1])));
+  // EH (o de mais pontos) e elemento da planta a que o km pertence
+  assert.deepEqual(j(r.elementos.map((e) => e.eh)), ['EH 11/12', 'EH 11/12', 'EH 11/12', 'EH 10/11']);
+  assert.deepEqual(j(r.elementos.map((e) => e.elementoPlanta.split(' · ')[0])), ['T02', 'C01', 'T01', 'C01']);
+  assert.ok(r.elementos[3].trecho.startsWith('RH-11'), r.elementos[3].trecho); // atravessa o circuito
+  // o circuito (30 m) sai das estatísticas
+  assert.ok(Math.abs(r.geral.extensaoRh - 30) <= 1);
+  assert.equal(r.geral.perdas, 200);
+  assert.ok(r.geral.pontos < pura.geral.pontos);
+  assert.equal(r.porEh.length >= 2, true);
+});

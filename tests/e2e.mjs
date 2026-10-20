@@ -488,7 +488,7 @@ async function main() {
       await page.evaluate(() => { delete window.__linhasXlsx; });
       // Ramal e linha vêm do arquivo CSV (sem escolha na planta).
       const criterios = page.locator('details').filter({ hasText: 'Critérios da análise' });
-      assert.ok((await criterios.textContent()).includes('Coluna LINHA do arquivo (só informativa): 1 100%'));
+      assert.ok((await criterios.textContent()).includes('Linha: 1 100%'));
       assert.equal(await criterios.getByLabel('Linha').count(), 0);
       const tabEls = page.locator('.tabela:not(.tabela-offset)').filter({ hasText: 'Lado' });
       assert.deepEqual(await tabEls.locator('tbody .el-tag').allTextContents(), ['T01', 'T02', 'C01', 'C01', 'RH']); // maior perda primeiro; pátio (RH) por último

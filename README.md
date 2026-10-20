@@ -32,3 +32,5 @@ npm run test:e2e   # teste completo no navegador (Playwright/Chromium)
 - **Offline primeiro:** tudo é salvo no aparelho (IndexedDB) e entra numa fila de envio.
 - **Envio seguro:** cada registro tem um identificador único; reenviar não duplica linhas, e a versão mais recente prevalece.
 - **Dois modos com o mesmo código:** servido pelo Apps Script (link `/exec`) ou como site PWA, que abre sem internet.
+
+- [Memória de cálculo da análise do arquivo](docs/MEMORIA_DE_CALCULO.md): como cada número da análise e do laudo é calculado.

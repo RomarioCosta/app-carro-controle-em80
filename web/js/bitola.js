@@ -832,6 +832,60 @@
   };
 
   /**
+   * Só curvatura + locais: os elementos (curva/tangente, limites e numeração) são os da curvatura medida,
+   * sem alteração. Para cada elemento, olha o km de cada ponto na planta (com a correção de km) e informa:
+   *  - EH/RH onde está (o de mais pontos) e todos os EH/RH que ele atravessa;
+   *  - o(s) elemento(s) da planta a que aquele km pertence (o de mais pontos primeiro, ex.: "C12 · T13").
+   * RH = trecho sem elemento na planta com pelo menos 25 m (circuito): esses pontos saem das estatísticas.
+   */
+  B.localizarElementos = (elementos, pos, els, ajuste = 0, opcoes = {}, achar = null) => {
+    const o = { ...B.PADRAO, ...opcoes };
+    const n = pos.length;
+    const esp = B.espacamento(pos) || 0.25;
+    const nomes = B.nomesTrechos(els);
+    const minRh = Math.max(o.comprimentoMin, 25);
+    const ref = new Array(n);
+    for (let i = 0; i < n; i++) ref[i] = achar ? achar(i, pos[i] + ajuste) : naPlanta(els, pos[i] + ajuste);
+    const noRh = new Uint8Array(n);
+    for (let i = 0; i < n;) {
+      if (ref[i]) { i++; continue; }
+      let k = i;
+      while (k + 1 < n && !ref[k + 1]) k++;
+      if (abs(pos[k] - pos[i]) + esp >= minRh) noRh.fill(1, i, k + 1);
+      i = k + 1;
+    }
+    const siglaPlanta = (e) => `${e.tipo}${e.num ? String(e.num).padStart(2, '0') : ''}`;
+    elementos.forEach((e) => {
+      const locais = new Map(); const plantaEls = new Map();
+      for (let i = e.i0; i <= e.i1; i++) {
+        const nome = noRh[i] ? nomes.rh(pos[i] + ajuste) : ref[i] ? nomes.eh(ref[i].eh) : '';
+        if (nome) locais.set(nome, (locais.get(nome) || 0) + 1);
+        if (ref[i]) plantaEls.set(ref[i], (plantaEls.get(ref[i]) || 0) + 1);
+      }
+      const porQtd = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]);
+      const loc = porQtd(locais);
+      e.eh = loc.length ? loc[0][0] : '';
+      e.rh = /^RH/.test(e.eh);
+      // locais na ordem do arquivo (ex.: "EH 50/51 · RH-50")
+      const ordem = [];
+      for (let i = e.i0; i <= e.i1; i += Math.max(1, Math.round(5 / esp))) {
+        const nome = noRh[i] ? nomes.rh(pos[i] + ajuste) : ref[i] ? nomes.eh(ref[i].eh) : '';
+        if (nome && ordem[ordem.length - 1] !== nome) ordem.push(nome);
+      }
+      e.trecho = ordem.join(' · ') || e.eh;
+      const pl = porQtd(plantaEls);
+      // só os elementos da planta com pelo menos 20% dos pontos (bordas de poucos metros não entram)
+      const totalPl = pl.reduce((x, [, q]) => x + q, 0);
+      e.elementoPlanta = pl.filter(([, q], k) => k === 0 || q >= totalPl * 0.2).map(([x]) => siglaPlanta(x))
+        .filter((v, k, arr) => arr.indexOf(v) === k).join(' · ');
+      const principal = pl.length ? pl[0][0] : null;
+      e.lado = principal && principal.tipo === 'C' ? principal.lado : '';
+      e.tipoPlanta = principal ? principal.tipo : '';
+    });
+    return { noRh };
+  };
+
+  /**
    * Análise completa: elementos, indicadores por elemento, por EH e gerais.
    * opcoes: limiarCurva, suavizacao, comprimentoMin, limitePerda, limiteVariacao, alinhamento (id),
    *         offset { bitola, valor, aplicar }, modo ('planta'|'curvatura'), elementosPlanta, ajusteKm.
@@ -856,17 +910,29 @@
     if (modo === 'planta') brutos = B.segmentarPorPlanta(pos, o.elementosPlanta, o.ajusteKm || 0, o.localizar || null);
     else if (modo === 'hibrido') brutos = B.segmentarHibrido(pos, dados.curv, o.elementosPlanta, o.ajusteKm || 0, o, o.localizar || null);
     else brutos = B.segmentar(pos, dados.curv, o);
+    // Só curvatura com planta: os elementos não mudam; ganham EH/RH e o elemento da planta pelo km.
+    const locais = modo === 'curvatura' && temPlanta ? B.localizarElementos(brutos, pos, o.elementosPlanta, o.ajusteKm || 0, o, o.localizar || null) : null;
     // A linha mostrada é a da coluna LINHA do arquivo em cada trecho (só informativa).
     const elementos = brutos.map((e) => ({ ...e, linha: B.linhaDoTrecho(arquivo, e.i0, e.i1), ...resumoTrecho(dados, e.i0, e.i1, o, extras) }));
-    // Pátios (RH) ficam fora das estatísticas gerais (perda de bitola, OGMS × KLD, variação).
+    // Circuitos (RH) ficam fora das estatísticas gerais (perda de bitola, OGMS × KLD, variação).
     const mascara = new Uint8Array(pos.length).fill(1);
     elementos.forEach((e) => { if (e.tipo === 'X') mascara.fill(0, e.i0, e.i1 + 1); });
+    if (locais) {
+      locais.noRh.forEach((v, i) => { if (v) mascara[i] = 0; });
+      // elemento que passa por um circuito: as contagens dele também desconsideram os pontos no RH
+      elementos.forEach((e) => {
+        if (e.rh) return;
+        const r = resumoTrecho(dados, e.i0, e.i1, o, { ...extras, mascara });
+        if (r.pontos < e.pontos) Object.assign(e, { pontos: r.pontos, perdas: r.perdas, pctPerda: r.pctPerda });
+      });
+    }
     const geral = resumoTrecho(dados, 0, pos.length - 1, o, { ...extras, mascara });
-    const extensaoRh = elementos.filter((e) => e.tipo === 'X').reduce((s2, e) => s2 + e.extensao, 0);
+    let foraRh = 0; mascara.forEach((v) => { if (!v) foraRh++; });
+    const extensaoRh = foraRh * esp;
 
     // Totais = soma dos pontos dos elementos (mesma regra do geral) e quantos elementos perderam a bitola.
     const limiteElemento = o.limiteElemento ?? 10;
-    elementos.forEach((e) => { e.perdeu = e.tipo !== 'X' && B.elementoPerdeu(e.pctPerda, limiteElemento); });
+    elementos.forEach((e) => { e.perdeu = e.tipo !== 'X' && !e.rh && B.elementoPerdeu(e.pctPerda, limiteElemento); });
     const somar = (els) => {
       const soma = (k) => els.reduce((s, e) => s + (e[k] || 0), 0);
       const pontos = soma('pontos'); const perdas = soma('perdas');
@@ -877,12 +943,12 @@
       };
     };
 
-    // Resumo por trecho (EH e RH; só no modo planta), na ordem da inspeção.
+    // Resumo por trecho (EH e RH; com planta), na ordem da inspeção.
     const porEh = [];
-    if (usarPlanta) {
+    if (usarPlanta || locais) {
       elementos.forEach((e) => {
         let g = porEh.find((x) => x.eh === e.eh);
-        if (!g) { g = { eh: e.eh, rh: e.tipo === 'X', linha: e.linha, els: [] }; porEh.push(g); }
+        if (!g) { g = { eh: e.eh, rh: e.tipo === 'X' || !!e.rh, linha: e.linha, els: [] }; porEh.push(g); }
         g.els.push(e);
       });
       porEh.forEach((g) => {
@@ -899,14 +965,15 @@
     return {
       opcoes: o,
       modo,
+      comLocais: usarPlanta || !!locais,
       mascara,
       esp,
       dados,
       elementos,
       porEh,
       geral: { ...geral, extensao: abs(pos[pos.length - 1] - pos[0]) + esp, extensaoRh },
-      tangentes: somar(elementos.filter((e) => e.tipo === 'T')),
-      curvas: somar(elementos.filter((e) => e.tipo === 'C')),
+      tangentes: somar(elementos.filter((e) => e.tipo === 'T' && !e.rh)), // elementos dentro de circuito não contam
+      curvas: somar(elementos.filter((e) => e.tipo === 'C' && !e.rh)),
       difFT: B.diferenca(dados.bitF, dados.bitT),
       difKld: Float64Array.from(dados.bitF, (f, i) => (abs(dados.kld[i]) < KLD_MAX ? f - dados.kld[i] : NaN)),
       kldValido: Float64Array.from(dados.kld, (k) => (abs(k) < KLD_MAX ? k : NaN)),
