@@ -173,18 +173,24 @@
     const ciclo = dados.ciclo;
     const exec = await sync.pendentesDoTipo('execucao');
     const reprog = await sync.pendentesDoTipo('reprogramacao');
+    const hist = await sync.pendentesDoTipo('historicoProgramacao');
     exec.forEach((d) => {
       if (String(d.ciclo) !== ciclo) return;
       const atual = dados.exec[d.nOrdem];
       if (!atual || String(atual.atualizadoEm || '') <= d.atualizadoEm) {
-        dados.exec[d.nOrdem] = { status: d.status, dataRealizacao: d.dataRealizacao || '', atualizadoEm: d.atualizadoEm };
+        dados.exec[d.nOrdem] = { status: d.status, dataRealizacao: d.dataRealizacao || '', atualizadoEm: d.atualizadoEm, apropriadaEm: d.apropriadaEm || '' };
       }
     });
     reprog.forEach((d) => {
       if (String(d.ciclo) !== ciclo) return;
       const om = dados.oms.find((o) => o.nOrdem === d.nOrdem);
-      if (om) om.dataProgramada = d.dataProgramada;
+      if (om) {
+        om.dataProgramada = d.dataProgramada;
+        if (d.dataOriginal) om.dataOriginal = d.dataOriginal;
+      }
     });
+    const ids = new Set(dados.historico.map((x) => x.id));
+    hist.forEach((d) => { if (String(d.ciclo) === ciclo && !ids.has(d.id)) dados.historico.push(d); });
     return dados;
   }
 
@@ -198,7 +204,7 @@
     if (!resp) return null;
     const exec = {};
     (resp.execucoes || []).forEach((x) => {
-      exec[x.nOrdem] = { status: x.status, dataRealizacao: x.dataRealizacao || '', atualizadoEm: x.atualizadoEm || '' };
+      exec[x.nOrdem] = { status: x.status, dataRealizacao: x.dataRealizacao || '', atualizadoEm: x.atualizadoEm || '', apropriadaEm: x.apropriadaEm || '' };
     });
     let dados = null;
     await store.atualizar(chaveCache(resp.ciclo), async () => {
@@ -206,6 +212,7 @@
         ciclo: resp.ciclo,
         oms: (resp.oms || []).map(limparOM),
         exec,
+        historico: (resp.historico || []).map((x) => ({ id: x.id, ciclo: String(x.ciclo), nOrdem: String(x.nOrdem), textoBreve: x.textoBreve || '', dataAnterior: x.dataAnterior || '', dataNova: x.dataNova || '', registradoEm: x.registradoEm || '' })),
         atualizadoEm: U.agora()
       });
       return dados;
@@ -222,6 +229,10 @@
       km2: o.km2,
       dataPlanejada: o.dataPlanejada || '',
       dataProgramada: o.dataProgramada || '',
+      dataOriginal: o.dataOriginal || '',
+      statusUsuario: o.statusUsuario || '',
+      statusOrdem: o.statusOrdem || '',
+      status: o.status || '',
       ramal: OM.ramal(o.textoBreve)
     };
   }
@@ -248,8 +259,8 @@
       const realizado = atual && atual.status === OM.REALIZADO;
       const agora = U.agora();
       novo = realizado
-        ? { status: OM.NAO_REALIZADO, dataRealizacao: '', atualizadoEm: agora }
-        : { status: OM.REALIZADO, dataRealizacao: agora, atualizadoEm: agora };
+        ? { status: OM.NAO_REALIZADO, dataRealizacao: '', atualizadoEm: agora, apropriadaEm: '' }
+        : { status: OM.REALIZADO, dataRealizacao: agora, atualizadoEm: agora, apropriadaEm: '' };
       dados.exec[nOrdem] = novo;
       return dados;
     });
@@ -257,26 +268,78 @@
     return novo;
   };
 
+  /** Marca/desmarca a OM realizada como apropriada (confirmada) no SAP. */
+  OM.apropriar = async (ciclo, nOrdem) => {
+    let novo = null;
+    await store.atualizar(chaveCache(ciclo), (dados) => {
+      const atual = dados && dados.exec[nOrdem];
+      if (!atual || atual.status !== OM.REALIZADO) throw new Error('Marque a OM como realizada antes.');
+      const agora = U.agora();
+      novo = { ...atual, apropriadaEm: atual.apropriadaEm ? '' : agora, atualizadoEm: agora };
+      dados.exec[nOrdem] = novo;
+      return dados;
+    });
+    await sync.enfileirar('execucao', OM.chave(ciclo, nOrdem), { ciclo: String(ciclo), nOrdem, ...novo });
+    return novo;
+  };
+
+  OM.apropriada = (dados, nOrdem) => {
+    const x = dados.exec[nOrdem];
+    return !!(x && x.status === OM.REALIZADO && x.apropriadaEm);
+  };
+
+  /** Código do status SAP (ex.: "LIB: Autorizada p/ execução" -> "LIB"). */
+  OM.statusCurto = (o) => String(o.status || '').split(':')[0].trim();
+
   /**
    * Programa várias OMs para uma data (ou retira da programação com data '').
+   * Quem já estava programado em outra data gera um registro no histórico
+   * (data anterior → nova data), e a primeira data programada fica guardada como "programação original".
    * Grava no aparelho na hora e envia ao servidor pela fila.
    */
   OM.programarVarios = async (ciclo, nOrdens, data) => {
     const alvo = new Set(nOrdens.map(String));
     if (!alvo.size) return 0;
     if (data && !U.parseData(data)) throw new Error('Data inválida.');
+    const agora = U.agora();
+    const itens = [];
     let n = 0;
     await store.atualizar(chaveCache(ciclo), (dados) => {
       if (!dados) throw new Error('Ciclo não carregado.');
+      dados.historico = dados.historico || [];
       dados.oms.forEach((o) => {
-        if (alvo.has(o.nOrdem)) { o.dataProgramada = data; n++; }
+        if (!alvo.has(o.nOrdem) || o.dataProgramada === data) return;
+        const anterior = o.dataProgramada;
+        if (anterior) {
+          const h = { id: U.uuid(), ciclo: String(ciclo), nOrdem: o.nOrdem, textoBreve: o.textoBreve, dataAnterior: anterior, dataNova: data, registradoEm: agora };
+          dados.historico.push(h);
+          itens.push({ tipo: 'historicoProgramacao', id: h.id, dados: h });
+        }
+        o.dataProgramada = data;
+        if (!o.dataOriginal && data) o.dataOriginal = data;
+        itens.push({ tipo: 'reprogramacao', id: OM.chave(ciclo, o.nOrdem), dados: { ciclo: String(ciclo), nOrdem: o.nOrdem, dataProgramada: data, dataOriginal: o.dataOriginal || '' } });
+        n++;
       });
       return dados;
     });
-    await sync.enfileirarVarios([...alvo].map((nOrdem) => ({
-      tipo: 'reprogramacao', id: OM.chave(ciclo, nOrdem), dados: { ciclo: String(ciclo), nOrdem, dataProgramada: data }
-    })));
+    await sync.enfileirarVarios(itens);
     return n;
+  };
+
+  /** OMs que saíram de um dia (movidas ou retiradas), com o destino atual de cada uma. */
+  OM.saidasDoDia = (dados, dia) => {
+    const vistos = new Set();
+    const lista = [];
+    (dados.historico || []).filter((h) => h.dataAnterior === dia)
+      .sort((a, b) => String(a.registradoEm).localeCompare(String(b.registradoEm)))
+      .forEach((h) => {
+        if (vistos.has(h.nOrdem)) return;
+        const o = dados.oms.find((x) => x.nOrdem === h.nOrdem);
+        if (!o || o.dataProgramada === dia) return;
+        vistos.add(h.nOrdem);
+        lista.push({ om: o, registradoEm: h.registradoEm });
+      });
+    return lista;
   };
 
   /** Quantidade de OMs programadas e realizadas por dia de um mês (para o calendário). */
@@ -306,13 +369,7 @@
     .sort(OM.ordemCampo);
 
   OM.reprogramar = async (ciclo, nOrdem, dataProgramada) => {
-    await store.atualizar(chaveCache(ciclo), (dados) => {
-      const om = dados && dados.oms.find((o) => o.nOrdem === nOrdem);
-      if (!om) throw new Error('OM não encontrada.');
-      om.dataProgramada = dataProgramada;
-      return dados;
-    });
-    await sync.enfileirar('reprogramacao', OM.chave(ciclo, nOrdem), { ciclo: String(ciclo), nOrdem, dataProgramada });
+    await OM.programarVarios(ciclo, [nOrdem], dataProgramada);
   };
 
   /* ------------------------------------------------------------------ */
@@ -393,7 +450,9 @@
       else if (o.dataProgramada && o.dataProgramada < ref && !OM.realizada(dados, o.nOrdem)) atrasadas.push(o);
     });
     const porProg = (a, b) => (a.dataProgramada || '9').localeCompare(b.dataProgramada || '9') || a.textoBreve.localeCompare(b.textoBreve);
-    return { doDia: doDia.sort(porProg), atrasadas: atrasadas.sort(porProg), todas: dados.oms.slice().sort(porProg) };
+    const aApropriar = dados.oms.filter((o) => OM.realizada(dados, o.nOrdem) && !OM.apropriada(dados, o.nOrdem))
+      .sort((a, b) => OM.diaRealizacao(dados, a.nOrdem).localeCompare(OM.diaRealizacao(dados, b.nOrdem)) || OM.ordemCampo(a, b));
+    return { doDia: doDia.sort(porProg), atrasadas: atrasadas.sort(porProg), aApropriar, todas: dados.oms.slice().sort(porProg) };
   };
 
   App.OM = OM;

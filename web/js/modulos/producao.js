@@ -199,6 +199,7 @@
       h('div', { class: 'seg seg-abas', role: 'group', 'aria-label': 'Filtro da lista' },
         abaBtn('dia', ref === U.hoje() ? 'Hoje' : 'Do dia', listas.doDia.length),
         abaBtn('atrasadas', 'Atrasadas', listas.atrasadas.length),
+        abaBtn('apropriar', 'A apropriar', listas.aApropriar.length),
         abaBtn('todas', 'Todas', listas.todas.length)),
       h('div', { class: 'linha-campo filtros' },
         h('select', {
@@ -211,13 +212,13 @@
   }
 
   function desenharItens(listas) {
-    const base = aba === 'dia' ? listas.doDia : aba === 'atrasadas' ? listas.atrasadas : listas.todas;
+    const base = { dia: listas.doDia, atrasadas: listas.atrasadas, apropriar: listas.aApropriar, todas: listas.todas }[aba] || listas.doDia;
     const termo = U.normalizar(busca);
     const filtrada = base.filter((o) => (!ramal || o.ramal === ramal)
       && (!termo || U.normalizar(`${o.textoBreve} ${o.nOrdem} ${o.denominacao}`).includes(termo)));
 
     if (!filtrada.length) {
-      const msg = { dia: 'Nenhuma OM programada para este dia.', atrasadas: 'Nenhuma OM atrasada.', todas: 'Nenhuma OM encontrada.' }[aba];
+      const msg = { dia: 'Nenhuma OM programada para este dia.', atrasadas: 'Nenhuma OM atrasada.', apropriar: 'Todas as OMs realizadas já foram apropriadas no SAP.', todas: 'Nenhuma OM encontrada.' }[aba];
       ui.trocar(listaEl, h('p', { class: 'vazio', text: base.length ? 'Nenhuma OM com esse filtro.' : msg }));
       return;
     }
@@ -234,6 +235,8 @@
     if (o.dataProgramada) info.push(h('span', { class: `chip-info${atrasada ? ' atrasada' : ''}`, text: `Prog. ${U.fmtData(o.dataProgramada).slice(0, 5)}` }));
     else info.push(h('span', { class: 'chip-info', text: 'Sem programação' }));
     if (feita && exec.dataRealizacao) info.push(h('span', { class: 'chip-info feita', text: `Feita ${U.fmtData(exec.dataRealizacao).slice(0, 5)} ${U.fmtHora(exec.dataRealizacao)}` }));
+    info.push(...chipsExtras(o));
+    const apropriada = feita && !!exec.apropriadaEm;
 
     const linha = h('div', { class: `om${feita ? ' om-feita' : ''}`, dataset: { n: o.nOrdem } },
       h('button', {
@@ -248,6 +251,13 @@
         h('span', { class: 'om-sub', text: `${o.nOrdem}${o.denominacao ? ` · ${o.denominacao}` : ''}` }),
         h('span', { class: 'om-info' }, info)),
       h('span', { class: `om-status ${feita ? 'ok' : ''}`, text: feita ? 'Realizado' : 'Não realizado' })),
+      feita ? h('button', {
+        class: `om-sap${apropriada ? ' ok' : ''}`,
+        'aria-pressed': apropriada ? 'true' : 'false',
+        'aria-label': `${o.textoBreve}: ${apropriada ? 'apropriada no SAP' : 'não apropriada no SAP'}. Tocar para alterar.`,
+        title: apropriada ? `Apropriada no SAP em ${U.fmtDataHora(exec.apropriadaEm)}` : 'Marcar como apropriada no SAP',
+        onclick: () => apropriar(o)
+      }, apropriada ? ui.icone('check') : null, h('span', { text: 'SAP' })) : null,
       h('button', {
         class: 'btn-icone om-mais',
         'aria-label': `Reprogramar ${o.textoBreve}`,
@@ -255,6 +265,36 @@
         onclick: () => abrirReprogramacao(o)
       }, ui.icone('calendario')));
     return linha;
+  }
+
+  /** Chips com a situação no SAP e a programação original (quando a OM foi reprogramada). */
+  function chipsExtras(o) {
+    const chips = [];
+    if (o.dataOriginal && o.dataProgramada !== o.dataOriginal) {
+      chips.push(h('span', { class: 'chip-info reprog', text: `Orig. ${U.fmtData(o.dataOriginal).slice(0, 5)}`, title: 'Programação original (a OM foi reprogramada)' }));
+    }
+    const cod = OM.statusCurto(o);
+    if (cod || o.statusUsuario) {
+      chips.push(h('span', { class: 'chip-info sap', text: `SAP ${[cod, o.statusUsuario].filter(Boolean).join(' · ')}`, title: [o.status, o.statusUsuario && `Status do usuário: ${o.statusUsuario}`, o.statusOrdem && `Status da ordem: ${o.statusOrdem}`].filter(Boolean).join('\n') }));
+    }
+    const x = dados.exec[o.nOrdem];
+    if (x && x.status === OM.REALIZADO && x.apropriadaEm) chips.push(h('span', { class: 'chip-info feita', text: `Apropriada ${U.fmtData(x.apropriadaEm).slice(0, 5)}` }));
+    return chips;
+  }
+
+  async function apropriar(o) {
+    if (travas.has(`sap:${o.nOrdem}`)) return;
+    travas.add(`sap:${o.nOrdem}`);
+    setTimeout(() => travas.delete(`sap:${o.nOrdem}`), 700);
+    try {
+      dados.exec[o.nOrdem] = await OM.apropriar(dados.ciclo, o.nOrdem);
+      const antigo = listaEl.querySelector(`.om[data-n="${CSS.escape(o.nOrdem)}"]`);
+      if (antigo) antigo.replaceWith(itemOM(o));
+      atualizarContadores();
+      if (navigator.vibrate) navigator.vibrate(15);
+    } catch (e) {
+      ui.toast(e.message, 'erro', 4000);
+    }
   }
 
   async function alternar(o) {
@@ -277,7 +317,7 @@
   function atualizarContadores() {
     const listas = OM.listas(dados, ref);
     const botoes = listaCab.querySelectorAll('.seg-abas .seg-opcao');
-    const n = [listas.doDia.length, listas.atrasadas.length, listas.todas.length];
+    const n = [listas.doDia.length, listas.atrasadas.length, listas.aApropriar.length, listas.todas.length];
     botoes.forEach((b, i) => { b.textContent = b.textContent.replace(/\(\d+\)$/, `(${n[i]})`); });
   }
 
@@ -311,15 +351,14 @@
   const servidorAntigo = () => {
     if (!versaoServidor) return false;
     const [a, b] = versaoServidor.split('.').map((x) => parseInt(x, 10) || 0);
-    return a < 1 || (a === 1 && b < 2);
+    return a < 1 || (a === 1 && b < 3);
   };
 
   async function programar(nOrdens, data, msg) {
     if (!nOrdens.length) return;
     try {
       await OM.programarVarios(dados.ciclo, nOrdens, data);
-      const alvo = new Set(nOrdens);
-      dados.oms.forEach((o) => { if (alvo.has(o.nOrdem)) o.dataProgramada = data; });
+      dados = (await OM.carregarLocal(dados.ciclo)) || dados; // inclui histórico e programação original
       nOrdens.forEach((n) => { selProg.delete(n); selDisp.delete(n); });
       renderPainel();
       renderProgramacao();
@@ -335,7 +374,7 @@
     if (selDia !== ref) { selProg.clear(); selDisp.clear(); selDia = ref; }
     conferirServidor();
     ui.trocar(progEl,
-      servidorAntigo() ? h('p', { class: 'aviso', text: 'O servidor (Apps Script) está numa versão antiga: programar funciona, mas para RETIRAR OMs da programação e manter a programação ao reimportar a planilha, atualize o Codigo.js no Apps Script e publique uma nova versão (veja INSTALACAO.md).' }) : null,
+      servidorAntigo() ? h('p', { class: 'aviso', text: `O servidor (Apps Script) está na versão ${versaoServidor}: atualize o Codigo.js no Apps Script e publique uma nova versão (veja INSTALACAO.md). Até lá, retiradas, histórico de reprogramação e apropriação no SAP ficam pendentes no aparelho.` }) : null,
       cartaoCalendario(),
       cartaoDoDia(),
       cartaoAdicionar());
@@ -352,6 +391,8 @@
     const semProg = dados.oms.filter((o) => !o.dataProgramada && !OM.realizada(dados, o.nOrdem)).length;
     const naoFeitas = dados.oms.filter((o) => !OM.realizada(dados, o.nOrdem)).length;
 
+    const saidas = {};
+    Object.keys(cal).forEach((d) => { const n = OM.saidasDoDia(dados, d).length; if (n) saidas[d] = n; });
     const celulas = [];
     const desloc = (new Date(`${ini}T12:00:00`).getDay() + 6) % 7; // segunda = 0
     for (let i = 0; i < desloc; i++) celulas.push(h('span', { class: 'cal-vazio' }));
@@ -371,7 +412,8 @@
       },
       h('span', { class: 'cal-num', text: String(Number(d.slice(8))) }),
       c.programadas ? h('span', { class: 'cal-qtd', text: String(c.programadas) }) : h('span', { class: 'cal-qtd zero', text: '·' }),
-      c.programadas ? h('span', { class: 'cal-feitas', text: `${c.feitas} ✓` }) : null));
+      c.programadas ? h('span', { class: 'cal-feitas', text: `${c.feitas} ✓` }) : null,
+      saidas[d] ? h('span', { class: 'cal-saidas', text: `↷${saidas[d]}`, title: `${saidas[d]} OM(s) reprogramada(s) para outra data` }) : null));
     });
 
     const mesAnt = U.somarDias(ini, -1).slice(0, 8) + '01';
@@ -386,7 +428,7 @@
       h('p', { class: 'sub cal-resumo' },
         h('strong', { text: `Semana ${U.fmtData(seg).slice(0, 5)}–${U.fmtData(sex).slice(0, 5)}: ${contar(seg, sex)} OMs` }),
         ` · Mês: ${contar(ini, U.fimMes(ref))} OMs · Sem programação: ${semProg} de ${naoFeitas} não realizadas`),
-      h('p', { class: 'sub', text: 'Toque num dia para ver e montar a programação dele. Número grande = OMs programadas; ✓ = realizadas.' }));
+      h('p', { class: 'sub', text: 'Toque num dia para ver e montar a programação dele. Número grande = OMs programadas; ✓ = realizadas; ↷ = reprogramadas para outra data.' }));
   }
 
   function linhaSelecionavel(o, conjunto, extras, aoMudar) {
@@ -402,7 +444,8 @@
       chk,
       h('span', { class: 'om-texto' },
         h('strong', { text: o.textoBreve }),
-        h('span', { class: 'om-sub', text: `${o.nOrdem}${info ? ` · ${info}` : ''}${o.denominacao ? ` · ${o.denominacao}` : ''}` })),
+        h('span', { class: 'om-sub', text: `${o.nOrdem}${info ? ` · ${info}` : ''}${o.denominacao ? ` · ${o.denominacao}` : ''}` }),
+        h('span', { class: 'om-info' }, chipsExtras(o))),
       extras);
   }
 
@@ -463,11 +506,36 @@
     }
     desenharLista();
 
+    const saidas = OM.saidasDoDia(dados, ref);
+    const blocoSaidas = saidas.length ? h('details', { class: 'saidas' },
+      h('summary', null, h('strong', { text: `Reprogramadas deste dia (${saidas.length})` }),
+        h('span', { class: 'sub', text: ` · ${resumoDestinos(saidas)}` })),
+      h('p', { class: 'sub', text: `Estavam programadas para ${fmtDiaLongo(ref)} e foram movidas ou retiradas. Fica registrado no histórico (aba "Reprogramacoes" da planilha).` }),
+      h('div', { class: 'lista-om' }, saidas.map(({ om: o, registradoEm }) => h('div', { class: 'om-sel' },
+        h('span', { class: 'om-texto' },
+          h('strong', { text: o.textoBreve }),
+          h('span', { class: 'om-sub', text: `${o.nOrdem} · ${o.dataProgramada ? `agora em ${fmtDiaLongo(o.dataProgramada)}` : 'retirada da programação'} · registrado ${U.fmtDataHora(registradoEm)}` }),
+          h('span', { class: 'om-info' }, chipsExtras(o))),
+        OM.realizada(dados, o.nOrdem) ? h('span', { class: 'chip-info feita', text: 'Feita' }) : h('button', {
+          class: 'btn btn-fantasma btn-pequeno',
+          title: `Trazer de volta para ${fmtDiaLongo(ref)}`,
+          onclick: () => programar([o.nOrdem], ref, `${o.textoBreve} voltou para ${fmtDiaLongo(ref)}.`)
+        }, 'Voltar'))))) : null;
+
     return h('section', { class: 'cartao' },
       h('h2', { text: `Programadas para ${fmtDiaLongo(ref)} (${doDia.length})` }),
       doDia.length ? h('p', { class: 'sub', text: `${feitas} realizada(s). Marque para mover a outra data ou retirar da programação.` }) : null,
       barra,
-      lista);
+      lista,
+      blocoSaidas);
+  }
+
+  /** "48 → Qua 21/10 · 2 retiradas" */
+  function resumoDestinos(saidas) {
+    const cont = {};
+    saidas.forEach(({ om: o }) => { const k = o.dataProgramada || ''; cont[k] = (cont[k] || 0) + 1; });
+    return Object.entries(cont).sort((a, b) => (a[0] || '9').localeCompare(b[0] || '9'))
+      .map(([d, n]) => (d ? `${n} → ${fmtDiaLongo(d)}` : `${n} retirada(s)`)).join(' · ');
   }
 
   function marcarLinhas(lista, conjunto) {
@@ -572,7 +640,7 @@
             }
             try {
               await OM.reprogramar(dados.ciclo, o.nOrdem, input.value);
-              o.dataProgramada = input.value;
+              dados = (await OM.carregarLocal(dados.ciclo)) || dados;
               fechar();
               renderPainel();
               renderLista();

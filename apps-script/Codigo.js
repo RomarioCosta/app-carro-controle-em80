@@ -14,7 +14,7 @@
  * Primeira instalação: execute a função setup() uma vez pelo editor.
  */
 
-var APP_VERSAO = '1.2.0';
+var APP_VERSAO = '1.3.0';
 var TZ = 'America/Sao_Paulo';
 
 /* ------------------------------------------------------------------ */
@@ -120,7 +120,8 @@ var SCHEMA = {
       ['km2', 'KM2', 'number'],
       ['status', 'Status SAP', 'text'],
       ['dataProgramada', 'Data programada', 'date'],
-      ['importadoEm', 'Importado em', 'datetime']
+      ['importadoEm', 'Importado em', 'datetime'],
+      ['dataOriginal', 'Programação original', 'date']
     ]
   },
   Execucoes: {
@@ -131,7 +132,21 @@ var SCHEMA = {
       ['nOrdem', 'Nº Ordem', 'text'],
       ['status', 'Status', 'text'],
       ['dataRealizacao', 'Data/hora realização', 'datetime'],
-      ['atualizadoEm', 'Atualizado em', 'datetime']
+      ['atualizadoEm', 'Atualizado em', 'datetime'],
+      ['apropriadaEm', 'Apropriada no SAP em', 'datetime']
+    ]
+  },
+  Reprogramacoes: {
+    chave: 'id',
+    colunas: [
+      ['id', 'ID', 'text'],
+      ['ciclo', 'Ciclo', 'text'],
+      ['nOrdem', 'Nº Ordem', 'text'],
+      ['textoBreve', 'Texto breve', 'text'],
+      ['tipo', 'Tipo', 'text'],
+      ['dataAnterior', 'Data anterior', 'date'],
+      ['dataNova', 'Nova data', 'date'],
+      ['registradoEm', 'Registrado em', 'datetime']
     ]
   }
 };
@@ -296,7 +311,8 @@ var GRAVADORES = {
   evento: gravarEvento_,
   anomalia: gravarAnomalia_,
   execucao: gravarExecucao_,
-  reprogramacao: gravarReprogramacao_
+  reprogramacao: gravarReprogramacao_,
+  historicoProgramacao: gravarHistoricoProgramacao_
 };
 
 function acaoSync_(dados) {
@@ -378,10 +394,12 @@ function gravarExecucao_(d, tabela) {
   exigir_(d, ['ciclo', 'nOrdem', 'status', 'atualizadoEm']);
   if (STATUS_OM.indexOf(d.status) < 0) throw erro_('VALIDACAO', 'Status inválido: ' + d.status);
   if (d.status === 'Realizado') validarDataHora_(d.dataRealizacao, 'data de realização');
+  var apropriada = d.status === 'Realizado' && d.apropriadaEm ? String(d.apropriadaEm) : '';
+  if (apropriada) validarDataHora_(apropriada, 'data da apropriação');
   tabela('Execucoes').upsert({
     chave: chaveOM_(d.ciclo, d.nOrdem), ciclo: String(d.ciclo), nOrdem: String(d.nOrdem),
     status: d.status, dataRealizacao: d.status === 'Realizado' ? d.dataRealizacao : '',
-    atualizadoEm: d.atualizadoEm
+    atualizadoEm: d.atualizadoEm, apropriadaEm: apropriada
   });
 }
 
@@ -390,8 +408,27 @@ function gravarReprogramacao_(d, tabela) {
   // Data vazia = OM retirada da programação.
   d.dataProgramada = String(d.dataProgramada || '').trim();
   if (d.dataProgramada) validarData_(d.dataProgramada, 'data programada');
-  var ok = tabela('OMs').atualizarCampos(chaveOM_(d.ciclo, d.nOrdem), { dataProgramada: d.dataProgramada });
+  var campos = { dataProgramada: d.dataProgramada };
+  if (d.dataOriginal) {
+    validarData_(d.dataOriginal, 'programação original');
+    campos.dataOriginal = d.dataOriginal;
+  }
+  var ok = tabela('OMs').atualizarCampos(chaveOM_(d.ciclo, d.nOrdem), campos);
   if (!ok) throw erro_('VALIDACAO', 'OM ' + d.nOrdem + ' não encontrada no ciclo ' + d.ciclo + '.');
+}
+
+/** Registro de cada OM movida ou retirada da programação (histórico, não se altera). */
+function gravarHistoricoProgramacao_(d, tabela) {
+  exigir_(d, ['id', 'ciclo', 'nOrdem', 'dataAnterior', 'registradoEm']);
+  validarData_(d.dataAnterior, 'data anterior');
+  if (d.dataNova) validarData_(d.dataNova, 'nova data');
+  validarDataHora_(d.registradoEm, 'registrado em');
+  var t = tabela('Reprogramacoes');
+  t.upsert({
+    id: String(d.id), ciclo: String(d.ciclo), nOrdem: String(d.nOrdem), textoBreve: d.textoBreve || '',
+    tipo: d.dataNova ? 'Movida' : 'Retirada', dataAnterior: d.dataAnterior, dataNova: d.dataNova || '',
+    registradoEm: d.registradoEm
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -413,7 +450,8 @@ function acaoGetOMs_(dados) {
   if (!ciclo) throw erro_('VALIDACAO', 'Informe o ciclo.');
   var oms = new Tabela_('OMs').todos().filter(function (o) { return o.ciclo === ciclo; });
   var execucoes = new Tabela_('Execucoes').todos().filter(function (x) { return x.ciclo === ciclo; });
-  return { ciclo: ciclo, oms: oms, execucoes: execucoes };
+  var historico = new Tabela_('Reprogramacoes').todos().filter(function (x) { return x.ciclo === ciclo; });
+  return { ciclo: ciclo, oms: oms, execucoes: execucoes, historico: historico };
 }
 
 function acaoImportarOMs_(dados) {
@@ -430,8 +468,11 @@ function acaoImportarOMs_(dados) {
   var existentes = t.todos();
   // A programação feita no app vale mais que a do arquivo (o SAP normalmente nem traz essa coluna).
   var programadas = {};
+  var originais = {};
   existentes.forEach(function (o) {
-    if (o.ciclo === ciclo && o.dataProgramada) programadas[String(o.nOrdem)] = o.dataProgramada;
+    if (o.ciclo !== ciclo) return;
+    if (o.dataProgramada) programadas[String(o.nOrdem)] = o.dataProgramada;
+    if (o.dataOriginal) originais[String(o.nOrdem)] = o.dataOriginal;
   });
   lista.forEach(function (o) {
     var n = String(o.nOrdem || '').trim();
@@ -443,6 +484,7 @@ function acaoImportarOMs_(dados) {
     var obj = copiar_(o, ['textoBreve', 'denominacao', 'localInstalacao', 'instalacao', 'plano', 'item',
       'statusUsuario', 'statusOrdem', 'dataPlanejada', 'tolMin', 'tolMax', 'km', 'km2', 'status', 'dataProgramada']);
     if (programadas[n]) obj.dataProgramada = programadas[n];
+    obj.dataOriginal = originais[n] || obj.dataProgramada || '';
     obj.chave = chaveOM_(ciclo, n);
     obj.ciclo = ciclo;
     obj.nOrdem = n;
@@ -498,10 +540,17 @@ function planilha_() {
 function Tabela_(nome) {
   this.nome = nome;
   this.def = SCHEMA[nome];
-  this.sh = planilha_().getSheetByName(nome);
-  if (!this.sh) throw erro_('CONFIG', 'Aba "' + nome + '" não encontrada. Execute setup().');
+  var ss = planilha_();
+  this.sh = ss.getSheetByName(nome);
+  var titulos = this.sh && this.sh.getLastColumn() ? this.sh.getRange(1, 1, 1, this.sh.getLastColumn()).getValues()[0].map(String) : [];
+  // Versão nova com aba ou coluna nova: cria sozinho (sem precisar rodar setup de novo).
+  var falta = !this.sh || this.def.colunas.some(function (c) { return titulos.indexOf(c[1]) < 0; });
+  if (falta) {
+    prepararAba_(ss, nome);
+    this.sh = ss.getSheetByName(nome);
+    titulos = this.sh.getRange(1, 1, 1, this.sh.getLastColumn()).getValues()[0].map(String);
+  }
   this.ncol = this.sh.getLastColumn();
-  var titulos = this.sh.getRange(1, 1, 1, this.ncol).getValues()[0].map(String);
   var self = this;
   this.pos = {};
   this.def.colunas.forEach(function (c) {

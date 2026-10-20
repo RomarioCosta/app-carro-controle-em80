@@ -81,7 +81,7 @@ Só é necessário quando o arquivo `Codigo.js` mudar (o servidor), ou se você 
 1. Copie de novo os arquivos que mudaram (normalmente `Codigo.js` e `Index.html`).
 2. **Implantar → Gerenciar implantações → ✏️ (editar)** → em "Versão", escolha **Nova versão** → **Implantar**.
 
-O link continua o mesmo. Os dados não são afetados.
+O link continua o mesmo. Os dados não são afetados. Abas e colunas novas da planilha são criadas sozinhas na primeira utilização (não precisa rodar `setup` de novo).
 
 ---
 

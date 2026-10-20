@@ -593,6 +593,19 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .om-sel .om-texto { flex: 1; min-width: 0; }
 .om-retirar { flex: none; width: 36px; height: 36px; }
 .lista-disp { max-height: 60vh; overflow-y: auto; padding-right: 2px; }
+.cal-saidas { font-size: .66rem; color: var(--alerta); font-weight: 650; }
+.chip-info.reprog { color: var(--alerta); background: var(--alerta-fundo); }
+.chip-info.sap { color: var(--texto2); background: color-mix(in srgb, var(--serie-real) 10%, var(--sup2)); }
+.om-sap {
+  flex: none; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  width: 54px; border: 0; border-left: 1px solid var(--grade); background: transparent; color: var(--texto3);
+  font: inherit; font-size: .7rem; font-weight: 750; cursor: pointer;
+}
+.om-sap .ico { width: 16px; height: 16px; stroke-width: 3; }
+.om-sap.ok { color: var(--ok); background: color-mix(in srgb, var(--ok-fundo) 70%, transparent); }
+.saidas { margin-top: 12px; border-top: 1px solid var(--grade); padding-top: 10px; }
+.saidas summary { cursor: pointer; }
+.saidas .lista-om { margin-top: 8px; }
 
 </style>
 </head>
@@ -815,7 +828,7 @@ window.App = window.App || {};
     versao: '1.0.0',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-8b31502222', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-fca3fc2031', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -2157,18 +2170,24 @@ window.App = window.App || {};
     const ciclo = dados.ciclo;
     const exec = await sync.pendentesDoTipo('execucao');
     const reprog = await sync.pendentesDoTipo('reprogramacao');
+    const hist = await sync.pendentesDoTipo('historicoProgramacao');
     exec.forEach((d) => {
       if (String(d.ciclo) !== ciclo) return;
       const atual = dados.exec[d.nOrdem];
       if (!atual || String(atual.atualizadoEm || '') <= d.atualizadoEm) {
-        dados.exec[d.nOrdem] = { status: d.status, dataRealizacao: d.dataRealizacao || '', atualizadoEm: d.atualizadoEm };
+        dados.exec[d.nOrdem] = { status: d.status, dataRealizacao: d.dataRealizacao || '', atualizadoEm: d.atualizadoEm, apropriadaEm: d.apropriadaEm || '' };
       }
     });
     reprog.forEach((d) => {
       if (String(d.ciclo) !== ciclo) return;
       const om = dados.oms.find((o) => o.nOrdem === d.nOrdem);
-      if (om) om.dataProgramada = d.dataProgramada;
+      if (om) {
+        om.dataProgramada = d.dataProgramada;
+        if (d.dataOriginal) om.dataOriginal = d.dataOriginal;
+      }
     });
+    const ids = new Set(dados.historico.map((x) => x.id));
+    hist.forEach((d) => { if (String(d.ciclo) === ciclo && !ids.has(d.id)) dados.historico.push(d); });
     return dados;
   }
 
@@ -2182,7 +2201,7 @@ window.App = window.App || {};
     if (!resp) return null;
     const exec = {};
     (resp.execucoes || []).forEach((x) => {
-      exec[x.nOrdem] = { status: x.status, dataRealizacao: x.dataRealizacao || '', atualizadoEm: x.atualizadoEm || '' };
+      exec[x.nOrdem] = { status: x.status, dataRealizacao: x.dataRealizacao || '', atualizadoEm: x.atualizadoEm || '', apropriadaEm: x.apropriadaEm || '' };
     });
     let dados = null;
     await store.atualizar(chaveCache(resp.ciclo), async () => {
@@ -2190,6 +2209,7 @@ window.App = window.App || {};
         ciclo: resp.ciclo,
         oms: (resp.oms || []).map(limparOM),
         exec,
+        historico: (resp.historico || []).map((x) => ({ id: x.id, ciclo: String(x.ciclo), nOrdem: String(x.nOrdem), textoBreve: x.textoBreve || '', dataAnterior: x.dataAnterior || '', dataNova: x.dataNova || '', registradoEm: x.registradoEm || '' })),
         atualizadoEm: U.agora()
       });
       return dados;
@@ -2206,6 +2226,10 @@ window.App = window.App || {};
       km2: o.km2,
       dataPlanejada: o.dataPlanejada || '',
       dataProgramada: o.dataProgramada || '',
+      dataOriginal: o.dataOriginal || '',
+      statusUsuario: o.statusUsuario || '',
+      statusOrdem: o.statusOrdem || '',
+      status: o.status || '',
       ramal: OM.ramal(o.textoBreve)
     };
   }
@@ -2232,8 +2256,8 @@ window.App = window.App || {};
       const realizado = atual && atual.status === OM.REALIZADO;
       const agora = U.agora();
       novo = realizado
-        ? { status: OM.NAO_REALIZADO, dataRealizacao: '', atualizadoEm: agora }
-        : { status: OM.REALIZADO, dataRealizacao: agora, atualizadoEm: agora };
+        ? { status: OM.NAO_REALIZADO, dataRealizacao: '', atualizadoEm: agora, apropriadaEm: '' }
+        : { status: OM.REALIZADO, dataRealizacao: agora, atualizadoEm: agora, apropriadaEm: '' };
       dados.exec[nOrdem] = novo;
       return dados;
     });
@@ -2241,26 +2265,78 @@ window.App = window.App || {};
     return novo;
   };
 
+  /** Marca/desmarca a OM realizada como apropriada (confirmada) no SAP. */
+  OM.apropriar = async (ciclo, nOrdem) => {
+    let novo = null;
+    await store.atualizar(chaveCache(ciclo), (dados) => {
+      const atual = dados && dados.exec[nOrdem];
+      if (!atual || atual.status !== OM.REALIZADO) throw new Error('Marque a OM como realizada antes.');
+      const agora = U.agora();
+      novo = { ...atual, apropriadaEm: atual.apropriadaEm ? '' : agora, atualizadoEm: agora };
+      dados.exec[nOrdem] = novo;
+      return dados;
+    });
+    await sync.enfileirar('execucao', OM.chave(ciclo, nOrdem), { ciclo: String(ciclo), nOrdem, ...novo });
+    return novo;
+  };
+
+  OM.apropriada = (dados, nOrdem) => {
+    const x = dados.exec[nOrdem];
+    return !!(x && x.status === OM.REALIZADO && x.apropriadaEm);
+  };
+
+  /** Código do status SAP (ex.: "LIB: Autorizada p/ execução" -> "LIB"). */
+  OM.statusCurto = (o) => String(o.status || '').split(':')[0].trim();
+
   /**
    * Programa várias OMs para uma data (ou retira da programação com data '').
+   * Quem já estava programado em outra data gera um registro no histórico
+   * (data anterior → nova data), e a primeira data programada fica guardada como "programação original".
    * Grava no aparelho na hora e envia ao servidor pela fila.
    */
   OM.programarVarios = async (ciclo, nOrdens, data) => {
     const alvo = new Set(nOrdens.map(String));
     if (!alvo.size) return 0;
     if (data && !U.parseData(data)) throw new Error('Data inválida.');
+    const agora = U.agora();
+    const itens = [];
     let n = 0;
     await store.atualizar(chaveCache(ciclo), (dados) => {
       if (!dados) throw new Error('Ciclo não carregado.');
+      dados.historico = dados.historico || [];
       dados.oms.forEach((o) => {
-        if (alvo.has(o.nOrdem)) { o.dataProgramada = data; n++; }
+        if (!alvo.has(o.nOrdem) || o.dataProgramada === data) return;
+        const anterior = o.dataProgramada;
+        if (anterior) {
+          const h = { id: U.uuid(), ciclo: String(ciclo), nOrdem: o.nOrdem, textoBreve: o.textoBreve, dataAnterior: anterior, dataNova: data, registradoEm: agora };
+          dados.historico.push(h);
+          itens.push({ tipo: 'historicoProgramacao', id: h.id, dados: h });
+        }
+        o.dataProgramada = data;
+        if (!o.dataOriginal && data) o.dataOriginal = data;
+        itens.push({ tipo: 'reprogramacao', id: OM.chave(ciclo, o.nOrdem), dados: { ciclo: String(ciclo), nOrdem: o.nOrdem, dataProgramada: data, dataOriginal: o.dataOriginal || '' } });
+        n++;
       });
       return dados;
     });
-    await sync.enfileirarVarios([...alvo].map((nOrdem) => ({
-      tipo: 'reprogramacao', id: OM.chave(ciclo, nOrdem), dados: { ciclo: String(ciclo), nOrdem, dataProgramada: data }
-    })));
+    await sync.enfileirarVarios(itens);
     return n;
+  };
+
+  /** OMs que saíram de um dia (movidas ou retiradas), com o destino atual de cada uma. */
+  OM.saidasDoDia = (dados, dia) => {
+    const vistos = new Set();
+    const lista = [];
+    (dados.historico || []).filter((h) => h.dataAnterior === dia)
+      .sort((a, b) => String(a.registradoEm).localeCompare(String(b.registradoEm)))
+      .forEach((h) => {
+        if (vistos.has(h.nOrdem)) return;
+        const o = dados.oms.find((x) => x.nOrdem === h.nOrdem);
+        if (!o || o.dataProgramada === dia) return;
+        vistos.add(h.nOrdem);
+        lista.push({ om: o, registradoEm: h.registradoEm });
+      });
+    return lista;
   };
 
   /** Quantidade de OMs programadas e realizadas por dia de um mês (para o calendário). */
@@ -2290,13 +2366,7 @@ window.App = window.App || {};
     .sort(OM.ordemCampo);
 
   OM.reprogramar = async (ciclo, nOrdem, dataProgramada) => {
-    await store.atualizar(chaveCache(ciclo), (dados) => {
-      const om = dados && dados.oms.find((o) => o.nOrdem === nOrdem);
-      if (!om) throw new Error('OM não encontrada.');
-      om.dataProgramada = dataProgramada;
-      return dados;
-    });
-    await sync.enfileirar('reprogramacao', OM.chave(ciclo, nOrdem), { ciclo: String(ciclo), nOrdem, dataProgramada });
+    await OM.programarVarios(ciclo, [nOrdem], dataProgramada);
   };
 
   /* ------------------------------------------------------------------ */
@@ -2377,7 +2447,9 @@ window.App = window.App || {};
       else if (o.dataProgramada && o.dataProgramada < ref && !OM.realizada(dados, o.nOrdem)) atrasadas.push(o);
     });
     const porProg = (a, b) => (a.dataProgramada || '9').localeCompare(b.dataProgramada || '9') || a.textoBreve.localeCompare(b.textoBreve);
-    return { doDia: doDia.sort(porProg), atrasadas: atrasadas.sort(porProg), todas: dados.oms.slice().sort(porProg) };
+    const aApropriar = dados.oms.filter((o) => OM.realizada(dados, o.nOrdem) && !OM.apropriada(dados, o.nOrdem))
+      .sort((a, b) => OM.diaRealizacao(dados, a.nOrdem).localeCompare(OM.diaRealizacao(dados, b.nOrdem)) || OM.ordemCampo(a, b));
+    return { doDia: doDia.sort(porProg), atrasadas: atrasadas.sort(porProg), aApropriar, todas: dados.oms.slice().sort(porProg) };
   };
 
   App.OM = OM;
@@ -4735,6 +4807,7 @@ window.App = window.App || {};
       h('div', { class: 'seg seg-abas', role: 'group', 'aria-label': 'Filtro da lista' },
         abaBtn('dia', ref === U.hoje() ? 'Hoje' : 'Do dia', listas.doDia.length),
         abaBtn('atrasadas', 'Atrasadas', listas.atrasadas.length),
+        abaBtn('apropriar', 'A apropriar', listas.aApropriar.length),
         abaBtn('todas', 'Todas', listas.todas.length)),
       h('div', { class: 'linha-campo filtros' },
         h('select', {
@@ -4747,13 +4820,13 @@ window.App = window.App || {};
   }
 
   function desenharItens(listas) {
-    const base = aba === 'dia' ? listas.doDia : aba === 'atrasadas' ? listas.atrasadas : listas.todas;
+    const base = { dia: listas.doDia, atrasadas: listas.atrasadas, apropriar: listas.aApropriar, todas: listas.todas }[aba] || listas.doDia;
     const termo = U.normalizar(busca);
     const filtrada = base.filter((o) => (!ramal || o.ramal === ramal)
       && (!termo || U.normalizar(`${o.textoBreve} ${o.nOrdem} ${o.denominacao}`).includes(termo)));
 
     if (!filtrada.length) {
-      const msg = { dia: 'Nenhuma OM programada para este dia.', atrasadas: 'Nenhuma OM atrasada.', todas: 'Nenhuma OM encontrada.' }[aba];
+      const msg = { dia: 'Nenhuma OM programada para este dia.', atrasadas: 'Nenhuma OM atrasada.', apropriar: 'Todas as OMs realizadas já foram apropriadas no SAP.', todas: 'Nenhuma OM encontrada.' }[aba];
       ui.trocar(listaEl, h('p', { class: 'vazio', text: base.length ? 'Nenhuma OM com esse filtro.' : msg }));
       return;
     }
@@ -4770,6 +4843,8 @@ window.App = window.App || {};
     if (o.dataProgramada) info.push(h('span', { class: `chip-info${atrasada ? ' atrasada' : ''}`, text: `Prog. ${U.fmtData(o.dataProgramada).slice(0, 5)}` }));
     else info.push(h('span', { class: 'chip-info', text: 'Sem programação' }));
     if (feita && exec.dataRealizacao) info.push(h('span', { class: 'chip-info feita', text: `Feita ${U.fmtData(exec.dataRealizacao).slice(0, 5)} ${U.fmtHora(exec.dataRealizacao)}` }));
+    info.push(...chipsExtras(o));
+    const apropriada = feita && !!exec.apropriadaEm;
 
     const linha = h('div', { class: `om${feita ? ' om-feita' : ''}`, dataset: { n: o.nOrdem } },
       h('button', {
@@ -4784,6 +4859,13 @@ window.App = window.App || {};
         h('span', { class: 'om-sub', text: `${o.nOrdem}${o.denominacao ? ` · ${o.denominacao}` : ''}` }),
         h('span', { class: 'om-info' }, info)),
       h('span', { class: `om-status ${feita ? 'ok' : ''}`, text: feita ? 'Realizado' : 'Não realizado' })),
+      feita ? h('button', {
+        class: `om-sap${apropriada ? ' ok' : ''}`,
+        'aria-pressed': apropriada ? 'true' : 'false',
+        'aria-label': `${o.textoBreve}: ${apropriada ? 'apropriada no SAP' : 'não apropriada no SAP'}. Tocar para alterar.`,
+        title: apropriada ? `Apropriada no SAP em ${U.fmtDataHora(exec.apropriadaEm)}` : 'Marcar como apropriada no SAP',
+        onclick: () => apropriar(o)
+      }, apropriada ? ui.icone('check') : null, h('span', { text: 'SAP' })) : null,
       h('button', {
         class: 'btn-icone om-mais',
         'aria-label': `Reprogramar ${o.textoBreve}`,
@@ -4791,6 +4873,36 @@ window.App = window.App || {};
         onclick: () => abrirReprogramacao(o)
       }, ui.icone('calendario')));
     return linha;
+  }
+
+  /** Chips com a situação no SAP e a programação original (quando a OM foi reprogramada). */
+  function chipsExtras(o) {
+    const chips = [];
+    if (o.dataOriginal && o.dataProgramada !== o.dataOriginal) {
+      chips.push(h('span', { class: 'chip-info reprog', text: `Orig. ${U.fmtData(o.dataOriginal).slice(0, 5)}`, title: 'Programação original (a OM foi reprogramada)' }));
+    }
+    const cod = OM.statusCurto(o);
+    if (cod || o.statusUsuario) {
+      chips.push(h('span', { class: 'chip-info sap', text: `SAP ${[cod, o.statusUsuario].filter(Boolean).join(' · ')}`, title: [o.status, o.statusUsuario && `Status do usuário: ${o.statusUsuario}`, o.statusOrdem && `Status da ordem: ${o.statusOrdem}`].filter(Boolean).join('\n') }));
+    }
+    const x = dados.exec[o.nOrdem];
+    if (x && x.status === OM.REALIZADO && x.apropriadaEm) chips.push(h('span', { class: 'chip-info feita', text: `Apropriada ${U.fmtData(x.apropriadaEm).slice(0, 5)}` }));
+    return chips;
+  }
+
+  async function apropriar(o) {
+    if (travas.has(`sap:${o.nOrdem}`)) return;
+    travas.add(`sap:${o.nOrdem}`);
+    setTimeout(() => travas.delete(`sap:${o.nOrdem}`), 700);
+    try {
+      dados.exec[o.nOrdem] = await OM.apropriar(dados.ciclo, o.nOrdem);
+      const antigo = listaEl.querySelector(`.om[data-n="${CSS.escape(o.nOrdem)}"]`);
+      if (antigo) antigo.replaceWith(itemOM(o));
+      atualizarContadores();
+      if (navigator.vibrate) navigator.vibrate(15);
+    } catch (e) {
+      ui.toast(e.message, 'erro', 4000);
+    }
   }
 
   async function alternar(o) {
@@ -4813,7 +4925,7 @@ window.App = window.App || {};
   function atualizarContadores() {
     const listas = OM.listas(dados, ref);
     const botoes = listaCab.querySelectorAll('.seg-abas .seg-opcao');
-    const n = [listas.doDia.length, listas.atrasadas.length, listas.todas.length];
+    const n = [listas.doDia.length, listas.atrasadas.length, listas.aApropriar.length, listas.todas.length];
     botoes.forEach((b, i) => { b.textContent = b.textContent.replace(/\(\d+\)$/, `(${n[i]})`); });
   }
 
@@ -4847,15 +4959,14 @@ window.App = window.App || {};
   const servidorAntigo = () => {
     if (!versaoServidor) return false;
     const [a, b] = versaoServidor.split('.').map((x) => parseInt(x, 10) || 0);
-    return a < 1 || (a === 1 && b < 2);
+    return a < 1 || (a === 1 && b < 3);
   };
 
   async function programar(nOrdens, data, msg) {
     if (!nOrdens.length) return;
     try {
       await OM.programarVarios(dados.ciclo, nOrdens, data);
-      const alvo = new Set(nOrdens);
-      dados.oms.forEach((o) => { if (alvo.has(o.nOrdem)) o.dataProgramada = data; });
+      dados = (await OM.carregarLocal(dados.ciclo)) || dados; // inclui histórico e programação original
       nOrdens.forEach((n) => { selProg.delete(n); selDisp.delete(n); });
       renderPainel();
       renderProgramacao();
@@ -4871,7 +4982,7 @@ window.App = window.App || {};
     if (selDia !== ref) { selProg.clear(); selDisp.clear(); selDia = ref; }
     conferirServidor();
     ui.trocar(progEl,
-      servidorAntigo() ? h('p', { class: 'aviso', text: 'O servidor (Apps Script) está numa versão antiga: programar funciona, mas para RETIRAR OMs da programação e manter a programação ao reimportar a planilha, atualize o Codigo.js no Apps Script e publique uma nova versão (veja INSTALACAO.md).' }) : null,
+      servidorAntigo() ? h('p', { class: 'aviso', text: `O servidor (Apps Script) está na versão ${versaoServidor}: atualize o Codigo.js no Apps Script e publique uma nova versão (veja INSTALACAO.md). Até lá, retiradas, histórico de reprogramação e apropriação no SAP ficam pendentes no aparelho.` }) : null,
       cartaoCalendario(),
       cartaoDoDia(),
       cartaoAdicionar());
@@ -4888,6 +4999,8 @@ window.App = window.App || {};
     const semProg = dados.oms.filter((o) => !o.dataProgramada && !OM.realizada(dados, o.nOrdem)).length;
     const naoFeitas = dados.oms.filter((o) => !OM.realizada(dados, o.nOrdem)).length;
 
+    const saidas = {};
+    Object.keys(cal).forEach((d) => { const n = OM.saidasDoDia(dados, d).length; if (n) saidas[d] = n; });
     const celulas = [];
     const desloc = (new Date(`${ini}T12:00:00`).getDay() + 6) % 7; // segunda = 0
     for (let i = 0; i < desloc; i++) celulas.push(h('span', { class: 'cal-vazio' }));
@@ -4907,7 +5020,8 @@ window.App = window.App || {};
       },
       h('span', { class: 'cal-num', text: String(Number(d.slice(8))) }),
       c.programadas ? h('span', { class: 'cal-qtd', text: String(c.programadas) }) : h('span', { class: 'cal-qtd zero', text: '·' }),
-      c.programadas ? h('span', { class: 'cal-feitas', text: `${c.feitas} ✓` }) : null));
+      c.programadas ? h('span', { class: 'cal-feitas', text: `${c.feitas} ✓` }) : null,
+      saidas[d] ? h('span', { class: 'cal-saidas', text: `↷${saidas[d]}`, title: `${saidas[d]} OM(s) reprogramada(s) para outra data` }) : null));
     });
 
     const mesAnt = U.somarDias(ini, -1).slice(0, 8) + '01';
@@ -4922,7 +5036,7 @@ window.App = window.App || {};
       h('p', { class: 'sub cal-resumo' },
         h('strong', { text: `Semana ${U.fmtData(seg).slice(0, 5)}–${U.fmtData(sex).slice(0, 5)}: ${contar(seg, sex)} OMs` }),
         ` · Mês: ${contar(ini, U.fimMes(ref))} OMs · Sem programação: ${semProg} de ${naoFeitas} não realizadas`),
-      h('p', { class: 'sub', text: 'Toque num dia para ver e montar a programação dele. Número grande = OMs programadas; ✓ = realizadas.' }));
+      h('p', { class: 'sub', text: 'Toque num dia para ver e montar a programação dele. Número grande = OMs programadas; ✓ = realizadas; ↷ = reprogramadas para outra data.' }));
   }
 
   function linhaSelecionavel(o, conjunto, extras, aoMudar) {
@@ -4938,7 +5052,8 @@ window.App = window.App || {};
       chk,
       h('span', { class: 'om-texto' },
         h('strong', { text: o.textoBreve }),
-        h('span', { class: 'om-sub', text: `${o.nOrdem}${info ? ` · ${info}` : ''}${o.denominacao ? ` · ${o.denominacao}` : ''}` })),
+        h('span', { class: 'om-sub', text: `${o.nOrdem}${info ? ` · ${info}` : ''}${o.denominacao ? ` · ${o.denominacao}` : ''}` }),
+        h('span', { class: 'om-info' }, chipsExtras(o))),
       extras);
   }
 
@@ -4999,11 +5114,36 @@ window.App = window.App || {};
     }
     desenharLista();
 
+    const saidas = OM.saidasDoDia(dados, ref);
+    const blocoSaidas = saidas.length ? h('details', { class: 'saidas' },
+      h('summary', null, h('strong', { text: `Reprogramadas deste dia (${saidas.length})` }),
+        h('span', { class: 'sub', text: ` · ${resumoDestinos(saidas)}` })),
+      h('p', { class: 'sub', text: `Estavam programadas para ${fmtDiaLongo(ref)} e foram movidas ou retiradas. Fica registrado no histórico (aba "Reprogramacoes" da planilha).` }),
+      h('div', { class: 'lista-om' }, saidas.map(({ om: o, registradoEm }) => h('div', { class: 'om-sel' },
+        h('span', { class: 'om-texto' },
+          h('strong', { text: o.textoBreve }),
+          h('span', { class: 'om-sub', text: `${o.nOrdem} · ${o.dataProgramada ? `agora em ${fmtDiaLongo(o.dataProgramada)}` : 'retirada da programação'} · registrado ${U.fmtDataHora(registradoEm)}` }),
+          h('span', { class: 'om-info' }, chipsExtras(o))),
+        OM.realizada(dados, o.nOrdem) ? h('span', { class: 'chip-info feita', text: 'Feita' }) : h('button', {
+          class: 'btn btn-fantasma btn-pequeno',
+          title: `Trazer de volta para ${fmtDiaLongo(ref)}`,
+          onclick: () => programar([o.nOrdem], ref, `${o.textoBreve} voltou para ${fmtDiaLongo(ref)}.`)
+        }, 'Voltar'))))) : null;
+
     return h('section', { class: 'cartao' },
       h('h2', { text: `Programadas para ${fmtDiaLongo(ref)} (${doDia.length})` }),
       doDia.length ? h('p', { class: 'sub', text: `${feitas} realizada(s). Marque para mover a outra data ou retirar da programação.` }) : null,
       barra,
-      lista);
+      lista,
+      blocoSaidas);
+  }
+
+  /** "48 → Qua 21/10 · 2 retiradas" */
+  function resumoDestinos(saidas) {
+    const cont = {};
+    saidas.forEach(({ om: o }) => { const k = o.dataProgramada || ''; cont[k] = (cont[k] || 0) + 1; });
+    return Object.entries(cont).sort((a, b) => (a[0] || '9').localeCompare(b[0] || '9'))
+      .map(([d, n]) => (d ? `${n} → ${fmtDiaLongo(d)}` : `${n} retirada(s)`)).join(' · ');
   }
 
   function marcarLinhas(lista, conjunto) {
@@ -5108,7 +5248,7 @@ window.App = window.App || {};
             }
             try {
               await OM.reprogramar(dados.ciclo, o.nOrdem, input.value);
-              o.dataProgramada = input.value;
+              dados = (await OM.carregarLocal(dados.ciclo)) || dados;
               fechar();
               renderPainel();
               renderLista();

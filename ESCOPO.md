@@ -136,6 +136,9 @@ Registro de falhas durante a inspeção.
    - lista para **adicionar** OMs ao dia: "Sem programação" ou "Todas não realizadas" (inclui as de outras datas, que mudam para o dia escolhido), com filtro por ramal, busca e "selecionar todas as visíveis"; ordenada por ramal, linha e km;
    - o painel (meta do dia, semana e mês) é recalculado na hora; funciona sem internet e sincroniza depois.
    - Reimportar a planilha **mantém a programação feita no app**.
+   - **Histórico de reprogramação:** toda OM que sai de uma data (movida ou retirada) gera um registro (data anterior → nova data, quando), na aba **Reprogramacoes** da planilha. O dia mostra "Reprogramadas deste dia (N)" com o destino de cada OM e o botão "Voltar"; o calendário marca ↷N. A **programação original** (primeira data) fica guardada na OM (coluna "Programação original") e aparece como "Orig. dd/mm".
+   - **Status SAP** visível em cada OM (código do STATUS + status do usuário; detalhes ao passar o mouse). Reimportar a planilha atualiza o status.
+   - **Apropriação no SAP:** nas OMs realizadas, o botão "SAP" marca que a OM foi apropriada/confirmada no SAP (com data e hora); a aba "A apropriar" lista as realizadas que faltam confirmar.
 4. Em campo, a aba "Execução" mostra as OMs do dia, com filtro por data e por ramal.
 5. Ao tocar no botão de uma OM:
    - 1º toque → **Realizado** (grava a data e a hora da realização)
