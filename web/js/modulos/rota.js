@@ -351,7 +351,7 @@
 
   function largura() {
     const w = (conteudoEl && conteudoEl.clientWidth) || (raiz && raiz.clientWidth) || 360;
-    return Math.max(300, w - 34);
+    return Math.max(280, w - 48); // cartão (16+16) + borda e respiro da caixa do esquema
   }
 
   const ramaisUsados = (trechos) => {
@@ -806,7 +806,9 @@
       const ramais = ramaisUsados([...trechos, ...pontos.map((p) => p.trecho).filter(Boolean)]);
       paginas.push(h('section', { class: 'rota-pagina' },
         h('div', { class: 'rota-faixa' }, `${d.data ? `${U.fmtData(d.data)} · ` : ''}${titulo(d).toUpperCase()}${execucao ? ' · EXECUÇÃO' : ''}`),
-        h('p', { class: 'rota-resumo' }, `Rota: ${M.resumo(malha, d.programados) || '—'} · ${km(d.programados)} km programados`,
+        h('p', { class: 'rota-resumo' },
+          d.sentido ? h('span', { class: `rota-sentido${d.sentido === 'Descendo' ? ' descendo' : ''}`, text: d.sentido === 'Descendo' ? '◀ Sentido de circulação' : 'Sentido de circulação ▶' }) : null,
+          `Rota: ${M.resumo(malha, d.programados) || '—'} · ${km(d.programados)} km programados`,
           execucao ? ` · ${km(d.executados)} km percorridos · aderência ${pctAderencia(d)}%` : ''),
         ramais.map((r) => {
           const faixa = esquema.faixaDe(r, [...trechos, ...pontos.map((p) => p.trecho).filter(Boolean)], 2);
