@@ -125,3 +125,12 @@ O código está em `web/js/bitola.js`. Os valores padrão podem ser alterados em
 - "Perderam": quantos elementos do trecho passaram de 10%.
 - "Maior perda": elemento do trecho com a maior % de perda.
 - Ordem das tabelas: maior perda primeiro; circuitos (RH) por último.
+
+## 13. Dupla checagem (conferência)
+
+- **Conferência automática:** a cada análise, o app relê o **texto original do CSV** linha a linha, sem usar a leitura nem as contas da análise, e recalcula com números inteiros (centésimos de mm): para cada elemento (pela faixa de km dele), total de pontos com F e T lidas e pontos com |F − T| > limite.
+  - Tudo igual: selo **✓ Conferido** na tabela de elementos.
+  - Diferente: botão **⚠ N divergência(s)** com o elemento, os pontos e os pontos acima pelo app e pela conferência.
+  - Elemento que atravessa um circuito é conferido inteiro (antes de tirar os pontos do RH).
+- **Planilha de conferência (CSV para o Excel):** um ponto por linha, com KM, LOCALIZACAO, Linha, Bitola F, Bitola T, F − T (arredondada), "Acima do limite" (1 = sim), Elemento, EH/RH e "Fora da estatística" (circuito).
+  Para conferir um elemento no Excel: filtre a coluna Elemento; **pontos** = quantidade de linhas com F − T preenchida; **pontos acima** = soma da coluna "Acima do limite"; **% perda** = pontos acima ÷ pontos.
