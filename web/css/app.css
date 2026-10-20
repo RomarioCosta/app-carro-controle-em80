@@ -675,3 +675,4 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .seg-modos-analise { display: flex; flex-wrap: wrap; }
 .seg-modos-analise .seg-opcao { flex: 1 1 auto; }
 .baixa-cobertura { color: var(--alerta); }
+.perdeu { color: var(--erro); font-weight: 750; }
