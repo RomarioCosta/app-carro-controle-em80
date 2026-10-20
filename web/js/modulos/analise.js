@@ -292,6 +292,9 @@
             mudar('ajusteKm', e.target.value.trim() === '' || v === null ? 'auto' : v);
           }
         }), { ajuda: 'O km registrado pelo carro costuma diferir alguns metros do km da planta. Vazio = automático: o app compara as curvas medidas com as curvas da planta e acha a diferença. Digite um valor só se o automático errar.' })) : null,
+      resultado && resultado.fontePatios ? h('p', { class: 'sub', text: resultado.fontePatios === 'eventos'
+        ? `Pátios (RH) pelos eventos do arquivo — INICIO/FIM de RH, AMV e TRV: ${resultado.patios.map((p) => `${B.fmtKm(p.ini)} a ${B.fmtKm(p.fim)}`).join('; ')}. Ficam fora das estatísticas.`
+        : 'Pátios (RH) pelos trechos sem elemento na planta (o arquivo não tem eventos de RH/AMV/TRV). Ficam fora das estatísticas.' }) : null,
       usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Correção de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automática)' : ' (digitada)'}${infoPlanta.acerto !== null ? ` · curvas do arquivo coincidem com as da planta em ${fmt(infoPlanta.acerto, 0)}% do trecho` : ''}.` }) : null,
       !infoPlanta && problemaPlanta ? h('p', { class: 'aviso', text: problemaPlanta }) : null) : null;
 
@@ -347,7 +350,11 @@
     const r = resultado;
     const d = r.dados; // já com o offset, se aplicado
     const lim = opcoes.limitePerda;
-    const faixas = r.elementos.map((e) => ({ ini: e.ini, fim: e.fim, classe: e.tipo === 'C' ? 'faixa-curva' : (e.tipo === 'X' ? 'faixa-fora' : null), rotulo: e.tipo === 'X' ? e.trecho || '' : e.sigla }));
+    const faixas = [
+      // pátios (pelos eventos INICIO/FIM RH, AMV e TRV do arquivo, ou pela planta): faixa cinza
+      ...(r.patios || []).map((p) => ({ ini: p.ini, fim: p.fim, classe: 'faixa-fora', rotulo: '' })),
+      ...r.elementos.map((e) => ({ ini: e.ini, fim: e.fim, classe: e.tipo === 'C' ? 'faixa-curva' : (e.tipo === 'X' ? 'faixa-fora' : null), rotulo: e.tipo === 'X' ? e.trecho || '' : e.sigla }))
+    ];
     const nomeAlin = nomeAlinhamento();
     const alertas = Float64Array.from(r.difFT, (v) => (Math.abs(v) > lim ? v : NaN));
     const base = { pos, x0, x1, fmtX: B.fmtKm, aoPassar, faixas };
@@ -735,6 +742,7 @@
       r.comLocais
         ? `${r.modo === 'planta' ? 'Elementos pelo km da planta da linha' : `Curva e tangente pela curvatura medida (curva quando |10000/R| ≥ ${fmt(opcoes.limiarCurva, 1)}), com local (EH/RH) e nome da planta da linha${r.modo === 'hibrido' ? ', partes nos pátios como RH' : ''}`} (${planta.nome}), por trecho EH x/y e RH (pátio); pátios (RH) fora das estatísticas gerais: ramal ${infoPlanta.ramal} e linha ${infoPlanta.linha} do arquivo CSV, correção do km de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automático' + (infoPlanta.acerto !== null ? `, curvas coincidentes em ${fmt(infoPlanta.acerto, 0)}% do trecho` : '') + ')' : ''}.`
         : `Elementos pela curvatura: curva quando |10000/R| ≥ ${fmt(opcoes.limiarCurva, 1)} (média móvel de ${fmt(opcoes.suavizacao, 0)} m; elementos com menos de ${fmt(opcoes.comprimentoMin, 0)} m unidos ao vizinho).`,
+      r.fontePatios === 'eventos' ? `Pátios (RH) identificados pelos eventos do arquivo (INICIO/FIM de RH, AMV e TRV), fora das estatísticas gerais.` : '',
       off.aplicar && off.valor ? `Offset de ${fmt(off.valor, 1)} mm aplicado em ${NOMES_BITOLA[off.bitola]}.` : ''
     ].filter(Boolean).join(' ');
 

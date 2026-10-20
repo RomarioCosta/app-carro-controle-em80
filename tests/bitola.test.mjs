@@ -248,3 +248,31 @@ test('curva medida onde a planta tem tangente fica marcada como não cadastrada'
   assert.equal(curva.planta.divergente, true);
   assert.equal(curva.planta.sigla, 'T01');
 });
+
+test('pátios pelos eventos do arquivo: INICIO/FIM de RH, AMV e TRV formam um só pátio', () => {
+  const pos = Float64Array.from({ length: 4001 }, (_, i) => 2000 - i * 0.25); // 2+000 → 1+000
+  const ev = (km, texto) => ({ pos: km, texto });
+  const eventos = [
+    ev(1900, 'INICIO RH'), ev(1880, 'INICIO AMV'), ev(1850, 'FIM AMV'), ev(1700, 'FIM RH'),
+    ev(1690, 'INICIO TRV'), ev(1660, 'FIM TRV'), // 10 m depois do FIM RH: ainda é o pátio
+    ev(1400, 'PSUP'), ev(1350, 'INICIO AMV') // INICIO solto longe do fim (350 m): ignorado
+  ];
+  const r = B.patiosDosEventos(pos, eventos);
+  assert.equal(r.intervalos.length, 1);
+  assert.equal(r.intervalos[0].ini, 1900);
+  assert.equal(r.intervalos[0].fim, 1660);
+  assert.equal(r.noPatio[B.indicePerto(pos, 1800)], 1);
+  assert.equal(r.noPatio[B.indicePerto(pos, 1500)], 0);
+  // arquivo que começa dentro do pátio (FIM sem INICIO perto do começo)
+  assert.equal(B.patiosDosEventos(pos, [ev(1950, 'FIM RH')]).intervalos[0].ini, 2000);
+  assert.equal(B.patiosDosEventos(pos, [ev(1500, 'PSUP')]), null);
+});
+
+test('análise sem planta usa os pátios dos eventos para tirar o RH das estatísticas', () => {
+  const a = B.lerCSV(gerarCSV());
+  a.eventos = [{ pos: 2050, texto: 'INICIO RH' }, { pos: 1980, texto: 'FIM RH' }]; // 70 m dentro da T02 com perda
+  const r = B.analisar(a);
+  assert.equal(r.fontePatios, 'eventos');
+  assert.ok(Math.abs(r.geral.extensaoRh - 70) <= 0.5);
+  assert.equal(r.geral.pontos, 4000 - 281);
+});

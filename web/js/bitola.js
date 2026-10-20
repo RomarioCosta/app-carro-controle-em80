@@ -593,14 +593,62 @@
    * Localização de cada ponto do arquivo na planta (com a correção de km):
    * elemento da planta (ou null) e se está num pátio (RH = trecho sem elemento com ≥ minRh metros).
    */
-  B.localizar = (pos, els, ajuste = 0, opcoes = {}) => {
+  /**
+   * Pátios (RH) pelos eventos do próprio arquivo: entre INICIO e FIM de RH, AMV ou TRV (travador),
+   * o carro está dentro de um pátio. Intervalos a menos de "unir" metros viram um só pátio.
+   * Não depende do km da planta nem da correção de km. Retorna null se o arquivo não tiver esses eventos.
+   */
+  const RE_PATIO = /^(INICIO|IN[IÍ]CIO|FIM)\s+(RH|AMV|TRV|TRAVADOR)\b/;
+  B.patiosDosEventos = (pos, eventos, { unir = 30, pontaMax = 300 } = {}) => {
+    const n = pos.length;
+    if (!n || !eventos || !eventos.length) return null;
+    const marcas = [];
+    eventos.forEach((e) => {
+      const m = RE_PATIO.exec(U.normalizar(e.texto || '').toUpperCase().trim());
+      if (m) marcas.push({ inicio: m[1] !== 'FIM', tipo: m[2] === 'TRAVADOR' ? 'TRV' : m[2], i: B.indicePerto(pos, e.pos) });
+    });
+    if (!marcas.length) return null;
+    marcas.sort((a, b) => a.i - b.i);
+    // Pareia INICIO/FIM de cada tipo na ordem do arquivo (FIM sem INICIO: arquivo começou dentro do pátio).
+    const intervalos = [];
+    const aberto = {};
+    marcas.forEach((m) => {
+      if (m.inicio) { if (aberto[m.tipo] === undefined) aberto[m.tipo] = m.i; return; }
+      if (aberto[m.tipo] !== undefined) {
+        intervalos.push([Math.min(aberto[m.tipo], m.i), Math.max(aberto[m.tipo], m.i)]);
+        delete aberto[m.tipo];
+      } else if (abs(pos[m.i] - pos[0]) <= pontaMax) {
+        intervalos.push([0, m.i]); // FIM sem INICIO perto do começo: o arquivo começou dentro do pátio
+      }
+    });
+    // INICIO sem FIM perto do fim do arquivo: terminou dentro do pátio (longe do fim, é evento solto e é ignorado).
+    Object.values(aberto).forEach((ini) => { if (abs(pos[n - 1] - pos[ini]) <= pontaMax) intervalos.push([ini, n - 1]); });
+    intervalos.sort((a, b) => a[0] - b[0]);
+    const unidos = [];
+    intervalos.forEach(([a, b]) => {
+      const u = unidos[unidos.length - 1];
+      if (u && (a <= u[1] || abs(pos[a] - pos[u[1]]) <= unir)) u[1] = Math.max(u[1], b); else unidos.push([a, b]);
+    });
+    if (!unidos.length) return null;
+    const noPatio = new Uint8Array(n);
+    unidos.forEach(([a, b]) => noPatio.fill(1, a, b + 1));
+    return { noPatio, intervalos: unidos.map(([a, b]) => ({ i0: a, i1: b, ini: pos[a], fim: pos[b] })) };
+  };
+
+  B.localizar = (pos, els, ajuste = 0, opcoes = {}, eventos = null) => {
     const o = { ...B.PADRAO, ...opcoes };
     const n = pos.length;
     const esp = B.espacamento(pos) || 0.25;
     const minRh = Math.max(o.comprimentoMin, 25); // pátios reais têm ~260 m; buracos menores são falha da planta
     const ref = new Array(n);
-    for (let i = 0; i < n; i++) ref[i] = naPlanta(els, pos[i] + ajuste);
+    for (let i = 0; i < n; i++) ref[i] = els && els.length ? naPlanta(els, pos[i] + ajuste) : null;
+    // Pátios: pelos eventos do arquivo (INICIO/FIM RH, AMV, TRV); sem eventos, pelos trechos sem elemento na planta.
+    const pelosEventos = B.patiosDosEventos(pos, eventos);
+    if (pelosEventos) {
+      return { ref, noPatio: pelosEventos.noPatio, patios: pelosEventos.intervalos, fontePatios: 'eventos', nomes: B.nomesTrechos(els || []), ajuste, esp, linha: els && els.length ? els[0].linha : '' };
+    }
     const noPatio = new Uint8Array(n);
+    if (!els || !els.length) return { ref, noPatio, patios: [], fontePatios: '', nomes: B.nomesTrechos([]), ajuste, esp, linha: '' };
     for (let i = 0; i < n;) {
       if (ref[i]) { i++; continue; }
       let k = i;
@@ -608,7 +656,15 @@
       if (abs(pos[k] - pos[i]) + esp >= minRh) noPatio.fill(1, i, k + 1);
       i = k + 1;
     }
-    return { ref, noPatio, nomes: B.nomesTrechos(els), ajuste, esp, linha: els.length ? els[0].linha : '' };
+    const patios = [];
+    for (let i = 0; i < n;) {
+      if (!noPatio[i]) { i++; continue; }
+      let k = i;
+      while (k + 1 < n && noPatio[k + 1]) k++;
+      patios.push({ i0: i, i1: k, ini: pos[i], fim: pos[k] });
+      i = k + 1;
+    }
+    return { ref, noPatio, patios, fontePatios: 'planta', nomes: B.nomesTrechos(els), ajuste, esp, linha: els.length ? els[0].linha : '' };
   };
 
   /**
@@ -811,7 +867,9 @@
     const temPlanta = !!(o.elementosPlanta && o.elementosPlanta.length);
     const modo = temPlanta && (o.modo === 'planta' || o.modo === 'hibrido') ? o.modo : 'curvatura';
     const usarPlanta = temPlanta; // com planta, todos os modos mostram EH/RH
-    const loc = temPlanta ? B.localizar(pos, o.elementosPlanta, o.ajusteKm || 0, o) : null;
+    const loc = temPlanta ? B.localizar(pos, o.elementosPlanta, o.ajusteKm || 0, o, arquivo.eventos) : null;
+    // Sem planta, os pátios ainda saem dos eventos do arquivo (ficam fora das estatísticas).
+    const patiosEv = loc ? null : B.patiosDosEventos(pos, arquivo.eventos);
     let brutos;
     if (modo === 'planta') brutos = B.segmentarPorPlanta(pos, o.elementosPlanta, o.ajusteKm || 0);
     else if (modo === 'hibrido') brutos = B.segmentarComLocais(pos, dados.curv, loc, o);
@@ -820,7 +878,8 @@
     const elementos = brutos.map((e) => ({ ...e, ...resumoTrecho(dados, e.i0, e.i1, o, extras) }));
     // Pátios (RH) ficam fora das estatísticas gerais (perda de bitola, OGMS × KLD, variação), ponto a ponto.
     const mascara = new Uint8Array(pos.length).fill(1);
-    if (loc) loc.noPatio.forEach((v, i) => { if (v) mascara[i] = 0; });
+    const noPatio = loc ? loc.noPatio : patiosEv ? patiosEv.noPatio : null;
+    if (noPatio) noPatio.forEach((v, i) => { if (v) mascara[i] = 0; });
     elementos.forEach((e) => { if (e.tipo === 'X') mascara.fill(0, e.i0, e.i1 + 1); });
     const geral = resumoTrecho(dados, 0, pos.length - 1, o, { ...extras, mascara });
     let foraRh = 0; mascara.forEach((v) => { if (!v) foraRh++; });
@@ -867,13 +926,15 @@
       opcoes: o,
       modo,
       comLocais: !!loc,
+      patios: loc ? loc.patios : patiosEv ? patiosEv.intervalos : [],
+      fontePatios: loc ? loc.fontePatios : patiosEv ? 'eventos' : '',
       mascara,
       dados,
       elementos,
       porEh,
       geral: { ...geral, extensao: abs(pos[pos.length - 1] - pos[0]) + esp, extensaoRh },
-      tangentes: somar(elementos.filter((e) => e.tipo === 'T')),
-      curvas: somar(elementos.filter((e) => e.tipo === 'C')),
+      tangentes: somar(elementos.filter((e) => e.tipo === 'T' && !e.rh)), // elementos dentro dos pátios não contam
+      curvas: somar(elementos.filter((e) => e.tipo === 'C' && !e.rh)),
       difFT: B.diferenca(dados.bitF, dados.bitT),
       difKld: Float64Array.from(dados.bitF, (f, i) => (abs(dados.kld[i]) < KLD_MAX ? f - dados.kld[i] : NaN)),
       kldValido: Float64Array.from(dados.kld, (k) => (abs(k) < KLD_MAX ? k : NaN)),
