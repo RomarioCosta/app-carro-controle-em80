@@ -18,10 +18,10 @@ function novo(opcoes) {
 test('setup cria abas, remove a aba vazia padrão e gera código', () => {
   const s = novo();
   const nomes = s.ss.getSheets().map((x) => x.nome);
-  assert.deepEqual(nomes.sort(), ['Anomalias', 'Checklist_Amostras', 'Checklist_Respostas', 'Checklists', 'Eventos', 'Execucoes', 'OMs', 'Reprogramacoes'].sort());
+  assert.deepEqual(nomes.sort(), ['Anomalias', 'Checklist_Amostras', 'Checklist_Respostas', 'Checklists', 'Eventos', 'Execucoes', 'OMs', 'Reprogramacoes', 'Rota_Dias', 'Rota_Pontos'].sort());
   assert.match(s.token, /^[0-9A-F]{12}$/);
   s.ctx.setup(); // rodar de novo não quebra
-  assert.equal(s.ss.getSheets().length, 8);
+  assert.equal(s.ss.getSheets().length, 10);
 });
 
 test('versão nova cria sozinha a aba que falta (sem rodar setup de novo)', () => {
@@ -204,4 +204,27 @@ test('histórico de reprogramação, programação original e apropriação no S
   assert.equal(om1.dataOriginal, '2026-10-19');
   assert.equal(om1.status, 'ENTE');
   assert.equal(d.execucoes[0].apropriadaEm, '2026-10-22T08:00:00');
+});
+
+test('rota: dias com trechos, pontos de atenção, edição e exclusão', () => {
+  const s = novo();
+  const trechos = Array.from({ length: 300 }, (_, i) => `LT:EH:${i}@1`); // rota longa (mais de 5 mil caracteres)
+  const dia = { id: 'd1', ciclo: '3', ordem: 1, data: '2026-06-08', titulo: 'Subindo de TU a GV', sentido: 'Subindo', cor: '#1f6feb', programados: trechos, executados: [], observacao: '=não é fórmula', criadoEm: '2026-06-01T10:00:00', atualizadoEm: '2026-06-01T10:00:00' };
+  const ponto = { id: 'p1', diaId: 'd1', ciclo: '3', tipo: 'Subst. TR', gravidade: 'Interdição', local: 'LT · EH 13/14 · L1', trecho: 'LT:EH:13@1', horario: '08:30 a 13:00', descricao: 'TR2 - substituição de trilho', criadoEm: '2026-06-01T10:00:00', atualizadoEm: '2026-06-01T10:00:00' };
+  let r = s.post('sync', { itens: [{ key: 'rotaDia:d1', tipo: 'rotaDia', dados: dia }, { key: 'rotaPonto:p1', tipo: 'rotaPonto', dados: ponto }] });
+  assert.ok(r.dados.resultados.every((x) => x.ok), JSON.stringify(r.dados.resultados));
+  // execução: marca trechos percorridos (versão mais nova)
+  s.post('sync', { itens: [{ key: 'rotaDia:d1', tipo: 'rotaDia', dados: { ...dia, executados: trechos.slice(0, 10), atualizadoEm: '2026-06-08T18:00:00' } }] });
+  // versão antiga chegando atrasada é ignorada
+  s.post('sync', { itens: [{ key: 'rotaDia:d1', tipo: 'rotaDia', dados: { ...dia, titulo: 'velho', atualizadoEm: '2026-06-01T09:00:00' } }] });
+  s.post('sync', { itens: [{ key: 'rotaPonto:p1', tipo: 'rotaPonto', dados: { ...ponto, excluido: true, atualizadoEm: '2026-06-02T10:00:00' } }] });
+  const d = s.post('getRota', { ciclo: '3' }).dados;
+  assert.equal(d.dias.length, 1);
+  assert.equal(d.dias[0].programados.length, 300);
+  assert.equal(d.dias[0].executados.length, 10);
+  assert.equal(d.dias[0].titulo, 'Subindo de TU a GV');
+  assert.equal(d.dias[0].data, '2026-06-08');
+  assert.equal(d.dias[0].observacao, '=não é fórmula');
+  assert.equal(d.pontos[0].excluido, true);
+  assert.deepEqual(s.post('getRota', {}).dados.ciclos, [{ ciclo: '3', dias: 1 }]);
 });

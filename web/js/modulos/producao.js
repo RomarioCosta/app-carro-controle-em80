@@ -273,9 +273,9 @@
     if (o.dataOriginal && o.dataProgramada !== o.dataOriginal) {
       chips.push(h('span', { class: 'chip-info reprog', text: `Orig. ${U.fmtData(o.dataOriginal).slice(0, 5)}`, title: 'Programação original (a OM foi reprogramada)' }));
     }
-    const cod = OM.statusCurto(o);
-    if (cod || o.statusUsuario) {
-      chips.push(h('span', { class: 'chip-info sap', text: `SAP ${[cod, o.statusUsuario].filter(Boolean).join(' · ')}`, title: [o.status, o.statusUsuario && `Status do usuário: ${o.statusUsuario}`, o.statusOrdem && `Status da ordem: ${o.statusOrdem}`].filter(Boolean).join('\n') }));
+    // Coluna STATUS da planilha do SAP (ex.: "LIB: Autorizada p/ execução").
+    if (o.status || o.statusUsuario) {
+      chips.push(h('span', { class: 'chip-info sap', text: o.status || o.statusUsuario, title: [o.status && `STATUS: ${o.status}`, o.statusUsuario && `Status do usuário: ${o.statusUsuario}`, o.statusOrdem && `Status da ordem: ${o.statusOrdem}`].filter(Boolean).join('\n') }));
     }
     const x = dados.exec[o.nOrdem];
     if (x && x.status === OM.REALIZADO && x.apropriadaEm) chips.push(h('span', { class: 'chip-info feita', text: `Apropriada ${U.fmtData(x.apropriadaEm).slice(0, 5)}` }));

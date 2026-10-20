@@ -14,7 +14,7 @@
  * Primeira instalação: execute a função setup() uma vez pelo editor.
  */
 
-var APP_VERSAO = '1.3.0';
+var APP_VERSAO = '1.4.0';
 var TZ = 'America/Sao_Paulo';
 
 /* ------------------------------------------------------------------ */
@@ -148,10 +148,52 @@ var SCHEMA = {
       ['dataNova', 'Nova data', 'date'],
       ['registradoEm', 'Registrado em', 'datetime']
     ]
+  },
+  // Rota do carro controle: um registro por dia de inspeção.
+  Rota_Dias: {
+    chave: 'id',
+    colunas: [
+      ['id', 'ID', 'text'],
+      ['ciclo', 'Ciclo', 'text'],
+      ['ordem', 'Dia', 'number'],
+      ['data', 'Data', 'date'],
+      ['titulo', 'Título', 'text'],
+      ['sentido', 'Sentido', 'text'],
+      ['cor', 'Cor', 'text'],
+      ['resumo', 'Resumo da rota', 'text'],
+      ['observacao', 'Observação', 'text'],
+      ['garageamento', 'Garageamento', 'text'],
+      ['kmProgramado', 'Km programado', 'number'],
+      ['kmExecutado', 'Km executado', 'number'],
+      ['programados', 'Trechos programados', 'lista'],
+      ['executados', 'Trechos executados', 'lista'],
+      ['obsExecucao', 'Observação da execução', 'text'],
+      ['excluido', 'Excluído', 'text'],
+      ['criadoEm', 'Criado em', 'datetime'],
+      ['atualizadoEm', 'Atualizado em', 'datetime']
+    ]
+  },
+  // Pontos de atenção da rota: interdições, serviços, conflitos e informações.
+  Rota_Pontos: {
+    chave: 'id',
+    colunas: [
+      ['id', 'ID', 'text'],
+      ['diaId', 'ID do dia', 'text'],
+      ['ciclo', 'Ciclo', 'text'],
+      ['tipo', 'Tipo', 'text'],
+      ['gravidade', 'Gravidade', 'text'],
+      ['local', 'Local', 'text'],
+      ['trecho', 'Trecho (código)', 'text'],
+      ['horario', 'Horário', 'text'],
+      ['descricao', 'Descrição', 'text'],
+      ['excluido', 'Excluído', 'text'],
+      ['criadoEm', 'Criado em', 'datetime'],
+      ['atualizadoEm', 'Atualizado em', 'datetime']
+    ]
   }
 };
 
-var FORMATOS = { text: '@', number: '0.###', date: 'dd/mm/yyyy', datetime: 'dd/mm/yyyy hh:mm' };
+var FORMATOS = { lista: '@', text: '@', number: '0.###', date: 'dd/mm/yyyy', datetime: 'dd/mm/yyyy hh:mm' };
 var LIMITE_TEXTO = 5000;
 var STATUS_OM = ['Realizado', 'Não realizado'];
 
@@ -285,7 +327,8 @@ var ACOES = {
   getOMs: { escrita: false, fn: acaoGetOMs_ },
   importarOMs: { escrita: true, fn: acaoImportarOMs_ },
   getRecentes: { escrita: false, fn: acaoGetRecentes_ },
-  getChecklist: { escrita: false, fn: acaoGetChecklist_ }
+  getChecklist: { escrita: false, fn: acaoGetChecklist_ },
+  getRota: { escrita: false, fn: acaoGetRota_ }
 };
 
 function executar_(acao, dados) {
@@ -312,7 +355,9 @@ var GRAVADORES = {
   anomalia: gravarAnomalia_,
   execucao: gravarExecucao_,
   reprogramacao: gravarReprogramacao_,
-  historicoProgramacao: gravarHistoricoProgramacao_
+  historicoProgramacao: gravarHistoricoProgramacao_,
+  rotaDia: gravarRotaDia_,
+  rotaPonto: gravarRotaPonto_
 };
 
 function acaoSync_(dados) {
@@ -429,6 +474,53 @@ function gravarHistoricoProgramacao_(d, tabela) {
     tipo: d.dataNova ? 'Movida' : 'Retirada', dataAnterior: d.dataAnterior, dataNova: d.dataNova || '',
     registradoEm: d.registradoEm
   });
+}
+
+/** Dia da rota (programação e execução). Exclusão é lógica (coluna Excluído). */
+function gravarRotaDia_(d, tabela) {
+  exigir_(d, ['id', 'ciclo', 'atualizadoEm']);
+  if (d.data) validarData_(d.data, 'data do dia da rota');
+  var lista = function (v) { return Array.isArray(v) ? v.join(',') : String(v || ''); };
+  var obj = copiar_(d, ['id', 'ciclo', 'ordem', 'data', 'titulo', 'sentido', 'cor', 'resumo', 'observacao', 'garageamento',
+    'kmProgramado', 'kmExecutado', 'obsExecucao', 'criadoEm', 'atualizadoEm']);
+  obj.ciclo = String(d.ciclo);
+  obj.programados = lista(d.programados);
+  obj.executados = lista(d.executados);
+  obj.excluido = d.excluido ? 'Sim' : '';
+  tabela('Rota_Dias').upsert(obj);
+}
+
+function gravarRotaPonto_(d, tabela) {
+  exigir_(d, ['id', 'diaId', 'ciclo', 'atualizadoEm']);
+  var obj = copiar_(d, ['id', 'diaId', 'tipo', 'gravidade', 'local', 'trecho', 'horario', 'descricao', 'criadoEm', 'atualizadoEm']);
+  obj.ciclo = String(d.ciclo);
+  obj.excluido = d.excluido ? 'Sim' : '';
+  tabela('Rota_Pontos').upsert(obj);
+}
+
+/** Rota de um ciclo (ou a lista de ciclos com rota, se o ciclo não for informado). */
+function acaoGetRota_(dados) {
+  var ciclo = String(dados.ciclo || '').trim();
+  var dias = new Tabela_('Rota_Dias').todos();
+  if (!ciclo) {
+    var cont = {};
+    dias.forEach(function (x) { if (x.excluido !== 'Sim') cont[x.ciclo] = (cont[x.ciclo] || 0) + 1; });
+    return { ciclos: Object.keys(cont).map(function (c) { return { ciclo: c, dias: cont[c] }; }) };
+  }
+  var separar = function (v) { return String(v || '').split(',').filter(function (x) { return x; }); };
+  return {
+    ciclo: ciclo,
+    dias: dias.filter(function (x) { return x.ciclo === ciclo; }).map(function (x) {
+      x.programados = separar(x.programados);
+      x.executados = separar(x.executados);
+      x.excluido = x.excluido === 'Sim';
+      return x;
+    }),
+    pontos: new Tabela_('Rota_Pontos').todos().filter(function (x) { return x.ciclo === ciclo; }).map(function (x) {
+      x.excluido = x.excluido === 'Sim';
+      return x;
+    })
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -720,7 +812,8 @@ function gravarValor_(v, tipo) {
     return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)) : '';
   }
   var s = String(v);
-  if (s.length > LIMITE_TEXTO) s = s.slice(0, LIMITE_TEXTO);
+  var limite = tipo === 'lista' ? 45000 : LIMITE_TEXTO; // listas de trechos da rota podem ser longas
+  if (s.length > limite) s = s.slice(0, limite);
   // Evita que um texto iniciado por "=" seja interpretado como fórmula.
   return /^[=]/.test(s) ? "'" + s : s;
 }

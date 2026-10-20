@@ -18,6 +18,7 @@ App para uso em campo no Carro Controle EM80, com cinco módulos:
 | 3 | Produção de OMs | Fechado |
 | 4 | Dashboard (BigQuery + IA) | Fase futura |
 | 5 | Relatório de Anomalia (aba lateral) | Fechado |
+| 6 | Rota do carro controle | Em uso (v1) |
 
 ### Requisitos gerais
 - Funciona no **celular** e no **navegador do computador** (mesmo link, layout responsivo).
@@ -255,6 +256,22 @@ Gaveta lateral com puxador, acessível de qualquer tela. Ao salvar, grava o regi
 ```
 
 ---
+
+## 7b. Módulo 6 – Rota do carro controle
+
+Substitui a planilha "Rota para o ciclo" (abas de Lay Out e de cada dia), onde se desenha e estuda a rota, as interdições e os conflitos.
+
+- **Base:** a malha vem da **planta da linha** (a mesma da análise; importada uma vez em cada aparelho). Cada ramal (LT, FA, BH, TU, OB, AZ) vira uma sequência de **EH** e **RH** (pátios) em ordem de km, com as linhas (L1, L2, L3) que existem em cada trecho. Os pátios aparecem numerados, com o km, como no Lay Out da planilha.
+- **Rota por ciclo**, com os dias (1º dia, 2º dia…): data, sentido (Subindo/Descendo), título ("Subindo de TU a GV"), cor do dia.
+- **Programação:** no esquema, tocar nos trechos para incluir na rota do dia, em cada linha:
+  - "Trecho a trecho" (inclui/retira um trecho) e "De… até…" (todos os trechos entre dois pontos na mesma linha);
+  - "Ponto de atenção": interdições, serviços e informações (tipo, gravidade Interdição/Atenção/Informação com cor, trecho, horário e descrição), como as etiquetas vermelhas e roxas e os comentários da planilha;
+  - observação da circulação (o quadro verde da planilha) e garageamento no fim do dia;
+  - copiar a rota de outro dia; km programado e resumo ("LT: RH-6 → RH-24").
+- **Execução:** marcar por onde o carro realmente passou (tracejado = programado, verde = percorrido), "Marcar todo o programado", observação da execução; indicadores de aderência, km percorrido, km que faltou e km fora da programação.
+- **Visão geral:** todos os dias sobre o esquema, cada um com sua cor (como a aba "Lay Out LT"), com a tabela dos dias.
+- **PDF** (paisagem, A4) para enviar às equipes: visão geral e uma página por dia, com a faixa de título, o esquema, a observação da circulação, a tabela de pontos de atenção e o garageamento. Na execução, o PDF mostra programado × percorrido e a aderência.
+- Planilha: abas **Rota_Dias** e **Rota_Pontos** (criadas sozinhas). Funciona sem internet.
 
 ## 8. Identidade visual
 

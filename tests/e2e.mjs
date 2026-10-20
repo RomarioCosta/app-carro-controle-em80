@@ -373,7 +373,7 @@ async function main() {
     });
 
     await passo('produção: status SAP visível e apropriação das realizadas', async () => {
-      assert.ok((await page.locator('.lista-om .om').first().textContent()).includes('SAP LIB · VPTS AGDO'));
+      assert.ok((await page.locator('.lista-om .om').first().textContent()).includes('LIB: Autorizada p/ execução'));
       const aba = page.getByRole('button', { name: /^A apropriar \(\d+\)$/ });
       const n0 = Number((await aba.textContent()).match(/\((\d+)\)/)[1]);
       assert.ok(n0 > 0);
@@ -522,6 +522,69 @@ async function main() {
       await page.getByRole('tab', { name: 'Análise do arquivo' }).waitFor();
       await page.getByText('TESTE.csv').waitFor();
       await page.getByRole('tab', { name: 'Checklist' }).click();
+    });
+
+    await passo('rota: programação dia a dia, ponto de atenção, execução e PDF', async () => {
+      await page.getByRole('navigation').getByRole('button', { name: 'Rota' }).click();
+      await page.getByRole('heading', { name: 'Rota do carro controle' }).waitFor();
+      // a planta já foi importada na análise (mesmo aparelho): o esquema usa a malha dela
+      await page.locator('.vazio-grande').getByRole('button', { name: 'Nova rota' }).click();
+      await page.locator('.modal input').fill('3');
+      await page.locator('.modal').getByRole('button', { name: 'Criar' }).click();
+      await page.locator('.esquema').first().waitFor();
+      const alvos = await page.locator('.esq-alvo').evaluateAll((els) => els.map((e) => e.dataset.trecho));
+      assert.deepEqual(alvos, ['TST:EH:10@1', 'TST:RH:10>11@1', 'TST:EH:11@1']);
+      assert.ok((await page.locator('.esq-num').allTextContents()).includes('11')); // pátio RH-11
+      // de… até…: inclui os 3 trechos
+      await page.getByRole('button', { name: 'De… até…' }).click();
+      await page.locator('.esq-alvo[data-trecho="TST:EH:10@1"]').click();
+      await page.locator('.esq-alvo[data-trecho="TST:EH:11@1"]').click();
+      await page.getByText('3 trecho(s) incluído(s) na rota.').waitFor();
+      assert.equal(await page.locator('.esq-camada').count(), 3);
+      // trecho a trecho: retira o pátio
+      await page.getByRole('button', { name: 'Trecho a trecho' }).click();
+      await page.locator('.esq-alvo[data-trecho="TST:RH:10>11@1"]').click();
+      await aguardar(async () => (await page.locator('.esq-camada').count()) === 2, 'retirar trecho');
+      // ponto de atenção pelo esquema
+      await page.getByRole('button', { name: 'Ponto de atenção' }).click();
+      await page.locator('.esq-alvo[data-trecho="TST:EH:11@1"]').click();
+      await page.locator('.modal input[list="tipos-ponto"]').fill('Subst. TR');
+      await page.locator('.modal input[placeholder^="Ex.: 08:30"]').fill('08:30 a 13:00');
+      await page.locator('.modal textarea').fill('TR2 - substituição de trilho');
+      await page.locator('.modal').getByRole('button', { name: 'Salvar' }).click();
+      await page.getByText('Ponto de atenção salvo.').waitFor();
+      await page.locator('.esq-ponto').first().waitFor();
+      await page.locator('textarea[placeholder^="Ex.: Circulação"]').fill('Circulação de teste');
+      await page.locator('input[placeholder^="Ex.: EH-30/31"]').fill('EH-30/31 L02');
+      await page.locator('input[placeholder^="Ex.: EH-30/31"]').press('Tab');
+      await page.screenshot({ path: `${SAIDA}17-rota-programacao.png`, fullPage: true });
+      await aguardar(async () => {
+        const x = await planilha();
+        return x.Rota_Dias && x.Rota_Dias.length === 1 && x.Rota_Dias[0]['Trechos programados'] === 'TST:EH:10@1,TST:EH:11@1'
+          && x.Rota_Dias[0]['Garageamento'] === 'EH-30/31 L02' && x.Rota_Pontos && x.Rota_Pontos[0]['Tipo'] === 'Subst. TR';
+      }, 'rota na planilha');
+      // execução: marca o percorrido e mede a aderência
+      await page.locator('.seg-modo').getByRole('button', { name: 'Execução' }).click();
+      await page.locator('.esq-alvo[data-trecho="TST:EH:10@1"]').click();
+      await aguardar(async () => (await page.locator('section[aria-label="Rota"] .kpi').first().locator('.kpi-valor').textContent()) !== '0%', 'aderência');
+      const ader = await page.locator('section[aria-label="Rota"] .kpi').first().locator('.kpi-valor').textContent();
+      assert.ok(/^\d+%$/.test(ader) && ader !== '100%', ader);
+      await page.getByRole('button', { name: 'Marcar todo o programado' }).click();
+      await aguardar(async () => (await page.locator('section[aria-label="Rota"] .kpi').first().locator('.kpi-valor').textContent()) === '100%', 'aderência 100%');
+      await aguardar(async () => { const x = await planilha(); return x.Rota_Dias[0]['Trechos executados'] === 'TST:EH:10@1,TST:EH:11@1'; }, 'execução na planilha');
+      // PDF (impressão simulada): uma página por dia + visão geral
+      await page.evaluate(() => { window.__impressoes = 0; window.print = () => { window.__impressoes++; }; });
+      await page.getByRole('button', { name: 'PDF da execução' }).click();
+      await page.locator('.modal').getByLabel(/Visão geral/).check();
+      await page.locator('.modal').getByRole('button', { name: 'Gerar PDF' }).click();
+      await page.waitForFunction(() => window.__impressoes === 1);
+      assert.equal(await page.locator('#laudo .rota-pagina').count(), 2);
+      assert.ok((await page.locator('#laudo').textContent()).includes('ROTA PARA O 1º DIA DE INSPEÇÃO'));
+      await page.emulateMedia({ media: 'print' });
+      await page.pdf({ path: `${SAIDA}18-rota.pdf`, printBackground: true, preferCSSPageSize: true });
+      await page.emulateMedia({ media: 'screen' });
+      await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+      await page.locator('.seg-modo').getByRole('button', { name: 'Programação' }).click();
     });
 
     await ctx.close();
