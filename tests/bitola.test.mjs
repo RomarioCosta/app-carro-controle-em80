@@ -218,3 +218,33 @@ test('conferência do ramal pelas curvas (ramais com o mesmo km)', () => {
   assert.equal(B.ramalDaPlanta('RTU', { TU: ['1'], LT: ['1'] }), 'TU');
   assert.equal(B.ramalDaPlanta('RLT', { TU: ['1'], LT: ['1'] }), 'LT');
 });
+
+test('só curvatura com os locais da planta: tipos e limites medidos, EH/RH e nome da planta', () => {
+  const a = B.lerCSV(gerarCSV());
+  const els = B.elementosDaPlanta(B.lerPlanta(plantaSintetica()), 'TST', '1');
+  const pura = B.analisar(a);
+  const r = B.analisar(a, { modo: 'curvatura', elementosPlanta: els, ajusteKm: 30 });
+  assert.equal(r.comLocais, true);
+  // mesmos elementos (limites) da curvatura pura
+  assert.deepEqual(j(r.elementos.map((e) => [e.i0, e.i1])), j(pura.elementos.map((e) => [e.i0, e.i1])));
+  assert.deepEqual(j(r.elementos.map((e) => e.tipo)), ['T', 'C', 'T', 'C']);
+  // nomes e locais pela planta
+  assert.deepEqual(j(r.elementos.map((e) => e.sigla)), ['T02', 'C01', 'T01', 'C01']);
+  assert.deepEqual(j(r.elementos.map((e) => e.eh)), ['EH 11/12', 'EH 11/12', 'EH 11/12', 'EH 10/11']);
+  assert.ok(r.elementos[3].trecho.startsWith('RH-11'), r.elementos[3].trecho);
+  assert.equal(r.elementos[1].planta.sigla, 'C01');
+  // o pátio (30 m) fica fora da estatística, ponto a ponto
+  assert.ok(Math.abs(r.geral.extensaoRh - 30) <= 1);
+  assert.equal(r.geral.perdas, 200);
+  assert.ok(r.geral.pontos < pura.geral.pontos);
+});
+
+test('curva medida onde a planta tem tangente fica marcada como não cadastrada', () => {
+  const a = B.lerCSV(gerarCSV());
+  const els = [{ ramal: 'TST', linha: '1', eh: '10', tipo: 'T', num: '1', ini: 1000, fim: 3000 }];
+  const r = B.analisar(a, { modo: 'curvatura', elementosPlanta: els, ajusteKm: 0 });
+  const curva = r.elementos.find((e) => e.tipo === 'C');
+  assert.equal(curva.sigla.startsWith('C*'), true);
+  assert.equal(curva.planta.divergente, true);
+  assert.equal(curva.planta.sigla, 'T01');
+});

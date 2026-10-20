@@ -590,22 +590,16 @@
   };
 
   /**
-   * Curvatura + planta: os limites de cada elemento vêm da curvatura medida (o que o carro realmente viu)
-   * e o nome vem da planta (Curva 01, Tangente 02 do EH x/y). Trechos fora da planta viram RH (pátio).
+   * Localização de cada ponto do arquivo na planta (com a correção de km):
+   * elemento da planta (ou null) e se está num pátio (RH = trecho sem elemento com ≥ minRh metros).
    */
-  B.segmentarHibrido = (pos, curv, els, ajuste = 0, opcoes = {}) => {
+  B.localizar = (pos, els, ajuste = 0, opcoes = {}) => {
     const o = { ...B.PADRAO, ...opcoes };
     const n = pos.length;
-    if (!n) return [];
     const esp = B.espacamento(pos) || 0.25;
-    const nomes = B.nomesTrechos(els);
-    const linhaPlanta = els.length ? els[0].linha : '';
-    const medidos = B.segmentar(pos, curv, o);
+    const minRh = Math.max(o.comprimentoMin, 25); // pátios reais têm ~260 m; buracos menores são falha da planta
     const ref = new Array(n);
     for (let i = 0; i < n; i++) ref[i] = naPlanta(els, pos[i] + ajuste);
-    const minRh = Math.max(o.comprimentoMin, 25); // pátios reais têm ~260 m; buracos menores são falha da planta
-
-    // 1) Pátios: trechos contínuos fora da planta com pelo menos o comprimento mínimo (no arquivo todo).
     const noPatio = new Uint8Array(n);
     for (let i = 0; i < n;) {
       if (ref[i]) { i++; continue; }
@@ -614,74 +608,116 @@
       if (abs(pos[k] - pos[i]) + esp >= minRh) noPatio.fill(1, i, k + 1);
       i = k + 1;
     }
-    // Cada trecho medido é dividido onde entra/sai de um pátio.
+    return { ref, noPatio, nomes: B.nomesTrechos(els), ajuste, esp, linha: els.length ? els[0].linha : '' };
+  };
+
+  /**
+   * Dá nome e local a trechos medidos pela curvatura, sem mudar o tipo nem os limites:
+   * - local: EH x/y (ou RH) onde o trecho está;
+   * - nome: o elemento da planta do mesmo tipo que mais se sobrepõe (ex.: Curva 12 do EH 49/50);
+   *   se a planta não tem elemento do mesmo tipo ali, o trecho fica "não cadastrado" (divergente).
+   */
+  function rotularMedidos(pedacos, pos, loc) {
+    const { ref, noPatio, nomes, ajuste, esp } = loc;
+    const saida = pedacos.map((p) => {
+      const base = { i0: p.i0, i1: p.i1, ini: pos[p.i0], fim: pos[p.i1], extensao: abs(pos[p.i1] - pos[p.i0]) + esp, linha: loc.linha, tipoMedido: p.tipo };
+      let patio = 0; const cont = new Map();
+      for (let i = p.i0; i <= p.i1; i++) {
+        if (noPatio[i]) patio++;
+        else if (ref[i]) cont.set(ref[i], (cont.get(ref[i]) || 0) + 1);
+      }
+      const total = p.i1 - p.i0 + 1;
+      // Locais atravessados, na ordem do arquivo (EH e RH).
+      const locais = [];
+      for (let i = p.i0; i <= p.i1; i += Math.max(1, Math.round(5 / esp))) {
+        const nome = noPatio[i] ? nomes.rh(pos[i] + ajuste) : ref[i] ? nomes.eh(ref[i].eh) : '';
+        if (nome && locais[locais.length - 1] !== nome) locais.push(nome);
+      }
+      if (p.fora || patio > total / 2) {
+        const rh = nomes.rh((pos[p.i0] + pos[p.i1]) / 2 + ajuste);
+        return { ...base, tipo: p.fora ? 'X' : p.tipo, rh: true, eh: rh, trecho: locais.join(' · ') || rh, sigla: p.fora ? 'RH' : `RH·${p.tipo}`, nome: p.fora ? `${rh} (pátio)` : `${rh} · ${p.tipo === 'C' ? 'Curva' : 'Tangente'} no pátio`, lado: '', raioPlanta: null, planta: null };
+      }
+      let mesmo = null; let maiorMesmo = 0; let qualquer = null; let maior = 0;
+      cont.forEach((q, e) => {
+        if (q > maior) { maior = q; qualquer = e; }
+        if (e.tipo === p.tipo && q > maiorMesmo) { maiorMesmo = q; mesmo = e; }
+      });
+      const local = qualquer ? nomes.eh(qualquer.eh) : '';
+      const nomeTipo = p.tipo === 'C' ? 'Curva' : 'Tangente';
+      if (mesmo) {
+        const numero = mesmo.num ? String(mesmo.num).padStart(2, '0') : '';
+        const trechoEl = nomes.eh(mesmo.eh);
+        return {
+          ...base, tipo: p.tipo, eh: trechoEl, trecho: locais.join(' · ') || trechoEl,
+          sigla: `${p.tipo}${numero}`, nome: `${trechoEl} · ${nomeTipo} ${numero}`,
+          lado: mesmo.lado, raioPlanta: mesmo.raio || null, superelevacao: mesmo.superelevacao,
+          planta: { sigla: `${mesmo.tipo}${numero}`, ini: mesmo.ini, fim: mesmo.fim, divergente: false }
+        };
+      }
+      const outro = qualquer ? `${qualquer.tipo}${qualquer.num ? String(qualquer.num).padStart(2, '0') : ''}` : '';
+      return {
+        ...base, tipo: p.tipo, eh: local, trecho: locais.join(' · ') || local,
+        sigla: `${p.tipo}*`, nome: `${local ? `${local} · ` : ''}${nomeTipo} não cadastrada na planta${outro ? ` (planta: ${outro})` : ''}`,
+        lado: '', raioPlanta: null, planta: outro ? { sigla: outro, divergente: true } : null
+      };
+    });
+    // Mesmo nome repetido no mesmo EH (ex.: tangente da planta cortada por uma curva medida): a, b, c…
+    const vistos = new Map();
+    saida.forEach((e) => { const k = `${e.eh}|${e.sigla}`; vistos.set(k, (vistos.get(k) || 0) + 1); });
+    const usados = new Map();
+    saida.forEach((e) => {
+      const k = `${e.eh}|${e.sigla}`;
+      if (vistos.get(k) > 1 && e.sigla !== 'RH') {
+        const n = usados.get(k) || 0; usados.set(k, n + 1);
+        const suf = String.fromCharCode(97 + (n % 26));
+        e.sigla += suf; e.nome += suf;
+      }
+    });
+    return saida;
+  }
+
+  /**
+   * Curvatura com os locais da planta: curva e tangente são definidas SÓ pela curvatura medida (raio),
+   * e cada trecho recebe o local (EH x/y ou RH) e o nome do elemento da planta correspondente.
+   * Com "separarPatios", o trecho é cortado onde entra/sai de um pátio, e a parte no pátio vira RH.
+   */
+  B.segmentarComLocais = (pos, curv, loc, opcoes = {}, { separarPatios = true } = {}) => {
+    const o = { ...B.PADRAO, ...opcoes };
+    const medidos = B.segmentar(pos, curv, o);
+    if (!separarPatios) return rotularMedidos(medidos.map((m) => ({ tipo: m.tipo, i0: m.i0, i1: m.i1, fora: false })), pos, loc);
+    const { noPatio, esp } = loc;
     let pedacos = [];
     medidos.forEach((m) => {
       let ini = m.i0;
       for (let i = m.i0 + 1; i <= m.i1 + 1; i++) {
         if (i <= m.i1 && noPatio[i] === noPatio[ini]) continue;
-        pedacos.push({ medido: m.tipo, i0: ini, i1: i - 1, fora: !!noPatio[ini] });
+        pedacos.push({ tipo: m.tipo, seg: m, i0: ini, i1: i - 1, fora: !!noPatio[ini] });
         ini = i;
       }
     });
-    // Pátio cortado por uma mudança de curvatura vira um pedaço só.
+    // Pátio cortado por mudança de curvatura vira um pedaço só.
     pedacos = pedacos.reduce((acc, p) => {
       const u = acc[acc.length - 1];
       if (u && u.fora && p.fora) u.i1 = p.i1; else acc.push({ ...p });
       return acc;
     }, []);
+    // Sobras curtas ao lado de um pátio voltam para o trecho medido de onde vieram (ou para o pátio).
     const ext = (p) => abs(pos[p.i1] - pos[p.i0]) + esp;
-    // Pedaços curtos dentro da planta (sobras ao lado de um pátio) são unidos ao vizinho da planta.
     for (let k = 0; k < pedacos.length; k++) {
       const p = pedacos[k];
-      if (pedacos.length > 1 && !p.fora && ext(p) < o.comprimentoMin) {
+      if (pedacos.length > 1 && !p.fora && ext(p) < o.comprimentoMin && p.seg && ext(p) < ext(p.seg)) {
         const ant = pedacos[k - 1]; const prox = pedacos[k + 1];
-        const alvo = (ant && !ant.fora) ? ant : (prox && !prox.fora) ? prox : (ant || prox);
+        const alvo = (ant && ant.seg === p.seg && !ant.fora) ? ant : (prox && prox.seg === p.seg && !prox.fora) ? prox : (ant || prox);
         alvo.i0 = Math.min(alvo.i0, p.i0); alvo.i1 = Math.max(alvo.i1, p.i1);
         pedacos.splice(k, 1);
         k = Math.max(-1, k - 2);
       }
     }
-
-    // 2) Nome pela planta: o elemento da planta com mais pontos no pedaço.
-    const rotulo = (p) => {
-      if (p.fora) {
-        const rh = nomes.rh((pos[p.i0] + pos[p.i1]) / 2 + ajuste);
-        return { chave: `RH|${rh}`, tipo: 'X', eh: rh, trecho: rh, sigla: 'RH', nome: `${rh} (pátio)`, lado: '', raioPlanta: null };
-      }
-      const cont = new Map();
-      for (let i = p.i0; i <= p.i1; i++) if (ref[i]) cont.set(ref[i], (cont.get(ref[i]) || 0) + 1);
-      let el = null; let maior = 0;
-      // prefere elemento do mesmo tipo do medido (curva medida → curva da planta)
-      cont.forEach((q, e) => { const peso = q * (e.tipo === p.medido ? 1.5 : 1); if (peso > maior) { maior = peso; el = e; } });
-      const numero = el.num ? String(el.num).padStart(2, '0') : '';
-      const trecho = nomes.eh(el.eh);
-      return {
-        chave: `EL|${el.ini}|${el.fim}`,
-        tipo: el.tipo,
-        eh: trecho,
-        trecho,
-        sigla: `${el.tipo}${numero}`,
-        nome: `${trecho} · ${el.tipo === 'C' ? 'Curva' : 'Tangente'} ${numero}`,
-        lado: el.lado,
-        raioPlanta: el.raio || null,
-        superelevacao: el.superelevacao,
-        planta: { ini: el.ini, fim: el.fim },
-        tipoMedido: p.medido
-      };
-    };
-
-    // 3) Junta pedaços vizinhos com o mesmo elemento da planta.
-    const saida = [];
-    pedacos.forEach((p) => {
-      const r = rotulo(p);
-      const u = saida[saida.length - 1];
-      if (u && u.chave === r.chave) { u.i1 = p.i1; return; }
-      saida.push({ ...r, i0: p.i0, i1: p.i1 });
-    });
-    return saida.map(({ chave, ...e }) => ({ ...e, ini: pos[e.i0], fim: pos[e.i1], extensao: abs(pos[e.i1] - pos[e.i0]) + esp, linha: linhaPlanta }));
+    return rotularMedidos(pedacos, pos, loc);
   };
 
+  // Compatibilidade com a versão anterior.
+  B.segmentarHibrido = (pos, curv, els, ajuste = 0, opcoes = {}) => B.segmentarComLocais(pos, curv, B.localizar(pos, els, ajuste, opcoes), opcoes);
 
   /**
    * Nome dos trechos da ferrovia a partir da planta.
@@ -774,21 +810,34 @@
 
     const temPlanta = !!(o.elementosPlanta && o.elementosPlanta.length);
     const modo = temPlanta && (o.modo === 'planta' || o.modo === 'hibrido') ? o.modo : 'curvatura';
-    const usarPlanta = modo !== 'curvatura';
+    const usarPlanta = temPlanta; // com planta, todos os modos mostram EH/RH
+    const loc = temPlanta ? B.localizar(pos, o.elementosPlanta, o.ajusteKm || 0, o) : null;
     let brutos;
     if (modo === 'planta') brutos = B.segmentarPorPlanta(pos, o.elementosPlanta, o.ajusteKm || 0);
-    else if (modo === 'hibrido') brutos = B.segmentarHibrido(pos, dados.curv, o.elementosPlanta, o.ajusteKm || 0, o);
+    else if (modo === 'hibrido') brutos = B.segmentarComLocais(pos, dados.curv, loc, o);
+    else if (loc) brutos = B.segmentarComLocais(pos, dados.curv, loc, o, { separarPatios: false });
     else brutos = B.segmentar(pos, dados.curv, o);
     const elementos = brutos.map((e) => ({ ...e, ...resumoTrecho(dados, e.i0, e.i1, o, extras) }));
-    // Pátios (RH) ficam fora das estatísticas gerais (perda de bitola, OGMS × KLD, variação).
+    // Pátios (RH) ficam fora das estatísticas gerais (perda de bitola, OGMS × KLD, variação), ponto a ponto.
     const mascara = new Uint8Array(pos.length).fill(1);
+    if (loc) loc.noPatio.forEach((v, i) => { if (v) mascara[i] = 0; });
     elementos.forEach((e) => { if (e.tipo === 'X') mascara.fill(0, e.i0, e.i1 + 1); });
     const geral = resumoTrecho(dados, 0, pos.length - 1, o, { ...extras, mascara });
-    const extensaoRh = elementos.filter((e) => e.tipo === 'X').reduce((s2, e) => s2 + e.extensao, 0);
+    let foraRh = 0; mascara.forEach((v) => { if (!v) foraRh++; });
+    const extensaoRh = foraRh * esp;
 
+    // Para os totais, cada elemento conta só os pontos fora dos pátios.
+    elementos.forEach((e) => {
+      const r = resumoTrecho(dados, e.i0, e.i1, o, { ...extras, mascara });
+      e.pontosEst = r.pontos; e.perdasEst = r.perdas;
+      // Elemento que passa por um pátio: a % de perda dele também desconsidera a parte no RH.
+      if (e.tipo !== 'X' && !e.rh && r.pontos < e.pontos) {
+        e.pontos = r.pontos; e.perdas = r.perdas; e.pctPerda = r.pctPerda; e.parteRh = true;
+      }
+    });
     const somar = (els) => {
-      const pontos = els.reduce((s, e) => s + e.pontos, 0);
-      const perdas = els.reduce((s, e) => s + e.perdas, 0);
+      const pontos = els.reduce((s, e) => s + e.pontosEst, 0);
+      const perdas = els.reduce((s, e) => s + e.perdasEst, 0);
       return { quantidade: els.length, extensao: els.reduce((s, e) => s + e.extensao, 0), pontos, perdas, pctPerda: pontos ? (perdas / pontos) * 100 : null };
     };
 
@@ -797,12 +846,16 @@
     if (usarPlanta) {
       elementos.forEach((e) => {
         let g = porEh.find((x) => x.eh === e.eh);
-        if (!g) { g = { eh: e.eh, rh: e.tipo === 'X', linha: e.linha, els: [] }; porEh.push(g); }
+        if (!g) { g = { eh: e.eh, rh: e.tipo === 'X' || !!e.rh, linha: e.linha, els: [] }; porEh.push(g); }
         g.els.push(e);
       });
       porEh.forEach((g) => {
         const r = resumoTrecho(dados, Math.min(...g.els.map((e) => e.i0)), Math.max(...g.els.map((e) => e.i1)), o, extras);
-        Object.assign(g, somar(g.els), { pctVariacao: r.pctVariacao, ini: g.els[0].ini, fim: g.els[g.els.length - 1].fim, curvas: g.els.filter((e) => e.tipo === 'C').length, tangentes: g.els.filter((e) => e.tipo === 'T').length });
+        // No RH (pátio) o resumo mostra os números do próprio pátio; nos EH, só os pontos fora dos pátios.
+        const tot = g.rh
+          ? (() => { const pts = g.els.reduce((x, e) => x + e.pontos, 0); const pr = g.els.reduce((x, e) => x + e.perdas, 0); return { quantidade: g.els.length, extensao: g.els.reduce((x, e) => x + e.extensao, 0), pontos: pts, perdas: pr, pctPerda: pts ? (pr / pts) * 100 : null }; })()
+          : somar(g.els);
+        Object.assign(g, tot, { pctVariacao: r.pctVariacao, ini: g.els[0].ini, fim: g.els[g.els.length - 1].fim, curvas: g.els.filter((e) => e.tipo === 'C').length, tangentes: g.els.filter((e) => e.tipo === 'T').length });
         // Elemento com a maior perda de bitola no trecho (na RH, o próprio pátio).
         const pior = g.els.reduce((m, e) => ((e.pctPerda ?? -1) > (m ? m.pctPerda ?? -1 : -2) ? e : m), null);
         g.pior = pior ? { sigla: pior.sigla, tipo: pior.tipo, nome: pior.nome, pctPerda: pior.pctPerda, ini: pior.ini, fim: pior.fim } : null;
@@ -813,6 +866,7 @@
     return {
       opcoes: o,
       modo,
+      comLocais: !!loc,
       mascara,
       dados,
       elementos,
