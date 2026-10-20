@@ -269,6 +269,8 @@ Substitui a planilha "Rota para o ciclo" (abas de Lay Out e de cada dia), onde s
   - observação da circulação (o quadro verde da planilha) e garageamento no fim do dia;
   - copiar a rota de outro dia; km programado e resumo ("LT: RH-6 → RH-24").
 - **Execução:** marcar por onde o carro realmente passou (tracejado = programado, verde = percorrido), "Marcar todo o programado", observação da execução; indicadores de aderência, km percorrido, km que faltou e km fora da programação.
+- **Desenho (Linha Tronco):** como o Lay Out da planilha: trilhos com contorno, cada pátio com a caixa do km e o número, desvios acima e abaixo e o **travessão** entre as linhas. Quando a rota chega ao pátio por uma linha e sai por outra, o desenho mostra a troca de linha pelo travessão; se entra e sai pela mesma linha, a passagem pelo pátio é contínua.
+- **Futuro:** ligar a rota à Produção (ex.: rota do RH-03 ao RH-12 na L1 → programar as OMs desse trecho para o dia); aperfeiçoar o desenho dos ramais.
 - **Visão geral:** todos os dias sobre o esquema, cada um com sua cor (como a aba "Lay Out LT"), com a tabela dos dias.
 - **PDF** (paisagem, A4) para enviar às equipes: visão geral e uma página por dia, com a faixa de título, o esquema, a observação da circulação, a tabela de pontos de atenção e o garageamento. Na execução, o PDF mostra programado × percorrido e a aderência.
 - Planilha: abas **Rota_Dias** e **Rota_Pontos** (criadas sozinhas). Funciona sem internet.

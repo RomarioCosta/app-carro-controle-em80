@@ -544,7 +544,9 @@ async function main() {
       // trecho a trecho: retira o pátio
       await page.getByRole('button', { name: 'Trecho a trecho' }).click();
       await page.locator('.esq-alvo[data-trecho="TST:RH:10>11@1"]').click();
-      await aguardar(async () => (await page.locator('.esq-camada').count()) === 2, 'retirar trecho');
+      // o carro continua passando pelo pátio (entre dois EH da rota na mesma linha): o desenho segue contínuo
+      await page.getByText(/km programados/).waitFor();
+      assert.equal(await page.locator('.esq-camada').count(), 3);
       // ponto de atenção pelo esquema
       await page.getByRole('button', { name: 'Ponto de atenção' }).click();
       await page.locator('.esq-alvo[data-trecho="TST:EH:11@1"]').click();

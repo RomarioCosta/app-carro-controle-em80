@@ -611,26 +611,29 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .seg-badge { font-size: .7rem; font-weight: 750; padding: 0 6px; border-radius: 999px; background: var(--acento); color: #1b1b1b; }
 .esquema-caixa { overflow-x: auto; margin: 8px 0; border: 1px solid var(--grade); border-radius: 10px; background: var(--sup); padding: 4px; }
 .esquema { display: block; font-family: inherit; }
-.esq-trilho { stroke: var(--texto3); stroke-width: 2; opacity: .55; }
-.esq-trilho-rh { opacity: .8; }
-.esq-patio { fill: var(--sup2); stroke: var(--texto2); stroke-width: 1; }
-.esq-num { font-size: 11px; font-weight: 800; fill: var(--texto); }
-.esq-km { font-size: 7.5px; fill: var(--texto3); }
+.esq-trilho-borda { fill: none; stroke: var(--texto); stroke-width: 5; stroke-linejoin: miter; opacity: .8; }
+.esq-trilho-miolo { fill: none; stroke: var(--sup); stroke-width: 2.6; stroke-linejoin: miter; }
+.esq-trilho-borda.fino { stroke-width: 4; }
+.esq-trilho-miolo.fino { stroke-width: 1.8; }
+.esq-km-caixa { fill: var(--sup); stroke: var(--texto2); stroke-width: .8; }
+.esq-num { font-size: 12px; font-weight: 800; fill: var(--texto); }
+.esq-km { font-size: 7.5px; font-weight: 600; fill: var(--texto2); }
 .esq-rot-linha { font-size: 8.5px; font-weight: 700; fill: var(--texto3); }
-.esq-camada { stroke-width: 5; stroke-linecap: butt; }
+.esq-camada { fill: none; stroke-width: 6; stroke-linecap: butt; stroke-linejoin: round; }
 .esq-tracejado { stroke-width: 6; stroke-dasharray: 5 3; opacity: .55; }
 .esq-fino { stroke-width: 2.4; }
 .esq-inicio { fill: none; stroke: var(--acento-forte); stroke-width: 3; }
 .esq-alvo { fill: transparent; cursor: pointer; }
 .esq-alvo:hover { fill: color-mix(in srgb, var(--serie-real) 16%, transparent); }
 .esq-ponto { cursor: pointer; }
-.esq-ponto-txt { font-size: 7.5px; font-weight: 700; fill: #fff; }
+.esq-ponto-txt { font-size: 7.5px; font-weight: 800; fill: #fff; }
+.esq-ponto-caixa { stroke: #1b1b1b; stroke-width: .6; }
 .resumo-rota { margin: 4px 0 8px; }
 .legenda-rota { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: .78rem; color: var(--texto2); }
 .leg-traco { display: inline-block; width: 22px; height: 5px; border-radius: 2px; }
 .leg-traco.tracejado { height: 0; border-top: 5px dashed var(--texto3); background: transparent !important; }
 .leg-caixa { display: inline-block; width: 14px; height: 10px; border-radius: 2px; }
-.leg-patio { display: inline-block; width: 12px; height: 14px; border: 1px solid var(--texto2); border-radius: 3px; background: var(--sup2); }
+.leg-patio { display: inline-block; width: 26px; height: 5px; border: 1.5px solid var(--texto); background: var(--sup); position: relative; }
 .lista-pontos { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .ponto-item {
   --cor-ponto: #d62828;
@@ -658,8 +661,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .rota-bloco .esquema { width: 100%; height: auto; }
 .rota-pdf .esquema-caixa { border: 0; }
 .rota-obs { margin: 6px auto; padding: 6px 10px; background: #b8e6b0; border: 1px solid #1b1b1b; font-weight: 700; font-size: 13px; text-align: center; max-width: 820px; }
+.rota-sentido { display: inline-block; margin-right: 10px; padding: 2px 10px; background: #fff200; border: 1px solid #1b1b1b; font-weight: 800; font-size: 10.5px; clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 50%, calc(100% - 9px) 100%, 0 100%); padding-right: 16px; }
+.rota-sentido.descendo { clip-path: polygon(9px 0, 100% 0, 100% 100%, 9px 100%, 0 50%); padding-left: 16px; padding-right: 10px; }
 .rota-garagem { font-size: 11px; margin-top: 6px !important; }
 .rota-pdf .legenda-rota { font-size: 10px; color: #33434e; }
-.rota-pdf .esq-trilho { stroke: #1b2329; opacity: .7; }
-.rota-pdf .esq-patio { fill: #fff; stroke: #1b2329; }
+.rota-pdf .esq-trilho-borda { stroke: #1b2329; opacity: 1; }
+.rota-pdf .esq-trilho-miolo { stroke: #fff; }
+.rota-pdf .esq-km-caixa { fill: #fff; stroke: #4f5d67; }
 .rota-pdf .esq-num { fill: #1b2329; }
