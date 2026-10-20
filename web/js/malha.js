@@ -125,9 +125,22 @@
   /** Trecho da rota: unidade + linha (ex.: "LT:EH:49@1"). */
   M.trecho = (idUnidade, linha) => `${idUnidade}@${linha}`;
   M.separar = (trecho) => {
-    const i = String(trecho).lastIndexOf('@');
-    return i < 0 ? { id: trecho, linha: '' } : { id: trecho.slice(0, i), linha: trecho.slice(i + 1) };
+    const t = String(trecho);
+    const i = t.lastIndexOf('@');
+    const base = i < 0 ? t : t.slice(0, i);
+    const linha = i < 0 ? '' : t.slice(i + 1);
+    const m = /^(.*)#TV([ED])$/.exec(base);
+    return m ? { id: m[1], linha, tv: m[2] } : { id: base, linha, tv: '' };
   };
+
+  /**
+   * Travessão do pátio (troca de linha). Em cada RH há dois, entre cada par de linhas vizinhas:
+   *  E (esquerda, "/"): liga a linha de baixo, à esquerda, à de cima, à direita;
+   *  D (direita, "\\"): liga a linha de cima, à esquerda, à de baixo, à direita.
+   * Código: "LT:RH:37>38#TVE@1-2". Não tem extensão (km) nem OM.
+   */
+  M.travessao = (idUnidade, lado, linhaCima, linhaBaixo) => `${idUnidade}#TV${lado}@${linhaCima}-${linhaBaixo}`;
+  M.ehTravessao = (trecho) => !!M.separar(trecho).tv;
 
   /** Trechos de uma unidade até outra (inclusive), numa linha, na ordem do ramal. */
   M.intervalo = (malha, idDe, idAte, linha) => {
@@ -142,15 +155,20 @@
 
   /** Extensão (m) de uma lista de trechos. Trechos que não existem na malha são ignorados. */
   M.extensao = (malha, trechos) => trechos.reduce((s, t) => {
+    if (M.ehTravessao(t)) return s; // travessão: só a troca de linha
     const x = malha.indice.get(M.separar(t).id);
     return s + (x ? Math.max(0, x.unidade.fim - x.unidade.ini) : 0);
   }, 0);
 
   /** Descrição curta de um trecho: "LT · EH 49/50 · L1". */
   M.descrever = (malha, trecho) => {
-    const { id, linha } = M.separar(trecho);
+    const { id, linha, tv } = M.separar(trecho);
     const x = malha.indice.get(id);
     if (!x) return trecho;
+    if (tv) {
+      const [a, b] = linha.split('-');
+      return `${x.ramal.ramal} · ${x.unidade.rotulo} · travessão L${tv === 'E' ? b : a}→L${tv === 'E' ? a : b}`;
+    }
     return `${x.ramal.ramal} · ${x.unidade.rotulo}${linha ? ` · L${linha}` : ''}`;
   };
 

@@ -54,6 +54,19 @@ test('intervalo, extensão, resumo e descrição dos trechos', () => {
   assert.equal(M.resumo(m, t), 'LT: RH-49 → EH 50/51');
   assert.equal(M.descrever(m, M.trecho(rh50, '1')), 'LT · RH-50 · L1');
   assert.equal(M.descrever(m, M.trecho(eh49, '2')), 'LT · EH 49/50 · L2');
-  assert.deepEqual(j(M.separar('LT:EH:49@2')), { id: 'LT:EH:49', linha: '2' });
+  assert.deepEqual(j(M.separar('LT:EH:49@2')), { id: 'LT:EH:49', linha: '2', tv: '' });
   assert.equal(M.fmtKm(326935.4), '326+935');
+});
+
+test('travessão: código, descrição e sem extensão (troca de linha no pátio)', () => {
+  const m = M.montar(planta);
+  const rh = m.ramais[0].unidades[3]; // RH-50
+  const tv = M.travessao(rh.id, 'D', '1', '2');
+  assert.equal(tv, `${rh.id}#TVD@1-2`);
+  assert.deepEqual(j(M.separar(tv)), { id: rh.id, linha: '1-2', tv: 'D' });
+  assert.equal(M.ehTravessao(tv), true);
+  assert.equal(M.ehTravessao(M.trecho(rh.id, '1')), false);
+  assert.equal(M.descrever(m, tv), 'LT · RH-50 · travessão L1→L2');
+  assert.equal(M.descrever(m, M.travessao(rh.id, 'E', '1', '2')), 'LT · RH-50 · travessão L2→L1');
+  assert.equal(M.extensao(m, [tv, M.trecho(rh.id, '1')]), 300);
 });

@@ -414,7 +414,10 @@
     async function tocar(t, u, l) {
       if (ferramenta === 'ponto') return editarPonto(dia, null, t);
       const lista = new Set(dia.programados);
-      if (ferramenta === 'intervalo') {
+      if (M.ehTravessao(t)) {
+        // Travessão: marca/desmarca a troca de linha no pátio (em qualquer ferramenta).
+        if (lista.has(t)) lista.delete(t); else lista.add(t);
+      } else if (ferramenta === 'intervalo') {
         if (!inicioIntervalo) { inicioIntervalo = t; desenharEsquema(); ui.toast('Agora toque no trecho final (mesma linha).', 'info', 2500); return; }
         const ini = M.separar(inicioIntervalo);
         const trechos = M.intervalo(malha, ini.id, u.id, ini.linha);
@@ -437,8 +440,8 @@
         onclick: () => { ferramenta = id; inicioIntervalo = null; renderConteudo(); }
       }, rot)));
     const dicas = {
-      trecho: 'Toque num trecho (EH ou pátio, em cada linha) para incluir ou retirar da rota.',
-      intervalo: 'Toque no trecho inicial e depois no final: todos os trechos entre eles, na mesma linha, entram (ou saem) da rota.',
+      trecho: 'Toque num trecho (EH ou pátio, em cada linha) para incluir ou retirar da rota. Toque no travessão do pátio para mostrar a troca de linha.',
+      intervalo: 'Toque no trecho inicial e depois no final: todos os trechos entre eles, na mesma linha, entram (ou saem) da rota. Para trocar de linha, toque no travessão do pátio.',
       ponto: 'Toque no trecho onde fica a interdição, serviço ou ponto de atenção.'
     };
 
@@ -692,7 +695,7 @@
     return h('div', { class: 'legenda-rota' },
       execucao ? [item('transparent', 'Programado', 'tracejado'), item(COR_EXEC, 'Percorrido')] : null,
       Object.entries(GRAVIDADES).map(([g, c]) => h('span', { class: 'leg-item' }, h('span', { class: 'leg-caixa', style: { background: c } }), g)),
-      h('span', { class: 'leg-item' }, h('span', { class: 'leg-patio' }), 'Pátio (RH) com número e km'));
+      h('span', { class: 'leg-item' }, h('span', { class: 'leg-tv' }), 'Travessão: toque para marcar a troca de linha no pátio'));
   }
 
   /* ---------------- Visão geral ---------------- */

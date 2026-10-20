@@ -643,6 +643,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .esq-inicio { fill: none; stroke: var(--acento-forte); stroke-width: 3; }
 .esq-alvo { fill: transparent; cursor: pointer; }
 .esq-alvo:hover { fill: color-mix(in srgb, var(--serie-real) 16%, transparent); }
+.esq-alvo-tv { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+.esq-alvo-tv:hover { stroke: color-mix(in srgb, var(--serie-real) 22%, transparent); }
 .esq-ponto { cursor: pointer; }
 .esq-ponto-txt { font-size: 7.5px; font-weight: 800; fill: #fff; }
 .esq-ponto-caixa { stroke: #1b1b1b; stroke-width: .6; }
@@ -687,6 +689,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .rota-pdf .esq-trilho-miolo { stroke: #fff; }
 .rota-pdf .esq-km-caixa { fill: #fff; stroke: #4f5d67; }
 .rota-pdf .esq-num { fill: #1b2329; }
+.leg-tv { display: inline-block; width: 22px; height: 12px; background: linear-gradient(to top right, transparent 42%, var(--texto) 42%, var(--texto) 58%, transparent 58%); border-top: 1.5px solid var(--texto); border-bottom: 1.5px solid var(--texto); }
 
 </style>
 </head>
@@ -909,7 +912,7 @@ window.App = window.App || {};
     versao: '1.0.0',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-01793cd299', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-a4aa562648', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -3398,9 +3401,22 @@ window.App = window.App || {};
   /** Trecho da rota: unidade + linha (ex.: "LT:EH:49@1"). */
   M.trecho = (idUnidade, linha) => `${idUnidade}@${linha}`;
   M.separar = (trecho) => {
-    const i = String(trecho).lastIndexOf('@');
-    return i < 0 ? { id: trecho, linha: '' } : { id: trecho.slice(0, i), linha: trecho.slice(i + 1) };
+    const t = String(trecho);
+    const i = t.lastIndexOf('@');
+    const base = i < 0 ? t : t.slice(0, i);
+    const linha = i < 0 ? '' : t.slice(i + 1);
+    const m = /^(.*)#TV([ED])$/.exec(base);
+    return m ? { id: m[1], linha, tv: m[2] } : { id: base, linha, tv: '' };
   };
+
+  /**
+   * Travessão do pátio (troca de linha). Em cada RH há dois, entre cada par de linhas vizinhas:
+   *  E (esquerda, "/"): liga a linha de baixo, à esquerda, à de cima, à direita;
+   *  D (direita, "\\"): liga a linha de cima, à esquerda, à de baixo, à direita.
+   * Código: "LT:RH:37>38#TVE@1-2". Não tem extensão (km) nem OM.
+   */
+  M.travessao = (idUnidade, lado, linhaCima, linhaBaixo) => `${idUnidade}#TV${lado}@${linhaCima}-${linhaBaixo}`;
+  M.ehTravessao = (trecho) => !!M.separar(trecho).tv;
 
   /** Trechos de uma unidade até outra (inclusive), numa linha, na ordem do ramal. */
   M.intervalo = (malha, idDe, idAte, linha) => {
@@ -3415,15 +3431,20 @@ window.App = window.App || {};
 
   /** Extensão (m) de uma lista de trechos. Trechos que não existem na malha são ignorados. */
   M.extensao = (malha, trechos) => trechos.reduce((s, t) => {
+    if (M.ehTravessao(t)) return s; // travessão: só a troca de linha
     const x = malha.indice.get(M.separar(t).id);
     return s + (x ? Math.max(0, x.unidade.fim - x.unidade.ini) : 0);
   }, 0);
 
   /** Descrição curta de um trecho: "LT · EH 49/50 · L1". */
   M.descrever = (malha, trecho) => {
-    const { id, linha } = M.separar(trecho);
+    const { id, linha, tv } = M.separar(trecho);
     const x = malha.indice.get(id);
     if (!x) return trecho;
+    if (tv) {
+      const [a, b] = linha.split('-');
+      return `${x.ramal.ramal} · ${x.unidade.rotulo} · travessão L${tv === 'E' ? b : a}→L${tv === 'E' ? a : b}`;
+    }
     return `${x.ramal.ramal} · ${x.unidade.rotulo}${linha ? ` · L${linha}` : ''}`;
   };
 
@@ -3466,8 +3487,8 @@ window.App = window.App || {};
     return el;
   }
 
-  const LARG_EH = 84;
-  const LARG_RH = 60;
+  const LARG_EH = 80;
+  const LARG_RH = 80;
   const TOPO = 36; // caixa do km + número do pátio
   const BASE = 30; // desvio de baixo + etiquetas dos pontos de atenção
   const ESQ = 24;
@@ -3519,7 +3540,7 @@ window.App = window.App || {};
     const linhas = r.linhas;
     const largura = Math.max(300, Math.round(op.largura || 900));
     const posicoes = distribuir(r, largura, op.faixa);
-    const PASSO = largura < 600 ? 22 : 18; // no celular, linhas mais afastadas para acertar o toque
+    const PASSO = largura < 600 ? 28 : 24; // no celular, linhas mais afastadas para acertar o toque
     const kDe = (l) => linhas.indexOf(l);
 
     // Altura de cada fila conforme as linhas que existem nela (L3 só onde houver).
@@ -3567,16 +3588,16 @@ window.App = window.App || {};
       // Trilhos (base).
       ks.forEach((k) => gBase.append(...trilho(seg(ux, yLinha(f, k), ux + w, yLinha(f, k)))));
 
+      // Travessões do pátio (entre cada par de linhas vizinhas): E "/" e D "\".
+      const travessoes = [];
       if (u.tipo === 'RH') {
-        // Desvio de cima, desvio de baixo e travessões entre linhas vizinhas.
-        const a = ux + w * 0.14; const b = ux + w * 0.86; const d = 7;
-        gBase.append(...trilho(`M${a.toFixed(1)},${yTop} L${(a + 5).toFixed(1)},${yTop - d} L${(b - 5).toFixed(1)},${yTop - d} L${b.toFixed(1)},${yTop}`, 'fino'));
-        gBase.append(...trilho(`M${a.toFixed(1)},${yBot} L${(a + 5).toFixed(1)},${yBot + d} L${(b - 5).toFixed(1)},${yBot + d} L${b.toFixed(1)},${yBot}`, 'fino'));
         for (let n = 0; n < ks.length - 1; n++) {
-          const y1 = yLinha(f, ks[n]); const y2 = yLinha(f, ks[n + 1]);
-          gBase.append(...trilho(seg(ux + w * 0.3, y1, ux + w * 0.7, y2), 'fino'));
-          gBase.append(...trilho(seg(ux + w * 0.3, y2, ux + w * 0.7, y1), 'fino'));
+          const la = linhas[ks[n]]; const lb = linhas[ks[n + 1]];
+          const yA = yLinha(f, ks[n]); const yB = yLinha(f, ks[n + 1]);
+          travessoes.push({ lado: 'E', la, lb, x1: ux + w * 0.12, y1: yB, x2: ux + w * 0.42, y2: yA, xCima: ux + w * 0.42, xBaixo: ux + w * 0.12, t: M.travessao(u.id, 'E', la, lb) });
+          travessoes.push({ lado: 'D', la, lb, x1: ux + w * 0.58, y1: yA, x2: ux + w * 0.88, y2: yB, xCima: ux + w * 0.58, xBaixo: ux + w * 0.88, t: M.travessao(u.id, 'D', la, lb) });
         }
+        travessoes.forEach((tv) => gBase.append(...trilho(seg(tv.x1, tv.y1, tv.x2, tv.y2), 'fino')));
         // Caixa do km e número do pátio.
         const km = M.fmtKm(u.ini);
         const bw = Math.max(34, km.length * 5 + 8);
@@ -3597,35 +3618,46 @@ window.App = window.App || {};
           u.linhas.forEach((l) => { if (usa(c, idx, l)) desenharRota(seg(ux, Y(l), ux + w, Y(l))); });
           return;
         }
-        // No pátio: de que linha o carro chega (EH anterior) e por qual sai (EH seguinte).
-        const ant = u.linhas.filter((l) => usa(c, idx - 1, l));
-        const prox = u.linhas.filter((l) => usa(c, idx + 1, l));
-        const noPatio = u.linhas.filter((l) => usa(c, idx, l));
-        if (ant.length === 1 && prox.length === 1 && ant[0] !== prox[0]) {
-          // Troca de linha pelo travessão.
-          const y1 = Y(ant[0]); const y2 = Y(prox[0]);
-          desenharRota(`M${ux.toFixed(1)},${y1} L${(ux + w * 0.3).toFixed(1)},${y1} L${(ux + w * 0.7).toFixed(1)},${y2} L${(ux + w).toFixed(1)},${y2}`);
-          return;
-        }
+        // No pátio: linha por onde chega (EH anterior), por onde sai (EH seguinte) e travessões usados.
+        const tvs = travessoes.filter((tv) => c.trechos.has(tv.t));
+        tvs.forEach((tv) => desenharRota(seg(tv.x1, tv.y1 + dy, tv.x2, tv.y2 + dy)));
         u.linhas.forEach((l) => {
-          const e = ant.includes(l); const sai = prox.includes(l); const p = noPatio.includes(l);
-          if (p || (e && sai)) desenharRota(seg(ux, Y(l), ux + w, Y(l)));
-          else if (e) desenharRota(seg(ux, Y(l), ux + w * 0.5, Y(l))); // termina no pátio
-          else if (sai) desenharRota(seg(ux + w * 0.5, Y(l), ux + w, Y(l))); // começa no pátio
+          const chega = usa(c, idx - 1, l); const sai = usa(c, idx + 1, l); const noPatio = usa(c, idx, l);
+          const pontos = tvs.flatMap((tv) => (tv.la === l ? [tv.xCima] : tv.lb === l ? [tv.xBaixo] : []));
+          const x0 = ux; const x1 = ux + w;
+          if (chega && sai) return desenharRota(seg(x0, Y(l), x1, Y(l)));
+          if (!pontos.length) {
+            if (noPatio) desenharRota(seg(x0, Y(l), x1, Y(l)));
+            else if (chega) desenharRota(seg(x0, Y(l), ux + w * 0.5, Y(l))); // termina no pátio
+            else if (sai) desenharRota(seg(ux + w * 0.5, Y(l), x1, Y(l))); // começa no pátio
+            return;
+          }
+          const pMin = Math.min(...pontos); const pMax = Math.max(...pontos);
+          if (chega) desenharRota(seg(x0, Y(l), pMax, Y(l))); // chega por esta linha até o travessão
+          else if (sai) desenharRota(seg(pMin, Y(l), x1, Y(l))); // sai por esta linha depois do travessão
+          else if (pontos.length > 1) desenharRota(seg(pMin, Y(l), pMax, Y(l))); // entre dois travessões
         });
       });
 
-      // Áreas de toque (uma por linha).
+      // Áreas de toque (uma por linha) e travessões.
       u.linhas.forEach((l) => {
         const y = yLinha(f, kDe(l));
         const t = M.trecho(u.id, l);
         if (op.inicioIntervalo === t) gRota.appendChild(s('circle', { cx: ux + w / 2, cy: y, r: 8, class: 'esq-inicio' }));
         if (!op.aoTocar) return;
-        const alvo = s('rect', { x: ux, y: y - PASSO / 2, width: w, height: PASSO, class: 'esq-alvo', 'data-trecho': t },
+        const alvo = s('rect', { x: ux, y: y - PASSO / 2 + 2, width: w, height: PASSO / 2 + 4, class: 'esq-alvo', 'data-trecho': t },
           s('title', {}, `${u.rotulo} · L${l} · km ${M.fmtKm(u.ini)} a ${M.fmtKm(u.fim)}`));
         alvo.addEventListener('click', () => op.aoTocar(t, u, l));
         gAlvo.appendChild(alvo);
       });
+      if (op.aoTocar) {
+        travessoes.forEach((tv) => {
+          const alvo = s('path', { d: seg(tv.x1, tv.y1, tv.x2, tv.y2), class: 'esq-alvo-tv', 'data-trecho': tv.t },
+            s('title', {}, `Travessão ${u.rotulo}: L${tv.lado === 'E' ? tv.lb : tv.la} → L${tv.lado === 'E' ? tv.la : tv.lb} (troca de linha)`));
+          alvo.addEventListener('click', () => op.aoTocar(tv.t, u, ''));
+          gAlvo.appendChild(alvo);
+        });
+      }
     });
 
     // Pontos de atenção: etiqueta acima da primeira linha ou abaixo da última, como na planilha.
@@ -6285,7 +6317,10 @@ window.App = window.App || {};
     async function tocar(t, u, l) {
       if (ferramenta === 'ponto') return editarPonto(dia, null, t);
       const lista = new Set(dia.programados);
-      if (ferramenta === 'intervalo') {
+      if (M.ehTravessao(t)) {
+        // Travessão: marca/desmarca a troca de linha no pátio (em qualquer ferramenta).
+        if (lista.has(t)) lista.delete(t); else lista.add(t);
+      } else if (ferramenta === 'intervalo') {
         if (!inicioIntervalo) { inicioIntervalo = t; desenharEsquema(); ui.toast('Agora toque no trecho final (mesma linha).', 'info', 2500); return; }
         const ini = M.separar(inicioIntervalo);
         const trechos = M.intervalo(malha, ini.id, u.id, ini.linha);
@@ -6308,8 +6343,8 @@ window.App = window.App || {};
         onclick: () => { ferramenta = id; inicioIntervalo = null; renderConteudo(); }
       }, rot)));
     const dicas = {
-      trecho: 'Toque num trecho (EH ou pátio, em cada linha) para incluir ou retirar da rota.',
-      intervalo: 'Toque no trecho inicial e depois no final: todos os trechos entre eles, na mesma linha, entram (ou saem) da rota.',
+      trecho: 'Toque num trecho (EH ou pátio, em cada linha) para incluir ou retirar da rota. Toque no travessão do pátio para mostrar a troca de linha.',
+      intervalo: 'Toque no trecho inicial e depois no final: todos os trechos entre eles, na mesma linha, entram (ou saem) da rota. Para trocar de linha, toque no travessão do pátio.',
       ponto: 'Toque no trecho onde fica a interdição, serviço ou ponto de atenção.'
     };
 
@@ -6563,7 +6598,7 @@ window.App = window.App || {};
     return h('div', { class: 'legenda-rota' },
       execucao ? [item('transparent', 'Programado', 'tracejado'), item(COR_EXEC, 'Percorrido')] : null,
       Object.entries(GRAVIDADES).map(([g, c]) => h('span', { class: 'leg-item' }, h('span', { class: 'leg-caixa', style: { background: c } }), g)),
-      h('span', { class: 'leg-item' }, h('span', { class: 'leg-patio' }), 'Pátio (RH) com número e km'));
+      h('span', { class: 'leg-item' }, h('span', { class: 'leg-tv' }), 'Travessão: toque para marcar a troca de linha no pátio'));
   }
 
   /* ---------------- Visão geral ---------------- */

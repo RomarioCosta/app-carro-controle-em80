@@ -16,8 +16,8 @@
     return el;
   }
 
-  const LARG_EH = 84;
-  const LARG_RH = 60;
+  const LARG_EH = 80;
+  const LARG_RH = 80;
   const TOPO = 36; // caixa do km + número do pátio
   const BASE = 30; // desvio de baixo + etiquetas dos pontos de atenção
   const ESQ = 24;
@@ -69,7 +69,7 @@
     const linhas = r.linhas;
     const largura = Math.max(300, Math.round(op.largura || 900));
     const posicoes = distribuir(r, largura, op.faixa);
-    const PASSO = largura < 600 ? 22 : 18; // no celular, linhas mais afastadas para acertar o toque
+    const PASSO = largura < 600 ? 28 : 24; // no celular, linhas mais afastadas para acertar o toque
     const kDe = (l) => linhas.indexOf(l);
 
     // Altura de cada fila conforme as linhas que existem nela (L3 só onde houver).
@@ -117,16 +117,16 @@
       // Trilhos (base).
       ks.forEach((k) => gBase.append(...trilho(seg(ux, yLinha(f, k), ux + w, yLinha(f, k)))));
 
+      // Travessões do pátio (entre cada par de linhas vizinhas): E "/" e D "\".
+      const travessoes = [];
       if (u.tipo === 'RH') {
-        // Desvio de cima, desvio de baixo e travessões entre linhas vizinhas.
-        const a = ux + w * 0.14; const b = ux + w * 0.86; const d = 7;
-        gBase.append(...trilho(`M${a.toFixed(1)},${yTop} L${(a + 5).toFixed(1)},${yTop - d} L${(b - 5).toFixed(1)},${yTop - d} L${b.toFixed(1)},${yTop}`, 'fino'));
-        gBase.append(...trilho(`M${a.toFixed(1)},${yBot} L${(a + 5).toFixed(1)},${yBot + d} L${(b - 5).toFixed(1)},${yBot + d} L${b.toFixed(1)},${yBot}`, 'fino'));
         for (let n = 0; n < ks.length - 1; n++) {
-          const y1 = yLinha(f, ks[n]); const y2 = yLinha(f, ks[n + 1]);
-          gBase.append(...trilho(seg(ux + w * 0.3, y1, ux + w * 0.7, y2), 'fino'));
-          gBase.append(...trilho(seg(ux + w * 0.3, y2, ux + w * 0.7, y1), 'fino'));
+          const la = linhas[ks[n]]; const lb = linhas[ks[n + 1]];
+          const yA = yLinha(f, ks[n]); const yB = yLinha(f, ks[n + 1]);
+          travessoes.push({ lado: 'E', la, lb, x1: ux + w * 0.12, y1: yB, x2: ux + w * 0.42, y2: yA, xCima: ux + w * 0.42, xBaixo: ux + w * 0.12, t: M.travessao(u.id, 'E', la, lb) });
+          travessoes.push({ lado: 'D', la, lb, x1: ux + w * 0.58, y1: yA, x2: ux + w * 0.88, y2: yB, xCima: ux + w * 0.58, xBaixo: ux + w * 0.88, t: M.travessao(u.id, 'D', la, lb) });
         }
+        travessoes.forEach((tv) => gBase.append(...trilho(seg(tv.x1, tv.y1, tv.x2, tv.y2), 'fino')));
         // Caixa do km e número do pátio.
         const km = M.fmtKm(u.ini);
         const bw = Math.max(34, km.length * 5 + 8);
@@ -147,35 +147,46 @@
           u.linhas.forEach((l) => { if (usa(c, idx, l)) desenharRota(seg(ux, Y(l), ux + w, Y(l))); });
           return;
         }
-        // No pátio: de que linha o carro chega (EH anterior) e por qual sai (EH seguinte).
-        const ant = u.linhas.filter((l) => usa(c, idx - 1, l));
-        const prox = u.linhas.filter((l) => usa(c, idx + 1, l));
-        const noPatio = u.linhas.filter((l) => usa(c, idx, l));
-        if (ant.length === 1 && prox.length === 1 && ant[0] !== prox[0]) {
-          // Troca de linha pelo travessão.
-          const y1 = Y(ant[0]); const y2 = Y(prox[0]);
-          desenharRota(`M${ux.toFixed(1)},${y1} L${(ux + w * 0.3).toFixed(1)},${y1} L${(ux + w * 0.7).toFixed(1)},${y2} L${(ux + w).toFixed(1)},${y2}`);
-          return;
-        }
+        // No pátio: linha por onde chega (EH anterior), por onde sai (EH seguinte) e travessões usados.
+        const tvs = travessoes.filter((tv) => c.trechos.has(tv.t));
+        tvs.forEach((tv) => desenharRota(seg(tv.x1, tv.y1 + dy, tv.x2, tv.y2 + dy)));
         u.linhas.forEach((l) => {
-          const e = ant.includes(l); const sai = prox.includes(l); const p = noPatio.includes(l);
-          if (p || (e && sai)) desenharRota(seg(ux, Y(l), ux + w, Y(l)));
-          else if (e) desenharRota(seg(ux, Y(l), ux + w * 0.5, Y(l))); // termina no pátio
-          else if (sai) desenharRota(seg(ux + w * 0.5, Y(l), ux + w, Y(l))); // começa no pátio
+          const chega = usa(c, idx - 1, l); const sai = usa(c, idx + 1, l); const noPatio = usa(c, idx, l);
+          const pontos = tvs.flatMap((tv) => (tv.la === l ? [tv.xCima] : tv.lb === l ? [tv.xBaixo] : []));
+          const x0 = ux; const x1 = ux + w;
+          if (chega && sai) return desenharRota(seg(x0, Y(l), x1, Y(l)));
+          if (!pontos.length) {
+            if (noPatio) desenharRota(seg(x0, Y(l), x1, Y(l)));
+            else if (chega) desenharRota(seg(x0, Y(l), ux + w * 0.5, Y(l))); // termina no pátio
+            else if (sai) desenharRota(seg(ux + w * 0.5, Y(l), x1, Y(l))); // começa no pátio
+            return;
+          }
+          const pMin = Math.min(...pontos); const pMax = Math.max(...pontos);
+          if (chega) desenharRota(seg(x0, Y(l), pMax, Y(l))); // chega por esta linha até o travessão
+          else if (sai) desenharRota(seg(pMin, Y(l), x1, Y(l))); // sai por esta linha depois do travessão
+          else if (pontos.length > 1) desenharRota(seg(pMin, Y(l), pMax, Y(l))); // entre dois travessões
         });
       });
 
-      // Áreas de toque (uma por linha).
+      // Áreas de toque (uma por linha) e travessões.
       u.linhas.forEach((l) => {
         const y = yLinha(f, kDe(l));
         const t = M.trecho(u.id, l);
         if (op.inicioIntervalo === t) gRota.appendChild(s('circle', { cx: ux + w / 2, cy: y, r: 8, class: 'esq-inicio' }));
         if (!op.aoTocar) return;
-        const alvo = s('rect', { x: ux, y: y - PASSO / 2, width: w, height: PASSO, class: 'esq-alvo', 'data-trecho': t },
+        const alvo = s('rect', { x: ux, y: y - PASSO / 2 + 2, width: w, height: PASSO / 2 + 4, class: 'esq-alvo', 'data-trecho': t },
           s('title', {}, `${u.rotulo} · L${l} · km ${M.fmtKm(u.ini)} a ${M.fmtKm(u.fim)}`));
         alvo.addEventListener('click', () => op.aoTocar(t, u, l));
         gAlvo.appendChild(alvo);
       });
+      if (op.aoTocar) {
+        travessoes.forEach((tv) => {
+          const alvo = s('path', { d: seg(tv.x1, tv.y1, tv.x2, tv.y2), class: 'esq-alvo-tv', 'data-trecho': tv.t },
+            s('title', {}, `Travessão ${u.rotulo}: L${tv.lado === 'E' ? tv.lb : tv.la} → L${tv.lado === 'E' ? tv.la : tv.lb} (troca de linha)`));
+          alvo.addEventListener('click', () => op.aoTocar(tv.t, u, ''));
+          gAlvo.appendChild(alvo);
+        });
+      }
     });
 
     // Pontos de atenção: etiqueta acima da primeira linha ou abaixo da última, como na planilha.
