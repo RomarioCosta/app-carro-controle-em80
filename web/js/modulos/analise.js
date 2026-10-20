@@ -17,7 +17,7 @@
   let arquivo = null; // resultado de B.lerCSV
   let nomeArquivo = '';
   let resultado = null; // resultado de B.analisar
-  const OPCOES_PADRAO = { ...B.PADRAO, alinhamento: 'alr10', modo: 'planta', ajusteKm: 'auto', offset: { bitola: 'bitT', valor: 0, aplicar: false }, bitolas: ['bitF', 'bitT'] };
+  const OPCOES_PADRAO = { ...B.PADRAO, alinhamento: 'alr10', modo: 'hibrido', ajusteKm: 'auto', offset: { bitola: 'bitT', valor: 0, aplicar: false }, bitolas: ['bitF', 'bitT'] };
   let opcoes = { ...OPCOES_PADRAO, ...(U.pref.get('bitola:opcoes', {}) || {}) };
   let planta = null; // { nome, importadoEm, elementos, ramais }
   let infoPlanta = null; // { ramal, linha, ajuste, acerto, qtd, automatico }
@@ -85,7 +85,7 @@
   function configurarPlanta() {
     infoPlanta = null;
     problemaPlanta = '';
-    if (!arquivo || !planta || opcoes.modo !== 'planta') return null;
+    if (!arquivo || !planta || opcoes.modo === 'curvatura') return null;
     // Ramal e linha vêm sempre do arquivo CSV; a planta só fornece os elementos dessa linha.
     const ramal = B.ramalDaPlanta(arquivo.meta.ramal, planta.ramais);
     const linha = String(arquivo.meta.linha || '').trim();
@@ -100,8 +100,30 @@
     } else {
       ajuste = Number(opcoes.ajusteKm) || 0;
     }
-    infoPlanta = { ramal, linha, ajuste, acerto, automatico, qtd: els.length };
+    infoPlanta = { ramal, linha, ajuste, acerto, automatico, qtd: els.length, conferencia: conferirRamal(ramal, linha, els) };
     return { els, ajuste };
+  }
+
+  /**
+   * Confere se as curvas do arquivo combinam com o ramal/linha do CSV. TU e LT (e outros ramais) têm os mesmos km:
+   * se as curvas combinarem bem melhor com outro ramal, avisa (o ramal do arquivo continua valendo).
+   */
+  const cacheConferencia = new Map();
+  function conferirRamal(ramal, linha, els) {
+    const k = `${nomeArquivo}|${arquivo.pos.length}|${ramal}|${linha}`;
+    if (cacheConferencia.has(k)) return cacheConferencia.get(k);
+    const { pos } = arquivo; const curv = arquivo.dados.curv;
+    const propria = B.compatibilidade(pos, curv, els, opcoes);
+    let melhorOutro = null;
+    Object.entries(planta.ramais).forEach(([r, linhas]) => linhas.forEach((l) => {
+      if (r === ramal && String(l) === linha) return;
+      const c = B.compatibilidade(pos, curv, B.elementosDaPlanta(planta, r, l), opcoes);
+      if (!melhorOutro || c.nota > melhorOutro.nota) melhorOutro = { ...c, ramal: r, linha: String(l) };
+    }));
+    const suspeito = !!(melhorOutro && melhorOutro.nota >= 60 && melhorOutro.nota >= propria.nota + 20 && melhorOutro.ramal !== ramal);
+    const res = { nota: propria.nota, outro: melhorOutro, suspeito };
+    cacheConferencia.set(k, res);
+    return res;
   }
 
   function recalcular() {
@@ -109,7 +131,7 @@
       resultado = null;
     } else {
       const cfg = configurarPlanta();
-      resultado = B.analisar(arquivo, { ...opcoes, modo: cfg ? 'planta' : 'curvatura', elementosPlanta: cfg ? cfg.els : null, ajusteKm: cfg ? cfg.ajuste : 0 });
+      resultado = B.analisar(arquivo, { ...opcoes, modo: cfg ? opcoes.modo : 'curvatura', elementosPlanta: cfg ? cfg.els : null, ajusteKm: cfg ? cfg.ajuste : 0 });
     }
     renderTudo();
   }
@@ -150,7 +172,7 @@
       planta = { nome: f.name, importadoEm: U.agora(), elementos: lida.elementos, ramais: lida.ramais };
       await store.set(CHAVE_PLANTA, planta);
       cacheAjuste.clear();
-      opcoes = { ...opcoes, modo: 'planta', ajusteKm: 'auto' };
+      opcoes = { ...opcoes, modo: opcoes.modo === 'curvatura' ? 'hibrido' : opcoes.modo, ajusteKm: 'auto' };
       salvarOpcoes();
       ui.toast(`Planta importada: ${lida.elementos.length.toLocaleString('pt-BR')} elementos.`, 'ok', 5000);
       if (arquivo) recalcular(); else renderPlanta();
@@ -242,17 +264,24 @@
     }), { ajuda });
 
     const mudar = (campo, valor) => { opcoes = { ...opcoes, [campo]: valor }; salvarOpcoes(); recalcular(); };
-    const usandoPlanta = resultado && resultado.modo === 'planta';
+    const usandoPlanta = resultado && resultado.modo !== 'curvatura';
+    const conf = infoPlanta && infoPlanta.conferencia;
+    const explicacao = {
+      hibrido: 'Os limites de cada elemento vêm da curvatura medida pelo carro; o nome (Curva 01, Tangente 02, EH x/y ou RH) vem da planta.',
+      planta: 'Os limites vêm do km da planta (depende do km do carro estar certo).',
+      curvatura: 'Só a curvatura medida, sem planta: elementos numerados na ordem da inspeção, sem EH/RH.'
+    };
     const blocoPlanta = planta ? h('div', { class: 'pilha' },
-      ui.campo('Elementos', h('div', { class: 'seg', role: 'group' },
-        [['planta', 'Pela planta (EH)'], ['curvatura', 'Pela curvatura']].map(([v, r]) => h('button', {
+      ui.campo('Elementos', h('div', { class: 'seg seg-modos-analise', role: 'group' },
+        [['hibrido', 'Curvatura + planta'], ['planta', 'Pelo km da planta'], ['curvatura', 'Só curvatura']].map(([v, r]) => h('button', {
           type: 'button',
           class: `seg-opcao${opcoes.modo === v ? ' ativo' : ''}`,
           'aria-pressed': opcoes.modo === v ? 'true' : 'false',
           onclick: () => mudar('modo', v)
-        }, r)))),
-      usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Ramal ${arquivo.meta.ramal} · linha ${infoPlanta.linha} (do arquivo CSV) → planta ${infoPlanta.ramal}, linha ${infoPlanta.linha}.` }) : null,
-      opcoes.modo === 'planta' && infoPlanta ? h('div', { class: 'grade-3' },
+        }, r))), { ajuda: explicacao[opcoes.modo] || '' }),
+      usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Ramal ${arquivo.meta.ramal} · linha ${infoPlanta.linha} (do arquivo CSV) → planta ${infoPlanta.ramal}, linha ${infoPlanta.linha}.${conf ? ` Curvas do arquivo × curvas da planta: ${conf.nota}% de correspondência.` : ''}` }) : null,
+      usandoPlanta && conf && conf.suspeito ? h('p', { class: 'aviso aviso-erro', text: `Atenção: as curvas deste arquivo combinam muito mais com o ramal ${conf.outro.ramal}, linha ${conf.outro.linha} (${conf.outro.nota}%) do que com o ramal do arquivo, ${infoPlanta.ramal} (${conf.nota}%). Vários ramais têm os mesmos km: confira a coluna RAMAL do arquivo.` }) : null,
+      usandoPlanta && infoPlanta ? h('div', { class: 'grade-3' },
         ui.campo('Correção do km do carro (m)', h('input', {
           type: 'text',
           inputmode: 'tel',
@@ -264,7 +293,7 @@
           }
         }), { ajuda: 'O km registrado pelo carro costuma diferir alguns metros do km da planta. Vazio = automático: o app compara as curvas medidas com as curvas da planta e acha a diferença. Digite um valor só se o automático errar.' })) : null,
       usandoPlanta && infoPlanta ? h('p', { class: 'sub', text: `Correção de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automática)' : ' (digitada)'}${infoPlanta.acerto !== null ? ` · curvas do arquivo coincidem com as da planta em ${fmt(infoPlanta.acerto, 0)}% do trecho` : ''}.` }) : null,
-      opcoes.modo === 'planta' && !infoPlanta && problemaPlanta ? h('p', { class: 'aviso', text: problemaPlanta }) : null) : null;
+      opcoes.modo !== 'curvatura' && !infoPlanta && problemaPlanta ? h('p', { class: 'aviso', text: problemaPlanta }) : null) : null;
 
     ui.trocar(secoes.parametros, h('details', { class: 'cartao detalhes' },
       h('summary', null, h('strong', { text: 'Critérios da análise' }),
@@ -300,7 +329,7 @@
       h('div', { class: 'kpi-valor', text: valor }),
       h('div', { class: 'kpi-sub', text: sub }));
     ui.trocar(secoes.kpis, h('div', { class: 'kpis kpis-auto' },
-      kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${r.geral.perdas.toLocaleString('pt-BR')} de ${r.geral.pontos.toLocaleString('pt-BR')} pontos`),
+      kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${r.geral.perdas.toLocaleString('pt-BR')} de ${r.geral.pontos.toLocaleString('pt-BR')} pontos${r.geral.extensaoRh ? ` · sem os pátios (RH, ${fmt(r.geral.extensaoRh / 1000, 2)} km)` : ''}`),
       kpi('Em tangentes', `${fmt(r.tangentes.pctPerda)}%`, `${r.tangentes.quantidade} tangente(s) · ${fmt(r.tangentes.extensao / 1000, 2)} km`),
       kpi('Em curvas', `${fmt(r.curvas.pctPerda)}%`, `${r.curvas.quantidade} curva(s) · ${fmt(r.curvas.extensao / 1000, 2)} km`),
       kpi('Variação rápida', `${fmt(r.geral.pctVariacao)}%`, `desvio padrão em 1 m acima de ${fmt(opcoes.limiteVariacao, 1)} mm`),
@@ -408,7 +437,7 @@
         h('div', { class: 'linha-campo' },
           h('span', { class: 'sub', text: zoom ? `Trecho: ${B.fmtKm(x0)} → ${B.fmtKm(x1)}` : 'Trecho completo' }),
           zoom ? h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => { zoom = null; renderGraficos(); } }, 'Ver tudo') : null)),
-      h('p', { class: 'sub', text: `Bitola = ${B.NOMINAL} mm + valor do arquivo. Faixas azuis = curvas${r.modo === 'planta' ? '; cinza = RH (pátio)' : ''}. Em trechos longos, as bitolas aparecem como faixa (mín–máx) com a média. Toque numa linha da tabela de elementos ou do ranking para aproximar.` }),
+      h('p', { class: 'sub', text: `Bitola = ${B.NOMINAL} mm + valor do arquivo. Faixas azuis = curvas${r.modo !== 'curvatura' ? '; cinza = RH (pátio)' : ''}. Em trechos longos, as bitolas aparecem como faixa (mín–máx) com a média. Toque numa linha da tabela de elementos ou do ranking para aproximar.` }),
       info,
       conteudo));
   }
@@ -431,7 +460,7 @@
 
   /** Colunas da tabela de elementos (usadas na tela e no laudo). */
   function colunasElementos(paraLaudo) {
-    const planta = resultado.modo === 'planta';
+    const planta = resultado.modo !== 'curvatura';
     const evs = arquivo.eventos;
     const eventosDo = (e) => {
       const lo = Math.min(e.ini, e.fim); const hi = Math.max(e.ini, e.fim);
@@ -466,8 +495,9 @@
   /** Do local com maior perda para o com menor (sem medição por último). */
   function porPerda(itens) {
     return itens.map((x, k) => [x, k]).sort((a, b) => {
+      const ra = a[0].tipo === 'X' || a[0].rh ? 1 : 0; const rb = b[0].tipo === 'X' || b[0].rh ? 1 : 0; // pátios (RH) por último
       const pa = a[0].pctPerda ?? -1; const pb = b[0].pctPerda ?? -1;
-      return pb - pa || a[1] - b[1];
+      return ra - rb || pb - pa || a[1] - b[1];
     }).map(([x]) => x);
   }
 
@@ -508,7 +538,7 @@
   function renderElementos() {
     if (!resultado) return ui.limpar(secoes.elementos);
     const r = resultado;
-    const planta = r.modo === 'planta';
+    const planta = r.modo !== 'curvatura';
     ui.trocar(secoes.elementos,
       planta && r.porEh.length ? h('section', { class: 'cartao' },
         h('h2', { text: 'Resumo por trecho (EH e RH)' }),
@@ -529,8 +559,9 @@
     const original = arquivo.dados;
     const lim = opcoes.limitePerda;
     const simulado = B.dadosComOffset(original, { ...off, valor: off.valor || 0 });
-    const antes = B.perdaTotal(original, lim);
-    const depois = B.perdaTotal(simulado, lim);
+    const mascara = resultado.mascara; // pátios (RH) fora da estatística
+    const antes = B.perdaTotal(original, lim, 0, original.bitF.length - 1, mascara);
+    const depois = B.perdaTotal(simulado, lim, 0, simulado.bitF.length - 1, mascara);
     const porTipo = (dados, tipo) => {
       let pontos = 0; let perdas = 0;
       resultado.elementos.filter((e) => e.tipo === tipo).forEach((e) => {
@@ -565,7 +596,7 @@
         h('td', { class: `num ${classe}`, text: ok ? `${b - a > 0 ? '+' : ''}${fmt(b - a, casas)}` : '—' }));
     };
 
-    const sugestao = off.bitola !== 'kld' ? B.melhorOffset(original, off.bitola, lim) : null;
+    const sugestao = off.bitola !== 'kld' ? B.melhorOffset(original, off.bitola, lim, mascara) : null;
     ui.trocar(secoes.offset, h('details', { class: 'cartao detalhes', open: off.valor || offsetAberto ? true : null, ontoggle: (e) => { offsetAberto = e.target.open; } },
       h('summary', null, h('strong', { text: 'Simulação de offset' }),
         h('span', { class: 'sub', text: off.valor ? ` · ${fmt(off.valor, 1)} mm em ${NOMES_BITOLA[off.bitola]}${off.aplicar ? ' (aplicado)' : ''} · perda ${fmt(antes.pct)}% → ${fmt(depois.pct)}%` : ' · escolha uma bitola e um valor' })),
@@ -689,8 +720,8 @@
       `Bitola = ${B.NOMINAL} mm + valor do arquivo.`,
       `Perda de bitola quando |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm.`,
       `Variação rápida quando o desvio padrão da bitola em 1 m passa de ${fmt(opcoes.limiteVariacao, 1)} mm.`,
-      r.modo === 'planta'
-        ? `Elementos da planta da linha (${planta.nome}), por trecho EH x/y e RH (pátio): ramal ${infoPlanta.ramal} e linha ${infoPlanta.linha} do arquivo CSV, correção do km de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automático' + (infoPlanta.acerto !== null ? `, curvas coincidentes em ${fmt(infoPlanta.acerto, 0)}% do trecho` : '') + ')' : ''}.`
+      r.modo !== 'curvatura'
+        ? `${r.modo === 'hibrido' ? 'Elementos com limites pela curvatura medida e nomes da planta da linha' : 'Elementos pelo km da planta da linha'} (${planta.nome}), por trecho EH x/y e RH (pátio); pátios (RH) fora das estatísticas gerais: ramal ${infoPlanta.ramal} e linha ${infoPlanta.linha} do arquivo CSV, correção do km de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automático' + (infoPlanta.acerto !== null ? `, curvas coincidentes em ${fmt(infoPlanta.acerto, 0)}% do trecho` : '') + ')' : ''}.`
         : `Elementos pela curvatura: curva quando |10000/R| ≥ ${fmt(opcoes.limiarCurva, 1)} (média móvel de ${fmt(opcoes.suavizacao, 0)} m; elementos com menos de ${fmt(opcoes.comprimentoMin, 0)} m unidos ao vizinho).`,
       off.aplicar && off.valor ? `Offset de ${fmt(off.valor, 1)} mm aplicado em ${NOMES_BITOLA[off.bitola]}.` : ''
     ].filter(Boolean).join(' ');
@@ -728,9 +759,9 @@
 
       secao('Gráficos ao longo do km', graficosLaudo.map(({ titulo, g }) => h('div', { class: 'laudo-grafico' }, h('h3', { text: titulo }), g.el))),
 
-      r.modo === 'planta' && r.porEh.length ? secao('Resumo por trecho (EH e RH) — maior perda primeiro', tabelaCols(colunasEh(true), porPerda(r.porEh))) : null,
+      r.modo !== 'curvatura' && r.porEh.length ? secao('Resumo por trecho (EH e RH) — maior perda primeiro', tabelaCols(colunasEh(true), porPerda(r.porEh))) : null,
 
-      secao(`${r.modo === 'planta' ? 'Elementos da planta: tangentes e curvas' : 'Elementos: tangentes e curvas'} — maior perda primeiro`, tabelaCols(colunasElementos(true), porPerda(r.elementos))),
+      secao(`${r.modo !== 'curvatura' ? 'Elementos da planta: tangentes e curvas' : 'Elementos: tangentes e curvas'} — maior perda primeiro`, tabelaCols(colunasElementos(true), porPerda(r.elementos))),
 
       secao('Ranking de nivelamento (5 maiores valores por parâmetro)',
         h('div', { class: 'laudo-ranking' }, nivel.map((p) => h('div', { class: 'laudo-rank' },

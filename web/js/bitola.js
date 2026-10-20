@@ -324,9 +324,10 @@
   };
 
   /** Perda de bitola em todo o trecho (|F − T| > limite). */
-  B.perdaTotal = (dados, limite, i0 = 0, i1 = dados.bitF.length - 1) => {
+  B.perdaTotal = (dados, limite, i0 = 0, i1 = dados.bitF.length - 1, mascara = null) => {
     let pontos = 0; let perdas = 0;
     for (let i = i0; i <= i1; i++) {
+      if (mascara && !mascara[i]) continue;
       const f = dados.bitF[i]; const t = dados.bitT[i];
       if (Number.isNaN(f) || Number.isNaN(t)) continue;
       pontos++;
@@ -339,10 +340,11 @@
    * Offset (em mm) para a bitola F ou T que mais reduz a perda de bitola.
    * Testa de −10 a +10 mm em passos de 0,1 mm.
    */
-  B.melhorOffset = (dados, bitola, limite) => {
+  B.melhorOffset = (dados, bitola, limite, mascara = null) => {
     if (bitola !== 'bitF' && bitola !== 'bitT') return null;
     const difs = [];
     for (let i = 0; i < dados.bitF.length; i++) {
+      if (mascara && !mascara[i]) continue;
       const f = dados.bitF[i]; const t = dados.bitT[i];
       if (!Number.isNaN(f) && !Number.isNaN(t)) difs.push(f - t);
     }
@@ -365,7 +367,9 @@
     let nA = 0; let somaA = 0; let maxA = 0;
     let nV = 0; let varRapida = 0;
     const alinhamento = extras.alinhamento;
+    const mascara = extras.mascara; // 0 = fora da estatística (pátio/RH)
     for (let i = i0; i <= i1; i++) {
+      if (mascara && !mascara[i]) continue;
       const f = d.bitF[i]; const t = d.bitT[i];
       if (!Number.isNaN(f) && !Number.isNaN(t)) {
         const dif = f - t;
@@ -488,7 +492,8 @@
     const r = String(ramalArquivo || '').trim().toUpperCase();
     if (ramais[r]) return r;
     if (r.length > 2 && r.startsWith('R') && ramais[r.slice(1)]) return r.slice(1);
-    return Object.keys(ramais).find((k) => r.endsWith(k)) || '';
+    const candidatos = Object.keys(ramais).filter((k) => r.endsWith(k));
+    return candidatos.length === 1 ? candidatos[0] : '';
   };
 
   /** Elementos da planta de um ramal e linha, em ordem de km. */
@@ -547,6 +552,136 @@
     }
     return { ajuste: melhor.ajuste, acerto: melhor.acerto < 0 ? null : melhor.acerto * 100 };
   };
+  /**
+   * Quanto as curvas do arquivo combinam com as curvas de um ramal/linha da planta (0 a 100),
+   * testando deslocamentos de km. Só olha as curvas (as tangentes combinam com qualquer lugar).
+   * Usado para conferir se o km do arquivo é mesmo do ramal informado (ex.: TU e LT têm os mesmos km).
+   */
+  B.compatibilidade = (pos, curv, els, opcoes = {}) => {
+    const o = { ...B.PADRAO, ...opcoes };
+    if (!els.length || !pos.length) return { nota: 0, ajuste: 0 };
+    const esp = B.espacamento(pos) || 0.25;
+    const suave = B.mediaMovel(curv, Math.max(1, Math.round(o.suavizacao / esp)));
+    const passo = Math.max(1, Math.round(5 / esp)); // 1 amostra a cada 5 m
+    const amostras = [];
+    for (let i = 0; i < pos.length; i += passo) {
+      if (!Number.isNaN(suave[i])) amostras.push([pos[i], abs(suave[i]) >= o.limiarCurva]);
+    }
+    const nota = (aj) => {
+      let vp = 0; let medidas = 0; let planta = 0; let dentro = 0;
+      for (const [p, curva] of amostras) {
+        const el = naPlanta(els, p + aj);
+        if (!el) continue;
+        dentro++;
+        const curvaPlanta = el.tipo === 'C';
+        if (curva) medidas++;
+        if (curvaPlanta) planta++;
+        if (curva && curvaPlanta) vp++;
+      }
+      if (dentro < amostras.length * 0.5 || !medidas || !planta) return 0;
+      return (2 * vp) / (medidas + planta); // F1 das amostras em curva
+    };
+    let melhor = { nota: 0, ajuste: 0 };
+    for (let aj = -300; aj <= 300; aj += 10) {
+      const v = nota(aj);
+      if (v > melhor.nota) melhor = { nota: v, ajuste: aj };
+    }
+    return { nota: Math.round(melhor.nota * 100), ajuste: melhor.ajuste };
+  };
+
+  /**
+   * Curvatura + planta: os limites de cada elemento vêm da curvatura medida (o que o carro realmente viu)
+   * e o nome vem da planta (Curva 01, Tangente 02 do EH x/y). Trechos fora da planta viram RH (pátio).
+   */
+  B.segmentarHibrido = (pos, curv, els, ajuste = 0, opcoes = {}) => {
+    const o = { ...B.PADRAO, ...opcoes };
+    const n = pos.length;
+    if (!n) return [];
+    const esp = B.espacamento(pos) || 0.25;
+    const nomes = B.nomesTrechos(els);
+    const linhaPlanta = els.length ? els[0].linha : '';
+    const medidos = B.segmentar(pos, curv, o);
+    const ref = new Array(n);
+    for (let i = 0; i < n; i++) ref[i] = naPlanta(els, pos[i] + ajuste);
+    const minRh = Math.max(o.comprimentoMin, 25); // pátios reais têm ~260 m; buracos menores são falha da planta
+
+    // 1) Pátios: trechos contínuos fora da planta com pelo menos o comprimento mínimo (no arquivo todo).
+    const noPatio = new Uint8Array(n);
+    for (let i = 0; i < n;) {
+      if (ref[i]) { i++; continue; }
+      let k = i;
+      while (k + 1 < n && !ref[k + 1]) k++;
+      if (abs(pos[k] - pos[i]) + esp >= minRh) noPatio.fill(1, i, k + 1);
+      i = k + 1;
+    }
+    // Cada trecho medido é dividido onde entra/sai de um pátio.
+    let pedacos = [];
+    medidos.forEach((m) => {
+      let ini = m.i0;
+      for (let i = m.i0 + 1; i <= m.i1 + 1; i++) {
+        if (i <= m.i1 && noPatio[i] === noPatio[ini]) continue;
+        pedacos.push({ medido: m.tipo, i0: ini, i1: i - 1, fora: !!noPatio[ini] });
+        ini = i;
+      }
+    });
+    // Pátio cortado por uma mudança de curvatura vira um pedaço só.
+    pedacos = pedacos.reduce((acc, p) => {
+      const u = acc[acc.length - 1];
+      if (u && u.fora && p.fora) u.i1 = p.i1; else acc.push({ ...p });
+      return acc;
+    }, []);
+    const ext = (p) => abs(pos[p.i1] - pos[p.i0]) + esp;
+    // Pedaços curtos dentro da planta (sobras ao lado de um pátio) são unidos ao vizinho da planta.
+    for (let k = 0; k < pedacos.length; k++) {
+      const p = pedacos[k];
+      if (pedacos.length > 1 && !p.fora && ext(p) < o.comprimentoMin) {
+        const ant = pedacos[k - 1]; const prox = pedacos[k + 1];
+        const alvo = (ant && !ant.fora) ? ant : (prox && !prox.fora) ? prox : (ant || prox);
+        alvo.i0 = Math.min(alvo.i0, p.i0); alvo.i1 = Math.max(alvo.i1, p.i1);
+        pedacos.splice(k, 1);
+        k = Math.max(-1, k - 2);
+      }
+    }
+
+    // 2) Nome pela planta: o elemento da planta com mais pontos no pedaço.
+    const rotulo = (p) => {
+      if (p.fora) {
+        const rh = nomes.rh((pos[p.i0] + pos[p.i1]) / 2 + ajuste);
+        return { chave: `RH|${rh}`, tipo: 'X', eh: rh, trecho: rh, sigla: 'RH', nome: `${rh} (pátio)`, lado: '', raioPlanta: null };
+      }
+      const cont = new Map();
+      for (let i = p.i0; i <= p.i1; i++) if (ref[i]) cont.set(ref[i], (cont.get(ref[i]) || 0) + 1);
+      let el = null; let maior = 0;
+      // prefere elemento do mesmo tipo do medido (curva medida → curva da planta)
+      cont.forEach((q, e) => { const peso = q * (e.tipo === p.medido ? 1.5 : 1); if (peso > maior) { maior = peso; el = e; } });
+      const numero = el.num ? String(el.num).padStart(2, '0') : '';
+      const trecho = nomes.eh(el.eh);
+      return {
+        chave: `EL|${el.ini}|${el.fim}`,
+        tipo: el.tipo,
+        eh: trecho,
+        trecho,
+        sigla: `${el.tipo}${numero}`,
+        nome: `${trecho} · ${el.tipo === 'C' ? 'Curva' : 'Tangente'} ${numero}`,
+        lado: el.lado,
+        raioPlanta: el.raio || null,
+        superelevacao: el.superelevacao,
+        planta: { ini: el.ini, fim: el.fim },
+        tipoMedido: p.medido
+      };
+    };
+
+    // 3) Junta pedaços vizinhos com o mesmo elemento da planta.
+    const saida = [];
+    pedacos.forEach((p) => {
+      const r = rotulo(p);
+      const u = saida[saida.length - 1];
+      if (u && u.chave === r.chave) { u.i1 = p.i1; return; }
+      saida.push({ ...r, i0: p.i0, i1: p.i1 });
+    });
+    return saida.map(({ chave, ...e }) => ({ ...e, ini: pos[e.i0], fim: pos[e.i1], extensao: abs(pos[e.i1] - pos[e.i0]) + esp, linha: linhaPlanta }));
+  };
+
 
   /**
    * Nome dos trechos da ferrovia a partir da planta.
@@ -637,10 +772,19 @@
     const variacao = Float64Array.from(varF, (v, i) => Math.max(Number.isNaN(v) ? -1 : v, Number.isNaN(varT[i]) ? -1 : varT[i])).map((v) => (v < 0 ? NaN : v));
     const extras = { alinhamento: alin, variacao };
 
-    const usarPlanta = o.modo === 'planta' && o.elementosPlanta && o.elementosPlanta.length;
-    const brutos = usarPlanta ? B.segmentarPorPlanta(pos, o.elementosPlanta, o.ajusteKm || 0) : B.segmentar(pos, dados.curv, o);
+    const temPlanta = !!(o.elementosPlanta && o.elementosPlanta.length);
+    const modo = temPlanta && (o.modo === 'planta' || o.modo === 'hibrido') ? o.modo : 'curvatura';
+    const usarPlanta = modo !== 'curvatura';
+    let brutos;
+    if (modo === 'planta') brutos = B.segmentarPorPlanta(pos, o.elementosPlanta, o.ajusteKm || 0);
+    else if (modo === 'hibrido') brutos = B.segmentarHibrido(pos, dados.curv, o.elementosPlanta, o.ajusteKm || 0, o);
+    else brutos = B.segmentar(pos, dados.curv, o);
     const elementos = brutos.map((e) => ({ ...e, ...resumoTrecho(dados, e.i0, e.i1, o, extras) }));
-    const geral = resumoTrecho(dados, 0, pos.length - 1, o, extras);
+    // Pátios (RH) ficam fora das estatísticas gerais (perda de bitola, OGMS × KLD, variação).
+    const mascara = new Uint8Array(pos.length).fill(1);
+    elementos.forEach((e) => { if (e.tipo === 'X') mascara.fill(0, e.i0, e.i1 + 1); });
+    const geral = resumoTrecho(dados, 0, pos.length - 1, o, { ...extras, mascara });
+    const extensaoRh = elementos.filter((e) => e.tipo === 'X').reduce((s2, e) => s2 + e.extensao, 0);
 
     const somar = (els) => {
       const pontos = els.reduce((s, e) => s + e.pontos, 0);
@@ -668,11 +812,12 @@
 
     return {
       opcoes: o,
-      modo: usarPlanta ? 'planta' : 'curvatura',
+      modo,
+      mascara,
       dados,
       elementos,
       porEh,
-      geral: { ...geral, extensao: abs(pos[pos.length - 1] - pos[0]) + esp },
+      geral: { ...geral, extensao: abs(pos[pos.length - 1] - pos[0]) + esp, extensaoRh },
       tangentes: somar(elementos.filter((e) => e.tipo === 'T')),
       curvas: somar(elementos.filter((e) => e.tipo === 'C')),
       difFT: B.diferenca(dados.bitF, dados.bitT),
