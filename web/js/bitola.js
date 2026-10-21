@@ -191,6 +191,17 @@
       });
     });
     if (validos < n) avisos.push(`${n - validos} linha(s) sem posição foram ignoradas.`);
+    // Arquivo aberto e salvo no Excel costuma ter os números trocados (ponto e vírgula decimais): avisa.
+    let foraFaixa = 0; let lidos = 0;
+    for (let i = 0; i < n; i++) {
+      for (const c of ['bitF', 'bitT']) {
+        const v = dados[c][i];
+        if (!Number.isNaN(v)) { lidos++; if (Math.abs(v) > 60) foraFaixa++; }
+      }
+    }
+    if (lidos && foraFaixa / lidos > 0.01) {
+      avisos.push(`${Math.round((foraFaixa / lidos) * 100)}% das leituras de bitola estão fora da faixa esperada (±60 mm). Se o arquivo foi aberto e salvo no Excel, os números podem ter sido alterados: use o arquivo original do carro e o campo "Analisar a partir do km".`);
+    }
 
     // Mantém só pontos com posição.
     const manter = [];
@@ -1224,7 +1235,39 @@
    * pontos e pontos acima da regra de cada elemento (pela faixa de km dele) e do geral.
    * Compara com a análise e devolve as divergências.
    */
-  B.conferir = (texto, resultado, limite) => {
+  /** "290", "290+500", "290,5" ou "290.5" → metros (290000, 290500…). Vazio ou inválido → null. */
+  B.kmParaMetros = (t) => {
+    const v = String(t ?? '').trim();
+    if (!v) return null;
+    const m = /^(\d+)\s*\+\s*(\d{1,3})$/.exec(v);
+    if (m) return Number(m[1]) * 1000 + Number(m[2]);
+    const n = Number(v.replace(',', '.'));
+    return Number.isFinite(n) && n >= 0 ? Math.round(n * 1000) : null;
+  };
+
+  /**
+   * Só os pontos do arquivo com km dentro do trecho [de, ate] (metros; null = sem limite).
+   * Serve para descartar o começo/fim do arquivo sem editar o CSV (o Excel altera os números ao salvar).
+   */
+  B.recortar = (arquivo, de, ate) => {
+    if ((de === null || de === undefined) && (ate === null || ate === undefined)) return arquivo;
+    const dentro = (p) => (de === null || de === undefined || p >= de) && (ate === null || ate === undefined || p <= ate);
+    const manter = [];
+    arquivo.pos.forEach((p, i) => { if (dentro(p)) manter.push(i); });
+    const filtrar = (arr) => Float64Array.from(manter, (i) => arr[i]);
+    const dados = {};
+    Object.keys(arquivo.dados).forEach((k) => { dados[k] = filtrar(arquivo.dados[k]); });
+    return {
+      ...arquivo,
+      pos: filtrar(arquivo.pos),
+      dados,
+      linhaIdx: arquivo.linhaIdx ? Uint16Array.from(manter, (i) => arquivo.linhaIdx[i]) : arquivo.linhaIdx,
+      eventos: (arquivo.eventos || []).filter((e) => dentro(e.pos)),
+      recorte: { de: de ?? null, ate: ate ?? null, descartados: arquivo.pos.length - manter.length }
+    };
+  };
+
+  B.conferir = (texto, resultado, limite, faixa = null) => {
     const linhas = String(texto || '').split(/\r?\n/);
     let iF = -1; let iT = -1; let iKm = -1; let iLoc = -1;
     const norm = (x) => String(x || '').trim().toUpperCase().replace(/\s+/g, ' ');
@@ -1247,6 +1290,8 @@
       const km = parseFloat(String(c[iKm]).replace(',', '.'));
       const loc = parseFloat(String(c[iLoc]).replace(',', '.'));
       if (!Number.isFinite(km) || !Number.isFinite(loc)) continue;
+      const metros = km * 1000 + loc;
+      if (faixa && ((faixa.de !== null && faixa.de !== undefined && metros < faixa.de) || (faixa.ate !== null && faixa.ate !== undefined && metros > faixa.ate))) continue;
       pontos.push({ m: Math.round((km * 1000 + loc) * 100), f: ler(c[iF]), t: ler(c[iT]) });
     }
     const lim100 = Math.round(limite * 100);
