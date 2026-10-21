@@ -463,6 +463,10 @@ async function main() {
       const linhasConf = planilhaConf.trim().split(/\r?\n/);
       assert.equal(linhasConf.length, 4001); // cabeçalho + 4.000 pontos
       assert.equal(linhasConf.slice(1).filter((l) => l.split(';')[7] === '1').length, 200); // pontos acima da regra
+      // os cartões batem com a planilha: pontos = soma de "Na estatística"; acima = acima e na estatística
+      const naEst = linhasConf.slice(1).map((l) => l.split(';')).filter((c) => c[11] === '1');
+      const cartao = await page.locator('.kpi').first().locator('.kpi-sub').textContent();
+      assert.equal(cartao, `${naEst.filter((c) => c[7] === '1').length.toLocaleString('pt-BR')} de ${naEst.length.toLocaleString('pt-BR')} pontos`);
       const rk = page.locator('.tabela:not(.tabela-offset)').nth(1).locator('tbody tr').first();
       assert.equal(await rk.locator('td').nth(1).textContent(), '1+700');
       await page.screenshot({ path: `${SAIDA}13-analise.png`, fullPage: true });

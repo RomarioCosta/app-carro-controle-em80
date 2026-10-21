@@ -42,6 +42,8 @@ O código está em `web/js/bitola.js`. Os valores padrão podem ser alterados em
 | Pontos acima | Pontos com \|F − T\| > limite. |
 | Ext. acima (m) | Pontos acima × espaçamento (0,25 m). |
 
+**Ponto na estatística:** ponto com F e T lidas, dentro de uma tangente ou curva, fora de circuito (RH). Um elemento tratado como circuito tem todos os pontos fora. Por isso **Perda de bitola (geral) = tangentes + curvas**, nos pontos e nos pontos acima.
+
 ### 3.4 Elemento que perdeu a bitola
 - Uma curva ou tangente **perdeu a bitola** quando a **% de perda do elemento > 10%** (padrão; ajustável).
 - Exatamente 10% não perdeu. Circuitos (RH) não entram.
@@ -136,5 +138,6 @@ O código está em `web/js/bitola.js`. Os valores padrão podem ser alterados em
   - Tudo igual: selo **✓ Conferido** na tabela de elementos.
   - Diferente: botão **⚠ N divergência(s)** com o elemento, os pontos e os pontos acima pelo app e pela conferência, e a lista dos pontos onde o km volta.
   - Elemento que atravessa um circuito é conferido inteiro (antes de tirar os pontos do RH).
-- **Planilha de conferência (CSV para o Excel):** um ponto por linha, com KM, LOCALIZACAO, Linha, Bitola F, Bitola T, F − T (arredondada), **|F − T| (módulo)**, "Acima do limite" (1 = sim), Elemento, EH/RH e "Fora da estatística" (circuito).
-  Para conferir um elemento no Excel: filtre a coluna Elemento; **pontos** = quantidade de linhas com F − T preenchida; **pontos acima** = soma da coluna "Acima do limite" (ou contar |F − T| > 2); **% perda** = pontos acima ÷ pontos.
+- **Planilha de conferência (CSV para o Excel):** um ponto por linha, com KM, LOCALIZACAO, Linha, Bitola F, Bitola T, F − T (arredondada), **|F − T| (módulo)**, "Acima do limite" (1 = sim), Elemento, **Tipo** (Tangente, Curva ou Circuito), EH/RH e **"Na estatística"** (1 = sim).
+  - Cartões: filtre **Na estatística = 1**. **Pontos** = quantidade de linhas; **pontos acima** = soma de "Acima do limite". Para "Em tangentes" / "Em curvas", filtre também o Tipo.
+  - Um elemento (tabela de elementos): filtre a coluna Elemento; pontos = linhas com F − T preenchida (e Na estatística = 1, se ele atravessa um circuito); pontos acima = soma de "Acima do limite".

@@ -926,6 +926,12 @@
         if (r.pontos < e.pontos) Object.assign(e, { pontosTotal: e.pontos, perdasTotal: e.perdas, pontos: r.pontos, perdas: r.perdas, pctPerda: r.pctPerda });
       });
     }
+    // Regra única do que entra na estatística: ponto de uma tangente ou curva (fora de circuito) e fora de RH.
+    // Assim o geral é sempre a soma de tangentes + curvas, e a planilha de conferência mostra o mesmo.
+    elementos.forEach((e) => { if (e.tipo === 'X' || e.rh) mascara.fill(0, e.i0, e.i1 + 1); });
+    const coberto = new Uint8Array(pos.length);
+    elementos.forEach((e) => coberto.fill(1, e.i0, e.i1 + 1));
+    coberto.forEach((v, i) => { if (!v) mascara[i] = 0; });
     const geral = resumoTrecho(dados, 0, pos.length - 1, o, { ...extras, mascara });
     let foraRh = 0; mascara.forEach((v) => { if (!v) foraRh++; });
     const extensaoRh = foraRh * esp;

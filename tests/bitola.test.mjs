@@ -321,6 +321,11 @@ test('dupla checagem: recontagem independente do CSV bate com a análise e acusa
   for (const modo of ['curvatura', 'hibrido', 'planta']) {
     const rp = B.analisar(a, { modo, elementosPlanta: els, ajusteKm: 30 });
     assert.equal(B.conferir(texto, rp, 2).ok, true, modo);
+    // cartões = tangentes + curvas = pontos marcados na estatística (mesma conta da planilha)
+    assert.equal(rp.geral.pontos, rp.tangentes.pontos + rp.curvas.pontos, modo);
+    assert.equal(rp.geral.perdas, rp.tangentes.perdas + rp.curvas.perdas, modo);
+    let naEst = 0; rp.mascara.forEach((v, i) => { if (v && !Number.isNaN(B.difBitola(a.dados.bitF[i], a.dados.bitT[i]))) naEst++; });
+    assert.equal(naEst, rp.geral.pontos, modo);
   }
 });
 
