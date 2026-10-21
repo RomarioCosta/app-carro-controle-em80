@@ -236,11 +236,16 @@ async function main() {
       await page.fill('input[name="descricao"]', 'Manutenção liberou o carro com atraso');
       await page.fill('input[name="inicio"]', `${d}T06:00`);
       await page.fill('input[name="fim"]', `${d}T11:00`);
-      await page.fill('input[name="omsPerdidas"]', '83');
-      await page.fill('input[name="impactoValor"]', '1');
-      await page.selectOption('select[name="impactoUnidade"]', 'd');
+      // dois dias de impacto: ontem (83 OMs, 1 dia) e hoje (10 OMs)
       const ontem = isoLocal(new Date(hoje.getTime() - 86400000));
-      await page.fill('input[name="dataImpacto"]', ontem);
+      await page.getByRole('button', { name: 'Adicionar impacto' }).click();
+      await page.fill('input[name="impData0"]', ontem);
+      await page.fill('input[name="impOms0"]', '83');
+      await page.fill('input[name="impValor0"]', '1');
+      await page.selectOption('select[name="impUnidade0"]', 'd');
+      await page.getByRole('button', { name: 'Adicionar outro dia de impacto' }).click();
+      assert.equal(await page.inputValue('input[name="impData1"]'), d); // dia seguinte ao anterior
+      await page.fill('input[name="impOms1"]', '10');
       await page.getByRole('button', { name: 'Salvar evento' }).click();
       await page.getByText(/Evento EV-\d{6}-\w{4} salvo\./).waitFor();
       const item = page.locator('.item', { hasText: 'Manutenção liberou o carro com atraso' });
@@ -248,7 +253,7 @@ async function main() {
       assert.match(await item.locator('.ev-codigo').textContent(), /^EV-\d{6}-\w{4} · Atraso da equipe$/);
       // painel: indicadores e gráficos
       const painel = page.locator('.cartao', { has: page.getByRole('heading', { name: 'Painel de eventos' }) });
-      assert.equal(await painel.locator('.kpi', { hasText: 'OMs perdidas' }).locator('.kpi-valor').textContent(), '83');
+      assert.equal(await painel.locator('.kpi', { hasText: 'OMs perdidas' }).locator('.kpi-valor').textContent(), '93');
       assert.equal(await painel.locator('.kpi', { hasText: 'Impacto no tempo' }).locator('.kpi-valor').textContent(), '24 h (1 dia)');
       assert.ok(await painel.locator('svg.graf-largo').count() >= 3);
       // outro evento, excluído em seguida
@@ -263,12 +268,14 @@ async function main() {
       assert.equal(await page.locator('.item', { hasText: 'Chuva' }).count(), 0);
       const p = await aguardar(async () => { const x = await planilha(); return x.Eventos.some((e) => e['Tipo de evento'] === 'Chuva' && e['Excluído em']) && x; }, 'exclusão na planilha');
       const atraso = p.Eventos.find((e) => e['Tipo de evento'] === 'Atraso da equipe');
-      assert.equal(atraso['OMs perdidas'], 83);
+      assert.equal(atraso['OMs perdidas'], 93);
+      const porDia = p.Eventos_Impactos.filter((i) => i['ID Evento'] === atraso['ID']);
+      assert.deepEqual(porDia.map((i) => i['OMs perdidas']).sort((a, b) => a - b), [10, 83]);
       assert.equal(atraso['Impacto (h)'], 24);
       assert.equal(atraso['Descrição'], 'Manutenção liberou o carro com atraso');
       assert.match(atraso['Código do evento'], /^EV-\d{6}-\w{4}$/);
       assert.ok(String(atraso['Data do impacto']).startsWith(isoLocal(new Date(hoje.getTime() - 86400000))), `data do impacto ${atraso['Data do impacto']}`);
-      await item.getByText(/impacto em \d{2}\/\d{2}\/\d{4}/).waitFor();
+      await item.getByText(/\d{2}\/\d{2}: 10 OMs perdidas/).waitFor();
       // PDF (impressão simulada)
       await page.evaluate(() => { window.__impressoes = 0; window.print = () => { window.__impressoes++; }; });
       await painel.getByRole('button', { name: 'Exportar PDF' }).click();

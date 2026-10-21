@@ -25,8 +25,9 @@
 
   const vazio = () => ({
     categoria: FALHA, equipamento: '', outro: '', parte: '', descricao: '',
-    inicio: '', fim: '', omsPerdidas: '', impactoValor: '', impactoUnidade: 'h', dataImpacto: '', observacao: ''
+    inicio: '', fim: '', impactos: [], observacao: ''
   });
+  const impactoVazio = (data = '') => ({ data, oms: '', valor: '', unidade: 'h' });
 
   /* ---------------- Identificação e valores ---------------- */
 
@@ -44,19 +45,38 @@
   const ehFalha = (ev) => categoriaDe(ev) === FALHA;
   const titulo = (ev) => (ehFalha(ev) ? [ev.equipamento, ev.parte] : [categoriaDe(ev), ev.descricao]).filter(Boolean).join(' · ');
   const num = (v) => (v === '' || v === null || v === undefined || Number.isNaN(Number(v)) ? 0 : Number(v));
-  const horasDe = (ev) => (ev.impactoHoras !== undefined && ev.impactoHoras !== '' ? num(ev.impactoHoras) : num(ev.impactoValor) * (ev.impactoUnidade === 'd' ? 24 : 1));
+  const horasImpacto = (i) => num(i.valor) * (i.unidade === 'd' ? 24 : 1);
+  /**
+   * Impactos do evento, um por dia: [{ data, oms, valor, unidade }].
+   * Eventos antigos (um impacto só, nos campos omsPerdidas/impactoValor/dataImpacto) viram um item.
+   */
+  function impactosDe(ev) {
+    let lista = Array.isArray(ev.impactos) ? ev.impactos : null;
+    if (!lista && ev.impactosJson) { try { lista = JSON.parse(ev.impactosJson); } catch (e) { lista = null; } }
+    if (!Array.isArray(lista)) {
+      lista = num(ev.omsPerdidas) || num(ev.impactoValor)
+        ? [{ data: diaImpactoAntigo(ev), oms: ev.omsPerdidas, valor: ev.impactoValor, unidade: ev.impactoUnidade === 'd' ? 'd' : 'h' }]
+        : [];
+    }
+    const inicio = String(ev.inicio || '').slice(0, 10);
+    return lista.map((i) => ({ data: U.ehData(String(i.data || '').slice(0, 10)) ? String(i.data).slice(0, 10) : inicio, oms: i.oms, valor: i.valor, unidade: i.unidade === 'd' ? 'd' : 'h' }))
+      .sort((a, b) => a.data.localeCompare(b.data));
+  }
+  const omsDe = (ev, filtro = () => true) => impactosDe(ev).filter(filtro).reduce((t, i) => t + num(i.oms), 0);
+  const horasDe = (ev, filtro = () => true) => impactosDe(ev).filter(filtro).reduce((t, i) => t + horasImpacto(i), 0);
+  const fmtTempo = (i) => `${fmtN(i.valor, 1)} ${i.unidade === 'd' ? (num(i.valor) === 1 ? 'dia' : 'dias') : 'h'}`;
   const fmtN = (v, casas = 0) => Number(v || 0).toLocaleString('pt-BR', { maximumFractionDigits: casas, minimumFractionDigits: 0 });
   const fmtHoras = (hh) => (hh >= 24 ? `${fmtN(hh, 1)} h (${fmtN(hh / 24, 1)} dia${hh / 24 >= 2 ? 's' : ''})` : `${fmtN(hh, 1)} h`);
-  const textoImpacto = (ev) => {
+  /** Um texto por dia de impacto: "19/10: 92 OMs perdidas · 8 h". */
+  const textoImpacto = (ev) => impactosDe(ev).map((i) => {
     const partes = [];
-    if (num(ev.omsPerdidas)) partes.push(`${fmtN(ev.omsPerdidas)} OM${num(ev.omsPerdidas) > 1 ? 's' : ''} perdida${num(ev.omsPerdidas) > 1 ? 's' : ''}`);
-    if (num(ev.impactoValor)) partes.push(`${fmtN(ev.impactoValor, 1)} ${ev.impactoUnidade === 'd' ? (num(ev.impactoValor) === 1 ? 'dia' : 'dias') : 'h'} de impacto`);
-    if (partes.length && diaImpacto(ev) !== String(ev.inicio || '').slice(0, 10)) partes.push(`impacto em ${U.fmtData(diaImpacto(ev))}`);
-    return partes;
-  };
+    if (num(i.oms)) partes.push(`${fmtN(i.oms)} OM${num(i.oms) > 1 ? 's' : ''} perdida${num(i.oms) > 1 ? 's' : ''}`);
+    if (num(i.valor)) partes.push(fmtTempo(i));
+    return partes.length ? `${U.fmtData(i.data).slice(0, 5)}: ${partes.join(' · ')}` : '';
+  }).filter(Boolean);
   const visiveis = () => lista.filter((e) => !e.excluidoEm);
-  /** Dia em que o impacto aconteceu (ex.: OMs programadas para o dia 19 por um evento dos dias 15 e 16). */
-  const diaImpacto = (ev) => (U.ehData(String(ev.dataImpacto || '').slice(0, 10)) ? String(ev.dataImpacto).slice(0, 10) : String(ev.inicio || '').slice(0, 10));
+  /** Dia do impacto nos eventos antigos (um impacto só). */
+  const diaImpactoAntigo = (ev) => (U.ehData(String(ev.dataImpacto || '').slice(0, 10)) ? String(ev.dataImpacto).slice(0, 10) : String(ev.inicio || '').slice(0, 10));
   /** Rótulo do tipo nos gráficos: em "Outro", a descrição do evento. */
   const rotuloTipo = (ev) => (categoriaDe(ev) === 'Outro' && ev.descricao ? ev.descricao : categoriaDe(ev));
 
@@ -124,11 +144,6 @@
         }, ui.icone('x')) : null));
     };
 
-    const numero = (campo, extra = {}) => h('input', {
-      type: 'number', name: campo, min: 0, step: extra.step || 1, inputmode: extra.step ? 'decimal' : 'numeric',
-      value: f[campo], placeholder: '0',
-      oninput: (e) => { f[campo] = e.target.value; }
-    });
 
     ui.trocar(formCartao,
       h('h2', { text: editando ? `Editar evento ${codigoDe(editando)}` : 'Novo evento' }),
@@ -155,19 +170,39 @@
         h('div', { class: 'grade-2' },
           dataHora('inicio', 'Início'),
           dataHora('fim', 'Fim')),
-        h('div', { class: 'grade-4 ev-impacto-campos' },
-          ui.campo('OMs perdidas', numero('omsPerdidas')),
-          ui.campo('Impacto no tempo', numero('impactoValor', { step: 0.5 })),
-          ui.campo('Unidade', h('select', {
-            name: 'impactoUnidade',
-            value: f.impactoUnidade,
-            onchange: (e) => { f.impactoUnidade = e.target.value; }
-          }, Object.entries(UNIDADES).map(([v, t]) => h('option', { value: v, text: t })))),
-          ui.campo('Data do impacto', h('input', {
-            type: 'date', name: 'dataImpacto', value: f.dataImpacto,
-            title: 'Dia em que as OMs foram perdidas. Em branco: o dia do início do evento.',
-            onchange: (e) => { f.dataImpacto = e.target.value; }
-          }))),
+        h('fieldset', { class: 'ev-impactos' },
+          h('legend', { text: 'Impacto (um por dia)' }),
+          f.impactos.map((imp, k) => h('div', { class: 'ev-impacto-linha' },
+            h('div', { class: 'grade-4' },
+              ui.campo('Data do impacto', h('input', {
+                type: 'date', name: `impData${k}`, value: imp.data,
+                onchange: (e) => { imp.data = e.target.value; }
+              })),
+              ui.campo('OMs perdidas', h('input', {
+                type: 'number', name: `impOms${k}`, min: 0, step: 1, inputmode: 'numeric', value: imp.oms, placeholder: '0',
+                oninput: (e) => { imp.oms = e.target.value; }
+              })),
+              ui.campo('Impacto no tempo', h('input', {
+                type: 'number', name: `impValor${k}`, min: 0, step: 0.5, inputmode: 'decimal', value: imp.valor, placeholder: '0',
+                oninput: (e) => { imp.valor = e.target.value; }
+              })),
+              ui.campo('Unidade', h('select', {
+                name: `impUnidade${k}`, value: imp.unidade,
+                onchange: (e) => { imp.unidade = e.target.value; }
+              }, Object.entries(UNIDADES).map(([v, t]) => h('option', { value: v, text: t }))))),
+            h('button', {
+              type: 'button', class: 'btn-icone', 'aria-label': `Remover impacto ${k + 1}`, title: 'Remover este dia',
+              onclick: () => { f.impactos.splice(k, 1); renderForm(); }
+            }, ui.icone('lixo')))),
+          h('button', {
+            type: 'button', class: 'btn btn-secundario btn-pequeno',
+            onclick: () => {
+              const ultimo = f.impactos[f.impactos.length - 1];
+              const data = ultimo && U.ehData(ultimo.data) ? U.somarDias(ultimo.data, 1) : (String(f.inicio || '').slice(0, 10) || U.hoje());
+              f.impactos.push(impactoVazio(data));
+              renderForm();
+            }
+          }, ui.icone('plus'), f.impactos.length ? 'Adicionar outro dia de impacto' : 'Adicionar impacto')),
         ui.campo('Observação', h('textarea', {
           name: 'observacao',
           rows: 3,
@@ -199,10 +234,7 @@
       descricao: ev.descricao || '',
       inicio: ev.inicio || '',
       fim: ev.fim || '',
-      omsPerdidas: ev.omsPerdidas === undefined || ev.omsPerdidas === null ? '' : String(ev.omsPerdidas),
-      impactoValor: ev.impactoValor === undefined || ev.impactoValor === null ? '' : String(ev.impactoValor),
-      impactoUnidade: ev.impactoUnidade === 'd' ? 'd' : 'h',
-      dataImpacto: U.ehData(String(ev.dataImpacto || '').slice(0, 10)) ? String(ev.dataImpacto).slice(0, 10) : '',
+      impactos: impactosDe(ev).map((i) => ({ data: i.data, oms: i.oms === undefined || i.oms === null ? '' : String(i.oms), valor: i.valor === undefined || i.valor === null ? '' : String(i.valor), unidade: i.unidade })),
       observacao: ev.observacao || ''
     };
   }
@@ -217,10 +249,15 @@
     }
     if (exigirInicio && !f.inicio) erros.push(['inicio', 'Informe o início (ou toque em "Agora").']);
     if (f.inicio && f.fim && f.fim < f.inicio) erros.push(['fim', 'O fim não pode ser antes do início.']);
-    const oms = U.numero(f.omsPerdidas);
-    if (String(f.omsPerdidas).trim() !== '' && (oms === null || oms < 0 || !Number.isInteger(oms))) erros.push(['omsPerdidas', 'Informe um número inteiro (0 ou mais).']);
-    const imp = U.numero(f.impactoValor);
-    if (String(f.impactoValor).trim() !== '' && (imp === null || imp < 0)) erros.push(['impactoValor', 'Informe um número (0 ou mais).']);
+    const datas = new Set();
+    f.impactos.forEach((i, k) => {
+      const oms = U.numero(i.oms); const val = U.numero(i.valor);
+      if (String(i.oms).trim() !== '' && (oms === null || oms < 0 || !Number.isInteger(oms))) erros.push([`impOms${k}`, 'Informe um número inteiro (0 ou mais).']);
+      if (String(i.valor).trim() !== '' && (val === null || val < 0)) erros.push([`impValor${k}`, 'Informe um número (0 ou mais).']);
+      if (!U.ehData(i.data)) erros.push([`impData${k}`, 'Informe a data do impacto.']);
+      else if (datas.has(i.data)) erros.push([`impData${k}`, 'Já existe um impacto neste dia.']);
+      datas.add(i.data);
+    });
     erros.forEach(([nome, msg]) => ui.marcarErro(form.querySelector(`[name="${nome}"]`), msg));
     if (erros.length) ui.rolarAte(form.querySelector(`[name="${erros[0][0]}"]`));
     return !erros.length;
@@ -229,8 +266,14 @@
   /** Evento a partir do formulário. */
   function doForm(base, inicio, fim) {
     const falha = f.categoria === FALHA;
-    const oms = String(f.omsPerdidas).trim() === '' ? '' : U.numero(f.omsPerdidas);
-    const imp = String(f.impactoValor).trim() === '' ? '' : U.numero(f.impactoValor);
+    const val = (v) => (String(v ?? '').trim() === '' ? '' : U.numero(v));
+    const impactos = f.impactos
+      .map((i) => ({ data: i.data || String(inicio || '').slice(0, 10), oms: val(i.oms), valor: val(i.valor), unidade: i.unidade === 'd' ? 'd' : 'h' }))
+      .filter((i) => i.oms !== '' || i.valor !== '')
+      .sort((a, b) => a.data.localeCompare(b.data));
+    const totalOms = impactos.reduce((t, i) => t + num(i.oms), 0);
+    const totalHoras = impactos.reduce((t, i) => t + horasImpacto(i), 0);
+    const um = impactos.length === 1 ? impactos[0] : null;
     return {
       ...(base || {}),
       id: base ? base.id : U.uuid(),
@@ -242,11 +285,14 @@
       descricao: falha ? '' : f.descricao.trim(),
       inicio,
       fim,
-      omsPerdidas: oms,
-      impactoValor: imp,
-      impactoUnidade: f.impactoUnidade,
-      impactoHoras: imp === '' ? '' : imp * (f.impactoUnidade === 'd' ? 24 : 1),
-      dataImpacto: U.ehData(f.dataImpacto) ? f.dataImpacto : '',
+      // detalhe por dia (planilha: aba Eventos_Impactos) e totais do evento (aba Eventos)
+      impactos,
+      impactosJson: impactos.length ? JSON.stringify(impactos) : '',
+      omsPerdidas: impactos.length ? totalOms : '',
+      impactoValor: !impactos.length ? '' : (um ? um.valor : totalHoras),
+      impactoUnidade: um ? um.unidade : 'h',
+      impactoHoras: impactos.length ? totalHoras : '',
+      dataImpacto: impactos.length ? impactos[0].data : '',
       observacao: f.observacao.trim()
     };
   }
@@ -285,7 +331,7 @@
   function duplicarUltimo() {
     const ultimo = visiveis()[0];
     if (!ultimo) return;
-    f = { ...paraForm(ultimo), inicio: '', fim: '', omsPerdidas: '', impactoValor: '', dataImpacto: '' };
+    f = { ...paraForm(ultimo), inicio: '', fim: '', impactos: [] };
     renderForm();
     ui.toast('Dados do último evento copiados. Ajuste os horários e o impacto.', 'info');
   }
@@ -356,22 +402,26 @@
     if (periodo === '7d') return [U.somarDias(hoje, -6), hoje];
     if (periodo === '30d') return [U.somarDias(hoje, -29), hoje];
     if (periodo === 'mes') return [U.inicioMes(hoje), hoje];
-    const datas = visiveis().flatMap((e) => [String(e.inicio).slice(0, 10), diaImpacto(e)]).filter(U.ehData).sort();
+    const datas = visiveis().flatMap((e) => [String(e.inicio).slice(0, 10), ...impactosDe(e).map((i) => i.data)]).filter(U.ehData).sort();
     return [datas[0] || hoje, datas[datas.length - 1] > hoje ? datas[datas.length - 1] : hoje];
   }
 
   function doPeriodo() {
     const [de, ate] = intervalo();
-    return visiveis().filter((e) => [String(e.inicio).slice(0, 10), diaImpacto(e)].some((d) => d >= de && d <= ate))
+    return visiveis().filter((e) => [String(e.inicio).slice(0, 10), ...impactosDe(e).map((i) => i.data)].some((d) => d >= de && d <= ate))
       .sort((a, b) => String(a.inicio).localeCompare(String(b.inicio)));
   }
 
+  /** Só os impactos com data dentro do período contam nos totais e gráficos. */
+  const noPeriodo = () => { const [de, ate] = intervalo(); return (i) => i.data >= de && i.data <= ate; };
+
   function resumo(evs) {
     const minutos = evs.reduce((s, e) => s + (U.minutosEntre(e.inicio, e.fim || U.agora()) || 0), 0);
+    const filtro = noPeriodo();
     return {
       qtd: evs.length,
-      oms: evs.reduce((s, e) => s + num(e.omsPerdidas), 0),
-      horas: evs.reduce((s, e) => s + horasDe(e), 0),
+      oms: evs.reduce((s, e) => s + omsDe(e, filtro), 0),
+      horas: evs.reduce((s, e) => s + horasDe(e, filtro), 0),
       minutos
     };
   }
@@ -385,19 +435,18 @@
     if (porMes) { for (let m = U.inicioMes(de); m <= ate; m = U.somarDias(U.fimMes(m), 1)) chaves.push(m.slice(0, 7)); }
     else { for (let d = de; d <= ate; d = U.somarDias(d, 1)) chaves.push(d); }
     const mapa = new Map(chaves.map((k) => [k, { oms: 0, horas: 0, qtd: 0 }]));
-    evs.forEach((e) => {
-      const dia = diaImpacto(e); // OMs e tempo contam no dia do impacto
-      const k = porMes ? dia.slice(0, 7) : dia;
+    evs.forEach((e) => impactosDe(e).forEach((i) => { // OMs e tempo contam no dia de cada impacto
+      const k = porMes ? i.data.slice(0, 7) : i.data;
       const x = mapa.get(k); if (!x) return;
-      x.oms += num(e.omsPerdidas); x.horas += horasDe(e); x.qtd++;
-    });
+      x.oms += num(i.oms); x.horas += horasImpacto(i); x.qtd++;
+    }));
     let acumulado = 0;
     return chaves.map((k) => {
       const x = mapa.get(k);
       acumulado += x.horas;
       return {
         rotulo: porMes ? U.fmtMesAno(`${k}-01`) : U.fmtData(k).slice(0, 5),
-        dica: `${porMes ? U.fmtMesAno(`${k}-01`) : `${U.diaSemanaCurto(k)} ${U.fmtData(k)}`} · ${x.qtd} evento(s) · impacto no ${porMes ? 'mês' : 'dia'}: ${fmtHoras(x.horas)}`,
+        dica: `${porMes ? U.fmtMesAno(`${k}-01`) : `${U.diaSemanaCurto(k)} ${U.fmtData(k)}`} · ${x.qtd} impacto(s) · impacto no ${porMes ? 'mês' : 'dia'}: ${fmtHoras(x.horas)}`,
         barra: x.oms,
         linha: Math.round(acumulado * 10) / 10
       };
@@ -412,18 +461,20 @@
 
   function graficos(evs) {
     const { charts } = App;
-    const porTipoOms = porGrupo(evs, rotuloTipo, (e) => num(e.omsPerdidas));
-    const porTipoHoras = porGrupo(evs, rotuloTipo, horasDe);
+    const filtro = noPeriodo();
+    const porTipoOms = porGrupo(evs, rotuloTipo, (e) => omsDe(e, filtro));
+    const porTipoHoras = porGrupo(evs, rotuloTipo, (e) => horasDe(e, filtro));
     const falhas = porGrupo(evs.filter(ehFalha), (e) => e.equipamento, () => 1);
     const bloco = (t, g) => h('div', { class: 'laudo-grafico' }, h('h3', { text: t }), g);
-    return [
+    // barras com linha à esquerda; barras horizontais empilhadas à direita
+    return [h('div', { class: 'ev-graf-esq' },
       bloco('OMs perdidas e impacto no tempo acumulado', charts.barrasLinha(seriePorData(evs), {
         nomeBarra: 'OMs perdidas', nomeLinha: 'Impacto acumulado (h)', fmtLinha: (v) => `${fmtN(v, 1)} h`
-      })),
+      }))),
+    h('div', { class: 'ev-graf-dir' },
       porTipoOms.length ? bloco('OMs perdidas por tipo de evento', charts.barrasH(porTipoOms.map(([r, v]) => ({ rotulo: r, valor: v, texto: fmtN(v) })))) : null,
       porTipoHoras.length ? bloco('Impacto no tempo por tipo de evento', charts.barrasH(porTipoHoras.map(([r, v]) => ({ rotulo: r, valor: v, texto: fmtHoras(v) })), { classe: 'graf-barra-2' })) : null,
-      falhas.length ? bloco('Falhas por equipamento (quantidade)', charts.barrasH(falhas.map(([r, v]) => ({ rotulo: r, valor: v, texto: String(v) })))) : null
-    ];
+      falhas.length ? bloco('Falhas por equipamento (quantidade)', charts.barrasH(falhas.map(([r, v]) => ({ rotulo: r, valor: v, texto: String(v) })))) : null)];
   }
 
   function renderPainel() {
@@ -432,7 +483,7 @@
     const r = resumo(evs);
     const [de, ate] = intervalo();
     const kpi = (t, v, sub) => h('div', { class: 'kpi' }, h('div', { class: 'kpi-titulo', text: t }), h('div', { class: 'kpi-valor', text: v }), h('div', { class: 'kpi-sub', text: sub }));
-    ui.trocar(painelEl,
+    ui.trocar(painelEl, h('div', { class: 'ev-painel' },
       h('div', { class: 'cartao-cab' },
         h('h2', { text: 'Painel de eventos' }),
         h('button', { class: 'btn btn-secundario btn-pequeno', onclick: exportarPdf, disabled: !evs.length }, ui.icone('documento'), 'Exportar PDF')),
@@ -448,7 +499,7 @@
         kpi('OMs perdidas', fmtN(r.oms), 'informadas nos eventos'),
         kpi('Impacto no tempo', fmtHoras(r.horas), 'informado nos eventos'),
         kpi('Duração dos eventos', U.fmtDuracao(r.minutos) || '0min', 'do início ao fim')),
-      evs.length ? h('div', { class: 'ev-graficos' }, graficos(evs)) : h('p', { class: 'vazio', text: 'Nenhum evento no período.' }));
+      evs.length ? h('div', { class: 'ev-graficos' }, graficos(evs)) : h('p', { class: 'vazio', text: 'Nenhum evento no período.' })));
   }
 
   /* ---------------- PDF ---------------- */
@@ -475,13 +526,12 @@
             ['Impacto no tempo', fmtHoras(r.horas), 'informado nos eventos'],
             ['Duração dos eventos', U.fmtDuracao(r.minutos) || '0min', 'do início ao fim']
           ].map(([t, v, sub]) => h('div', { class: 'laudo-kpi' }, h('span', { text: t }), h('strong', { text: v }), h('small', { text: sub }))))),
-      h('section', { class: 'laudo-secao' }, h('h2', { text: 'Gráficos' }), graficos(evs)),
+      h('section', { class: 'laudo-secao' }, h('h2', { text: 'Gráficos' }), h('div', { class: 'ev-graficos' }, graficos(evs))),
       h('section', { class: 'laudo-secao' }, h('h2', { text: 'Eventos do período' }),
-        tabela(['Código', 'Tipo', 'Equipamento / descrição', 'Início', 'Fim', 'Duração', 'OMs perdidas', 'Impacto', 'Dia do impacto', 'Observação'],
+        tabela(['Código', 'Tipo', 'Equipamento / descrição', 'Início', 'Fim', 'Duração', 'OMs perdidas', 'Impactos por dia', 'Observação'],
           evs.map((e) => [codigoDe(e), categoriaDe(e), ehFalha(e) ? [e.equipamento, e.parte].filter(Boolean).join(' · ') : e.descricao,
             U.fmtDataHora(e.inicio), e.fim ? U.fmtDataHora(e.fim) : 'em aberto', U.fmtDuracao(U.minutosEntre(e.inicio, e.fim || U.agora())),
-            num(e.omsPerdidas) ? fmtN(e.omsPerdidas) : '', num(e.impactoValor) ? `${fmtN(e.impactoValor, 1)} ${e.impactoUnidade === 'd' ? 'dia(s)' : 'h'}` : '',
-            num(e.omsPerdidas) || num(e.impactoValor) ? U.fmtData(diaImpacto(e)) : '',
+            omsDe(e) ? fmtN(omsDe(e)) : '', textoImpacto(e).join('\n'),
             e.observacao || '']))),
       h('footer', { class: 'laudo-rodape', text: `Gerado pelo App Carro Controle EM80 · ${U.fmtDataHora(U.agora())}` }));
     imprimir(el, `Eventos EM80 ${U.fmtData(de).replace(/\//g, '-')} a ${U.fmtData(ate).replace(/\//g, '-')}`);
