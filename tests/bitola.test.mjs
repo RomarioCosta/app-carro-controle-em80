@@ -384,3 +384,25 @@ test('elementos pelo raio: oscilação na tangente e curva aberta com ruído nã
   assert.equal(els2.length, els.length);
   assert.ok(Math.abs(els2.reduce((s, e) => s + e.extensao, 0) - 2000) < 2);
 });
+
+test('geometria do carro controle: lida como planta (RH fora, nome do EH pronto, ramal sem o R)', () => {
+  const linhas = [
+    [],
+    ['', 'ramal', 'ga', 'sede', 'elemento', 'nomenclatura', 'tipo_ativo', 'sentido', 'km_inicial', 'km_final', 'ext', 'raio', 'grau', 'index_elemento', 'rh_eh', 'Plano_de_Regra', 'eh_linha', 'trecho'],
+    ['', 'RTS', 'VP1', 'X', 'RH-11', 'RH-11 L1', 'RH', '', 1000, 1250, 250, '', '', 1, 'RH-11 L1', 65, '10/11 L1', ''],
+    ['', 'RTS', 'VP1', 'X', 'TANGENTE 1', '11/13 L1 - TANGENTE 1', 'TANGENTE', '', 1250, 1600, 350, '', '', 2, '11/13 L1', 65, '11/13 L1', ''],
+    ['', 'RTS', 'VP1', 'X', 'CURVA 1', '11/13 L1 - CURVA 1', 'CURVA', 'Direita', 1600, 1800, 200, 500, 2, 3, '11/13 L1', 65, '11/13 L1', ''],
+    ['', 'RTS', 'VP1', 'X', 'TANGENTE 2', '11/13 L1 - TANGENTE 2', 'TANGENTE', '', 1800, 2300, 500, '', '', 4, '11/13 L1', 65, '11/13 L1', '']
+  ];
+  const g = B.lerPlanta(linhas);
+  assert.equal(g.fonte, 'geometria');
+  assert.equal(g.elementos.length, 3);
+  assert.equal(g.circuitos, 1);
+  assert.deepEqual(j(g.ramais), { TS: ['1'] });
+  const c = g.elementos[1];
+  assert.deepEqual([c.tipo, c.lado, c.num, c.ini, c.fim, c.raio, c.eh, c.nomeEh], ['C', 'D', '1', 1600, 1800, 500, '11', 'EH 11/13']);
+  // pelo km: nomes do EH vindos da geometria; antes do 1º elemento é circuito (RH)
+  const pos = Float64Array.from({ length: 4800 }, (_, i) => 1100 + i * 0.25);
+  const els = B.segmentarPorPlanta(pos, B.elementosDaPlanta(g, 'TS', '1'));
+  assert.deepEqual(j(els.map((e) => `${e.sigla}@${e.eh}`)), ['RH@RH-11', 'T01@EH 11/13', 'C01@EH 11/13', 'T02@EH 11/13']);
+});

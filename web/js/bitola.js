@@ -148,9 +148,7 @@
     ['km', 'loc', 'bitF', 'bitT'].forEach((c) => {
       if (idx[c] < 0) throw new Error(`Coluna obrigatória não encontrada: ${c === 'loc' ? 'LOCALIZACAO' : c === 'bitF' ? 'Bitola F' : c === 'bitT' ? 'Bitola T' : 'KM'}.`);
     });
-    Object.entries(idx).forEach(([campo, i]) => {
-      if (i < 0) avisos.push(`Coluna ${campo} não encontrada no arquivo.`);
-    });
+    // Colunas opcionais que faltam (o formato do CSV muda entre versões) não geram aviso: só somem do gráfico.
     if (!brutos.length) throw new Error('O arquivo não tem linhas de medição ("D").');
 
     const iCampo = (nome) => cab.indexOf(nome);
@@ -536,6 +534,11 @@
    */
   B.lerPlanta = (linhas) => {
     const chave = (v) => U.chaveTitulo(v);
+    // Tabela "Geometria da EFVM – Carro Controle" (aba elementos_revia): formato próprio.
+    for (let i = 0; i < Math.min(linhas.length, 40); i++) {
+      const ks = (linhas[i] || []).map(chave);
+      if (ks.includes('tipoativo') && ks.includes('kminicial') && ks.includes('ehlinha')) return B.lerGeometria(linhas, i);
+    }
     let idxCab = -1;
     for (let i = 0; i < Math.min(linhas.length, 40); i++) {
       const ks = (linhas[i] || []).map(chave);
@@ -603,6 +606,69 @@
     });
     Object.values(ramais).forEach((l) => l.sort());
     return { elementos, ramais, avisos: descartados ? [`${descartados} linha(s) da planta sem km válido foram ignoradas.`] : [] };
+  };
+
+  /**
+   * Lê a tabela "Geometria da EFVM – Carro Controle" (aba elementos_revia).
+   * Colunas: ramal (RLT), sede, elemento (CURVA 1, TANGENTE 2, RH-50), tipo_ativo (CURVA/TANGENTE/RH),
+   * sentido (Esquerda/Direita), km_inicial e km_final (metros), raio, eh_linha ("49/50 L1").
+   * As RH (circuitos) não viram elemento: ficam como trecho sem elemento, como na planta.
+   */
+  B.lerGeometria = (linhas, idxCab) => {
+    const ks = (linhas[idxCab] || []).map((v) => U.chaveTitulo(v));
+    const col = (k) => ks.indexOf(k);
+    const c = {
+      ramal: col('ramal'), elemento: col('elemento'), tipo: col('tipoativo'), sentido: col('sentido'),
+      ini: col('kminicial'), fim: col('kmfinal'), raio: col('raio'), ehLinha: col('ehlinha'), sede: col('sede')
+    };
+    ['ramal', 'tipo', 'ini', 'fim', 'ehLinha'].forEach((k) => {
+      if (c[k] < 0) throw new Error(`Coluna da geometria não encontrada: ${k}.`);
+    });
+    const n = (v) => (typeof v === 'number' ? v : U.numero(v));
+    const elementos = [];
+    let descartados = 0; let circuitos = 0;
+    linhas.slice(idxCab + 1).forEach((l) => {
+      if (!l) return;
+      const tipoAtivo = String(l[c.tipo] ?? '').trim().toUpperCase();
+      const ramalBruto = String(l[c.ramal] ?? '').trim().toUpperCase();
+      if (!ramalBruto || !tipoAtivo) return;
+      if (tipoAtivo === 'RH') { circuitos++; return; }
+      const tipo = tipoAtivo.startsWith('CURVA') ? 'C' : tipoAtivo.startsWith('TANGENTE') ? 'T' : '';
+      const ini = n(l[c.ini]); const fim = n(l[c.fim]);
+      if (!tipo) return;
+      if (ini === null || fim === null || fim <= ini) { descartados++; return; }
+      // "49/50 L1" → EH 49/50, linha 1
+      const m = /^\s*([^\s]+)\s+L(\w+)\s*$/i.exec(String(l[c.ehLinha] ?? ''));
+      const eh = m ? m[1] : String(l[c.ehLinha] ?? '').trim();
+      const linha = m ? String(m[2]).replace(/^0+(?=\d)/, '') : '';
+      const sentido = c.sentido >= 0 ? String(l[c.sentido] ?? '').trim().toUpperCase() : '';
+      const num = c.elemento >= 0 ? (/(\d+)\s*$/.exec(String(l[c.elemento] ?? '')) || [])[1] || '' : '';
+      elementos.push({
+        ramal: ramalBruto.length > 2 && ramalBruto.startsWith('R') ? ramalBruto.slice(1) : ramalBruto, // RLT → LT
+        linha,
+        eh: eh.split('/')[0],
+        nomeEh: `EH ${eh}`,
+        tipo,
+        lado: sentido.startsWith('E') ? 'E' : sentido.startsWith('D') ? 'D' : '',
+        num,
+        ini,
+        fim,
+        raio: c.raio >= 0 ? n(l[c.raio]) : null,
+        superelevacao: null,
+        sede: c.sede >= 0 ? String(l[c.sede] ?? '').trim() : ''
+      });
+    });
+    if (!elementos.length) throw new Error('Nenhum elemento encontrado na geometria.');
+    const ramais = {};
+    elementos.forEach((e) => {
+      ramais[e.ramal] = ramais[e.ramal] || [];
+      if (!ramais[e.ramal].includes(e.linha)) ramais[e.ramal].push(e.linha);
+    });
+    Object.values(ramais).forEach((l) => l.sort());
+    return {
+      elementos, ramais, fonte: 'geometria', circuitos,
+      avisos: descartados ? [`${descartados} linha(s) da geometria sem km válido foram ignoradas.`] : []
+    };
   };
 
   /** Ramal da planta correspondente ao do arquivo (ex.: "RLT" → "LT"). */
@@ -850,8 +916,10 @@
       const n = Number(eh);
       proximo[eh] = seguinte !== undefined && Number(seguinte) > n ? seguinte : (Number.isFinite(n) && eh !== '' ? String(n + 1) : '');
     });
+    const nomeProprio = {}; // geometria: o nome do EH vem pronto ("EH 01/03")
+    els.forEach((e) => { if (e.nomeEh && !nomeProprio[e.eh]) nomeProprio[e.eh] = e.nomeEh; });
     return {
-      eh: (eh) => (eh === '' ? 'EH ?' : `EH ${eh}/${proximo[eh] || '?'}`),
+      eh: (eh) => nomeProprio[eh] || (eh === '' ? 'EH ?' : `EH ${eh}/${proximo[eh] || '?'}`),
       /** RH na posição p (metros da planta): número do EH logo acima no km. */
       rh: (p) => {
         const acima = els.find((e) => e.ini >= p && e.eh !== '');
@@ -874,9 +942,11 @@
     const linhaPlanta = els.length ? els[0].linha : '';
     const seg = [];
     let atual = null;
+    // Mesmo elemento em outra linha da planta (a coluna LINHA mudou no meio dele) continua o mesmo elemento.
+    const chaveEl = (e) => (e ? `${e.eh}|${e.tipo}|${e.num}|${e.lado}` : '');
     for (let i = 0; i < n; i++) {
       const el = achar ? achar(i, pos[i] + ajuste) : naPlanta(els, pos[i] + ajuste);
-      if (!atual || atual.ref !== el) {
+      if (!atual || chaveEl(atual.ref) !== chaveEl(el)) {
         atual = { ref: el, i0: i, i1: i };
         seg.push(atual);
       } else {

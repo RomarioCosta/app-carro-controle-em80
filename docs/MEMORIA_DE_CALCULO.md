@@ -74,6 +74,22 @@ Coluna usada: `10000/R` (R = raio em metros). Raio de 3.000 m → 10000/R = 3,33
 
 Todos os valores em **negrito** podem ser alterados em Critérios da análise.
 
+## 4.1 Geometria do carro controle (substitui a planta)
+
+A tabela "Geometria da EFVM – Carro Controle" (aba `elementos_revia`) é importada no mesmo lugar da planta e reconhecida sozinha.
+
+| Coluna | Uso |
+|---|---|
+| `ramal` | Ramal do elemento (`RLT` → `LT`), igual à coluna RAMAL do CSV. |
+| `eh_linha` | EH e linha (`49/50 L1` → EH 49/50, linha 1). O nome do EH vem pronto. |
+| `tipo_ativo` | `TANGENTE` → T, `CURVA` → C. `RH` não vira elemento: o trecho fica sem elemento e é circuito (item 6). |
+| `elemento` | Número do elemento no EH (`CURVA 3` → C03). |
+| `sentido` | Lado da curva (Esquerda/Direita). |
+| `km_inicial`, `km_final` | Início e fim, em metros. |
+| `raio` | Raio da curva. |
+
+Ao importar a geometria, o modo passa para **Pelo km da geometria**. A correção automática do km (item 7) continua valendo.
+
 ## 5. Modos de identificar os elementos
 
 | Modo | Limites dos elementos | Nome / local |
