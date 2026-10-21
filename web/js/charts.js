@@ -430,5 +430,86 @@
     };
   }
 
-  App.charts = { barrasSemana, linhaMes, indicador, graficoKm };
+  /**
+   * Barras (eixo da esquerda) com linha (eixo da direita), por categoria no eixo X.
+   * serie: [{ rotulo, barra, linha, dica }]; op: { nomeBarra, nomeLinha, fmtBarra, fmtLinha, titulo }
+   */
+  function barrasLinha(serie, op = {}) {
+    const W = 680; const H = 240;
+    const m = { t: 18, r: 46, b: 40, l: 40 };
+    const iw = W - m.l - m.r; const ih = H - m.t - m.b;
+    const fmtB = op.fmtBarra || ((v) => String(v));
+    const fmtL = op.fmtLinha || ((v) => String(v));
+    const escB = escalaY(Math.max(1, ...serie.map((d) => d.barra || 0)));
+    const escL = escalaY(Math.max(1, ...serie.map((d) => d.linha || 0)));
+    const yB = (v) => m.t + ih - (v / escB.max) * ih;
+    const yL = (v) => m.t + ih - (v / escL.max) * ih;
+    const n = Math.max(1, serie.length);
+    const banda = iw / n;
+    const larg = Math.max(2, Math.min(28, banda * 0.6));
+    const cada = Math.max(1, Math.ceil(n / 12)); // rótulos do eixo X sem encavalar
+
+    const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, class: 'graf graf-largo', role: 'img', 'aria-label': op.titulo || `${op.nomeBarra} e ${op.nomeLinha}` });
+    for (let v = 0; v <= escB.max; v += escB.passo) {
+      svg.appendChild(s('line', { x1: m.l, x2: W - m.r, y1: yB(v), y2: yB(v), class: 'graf-grade' }));
+      svg.appendChild(s('text', { x: m.l - 6, y: yB(v) + 4, class: 'graf-eixo', 'text-anchor': 'end' }, String(v)));
+    }
+    for (let v = 0; v <= escL.max; v += escL.passo) {
+      svg.appendChild(s('text', { x: W - m.r + 6, y: yL(v) + 4, class: 'graf-eixo graf-eixo-linha', 'text-anchor': 'start' }, String(v)));
+    }
+    const caixa = ui.h('div', { class: 'graf-caixa' });
+    const tip = criarTooltip(caixa);
+    const pontos = [];
+    serie.forEach((d, i) => {
+      const cx = m.l + banda * i + banda / 2;
+      if (d.barra) {
+        const topo = yB(d.barra);
+        svg.appendChild(s('rect', { class: 'graf-barra', x: cx - larg / 2, y: topo, width: larg, height: m.t + ih - topo, rx: Math.min(3, larg / 2) }));
+        if (n <= 16) svg.appendChild(s('text', { x: cx, y: topo - 4, class: 'graf-eixo graf-valor', 'text-anchor': 'middle' }, fmtB(d.barra)));
+      }
+      pontos.push([cx, yL(d.linha || 0)]);
+      if (i % cada === 0) svg.appendChild(s('text', { x: cx, y: H - 22, class: 'graf-eixo', 'text-anchor': 'middle' }, d.rotulo));
+    });
+    if (pontos.length) {
+      svg.appendChild(s('path', { class: 'graf-linha-2', d: pontos.map(([x, y], k) => `${k ? 'L' : 'M'}${x},${y}`).join(' ') }));
+      pontos.forEach(([x, y]) => svg.appendChild(s('circle', { class: 'graf-ponto-2', cx: x, cy: y, r: 3 })));
+    }
+    serie.forEach((d, i) => {
+      const alvo = s('rect', { x: m.l + banda * i, y: m.t, width: banda, height: ih + m.b, class: 'graf-alvo' });
+      const mostrar = () => {
+        const r = caixa.getBoundingClientRect(); const esc = r.width / W;
+        tip.mostrar([d.dica || d.rotulo, `${op.nomeBarra}: ${fmtB(d.barra || 0)}`, `${op.nomeLinha}: ${fmtL(d.linha || 0)}`], (m.l + banda * i + banda / 2) * esc, Math.min(yB(d.barra || 0), yL(d.linha || 0)) * esc);
+      };
+      alvo.addEventListener('pointerenter', mostrar);
+      alvo.addEventListener('pointerdown', mostrar);
+      alvo.addEventListener('pointerleave', () => tip.esconder());
+      svg.appendChild(alvo);
+    });
+    caixa.insertBefore(svg, caixa.firstChild);
+    return ui.h('div', { class: 'graf-bloco' },
+      ui.h('div', { class: 'graf-legenda' },
+        ui.h('span', { class: 'leg-item' }, ui.h('span', { class: 'leg-chave leg-real' }), `${op.nomeBarra} (eixo esq.)`),
+        ui.h('span', { class: 'leg-item' }, ui.h('span', { class: 'leg-chave leg-linha-2' }), `${op.nomeLinha} (eixo dir.)`)),
+      caixa);
+  }
+
+  /** Barras horizontais: itens [{ rotulo, valor, texto }] (maior primeiro). */
+  function barrasH(itens, op = {}) {
+    const linhaH = 26; const W = 680;
+    const m = { t: 6, r: 70, b: 6, l: 190 };
+    const H = m.t + m.b + Math.max(1, itens.length) * linhaH;
+    const max = Math.max(1, ...itens.map((d) => d.valor || 0));
+    const iw = W - m.l - m.r;
+    const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, class: 'graf graf-largo', role: 'img', 'aria-label': op.titulo || 'Barras' });
+    itens.forEach((d, i) => {
+      const y = m.t + i * linhaH;
+      const w = ((d.valor || 0) / max) * iw;
+      svg.appendChild(s('text', { x: m.l - 8, y: y + linhaH / 2 + 4, class: 'graf-eixo graf-eixo-forte', 'text-anchor': 'end' }, d.rotulo.length > 28 ? `${d.rotulo.slice(0, 27)}…` : d.rotulo));
+      svg.appendChild(s('rect', { class: op.classe || 'graf-barra', x: m.l, y: y + 5, width: Math.max(w, d.valor ? 2 : 0), height: linhaH - 10, rx: 3 }));
+      svg.appendChild(s('text', { x: m.l + w + 6, y: y + linhaH / 2 + 4, class: 'graf-eixo', 'text-anchor': 'start' }, d.texto ?? String(d.valor || 0)));
+    });
+    return ui.h('div', { class: 'graf-bloco' }, ui.h('div', { class: 'graf-caixa' }, svg));
+  }
+
+  App.charts = { barrasSemana, linhaMes, indicador, graficoKm, barrasLinha, barrasH };
 })(window.App);

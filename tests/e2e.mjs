@@ -186,7 +186,7 @@ async function main() {
       await page.selectOption('select[name="equipamento"]', 'KLD');
       await page.fill('input[name="parte"]', 'Sensor laser');
       await page.getByRole('button', { name: 'Iniciar agora' }).click();
-      await page.getByText(/Falha iniciada às/).waitFor();
+      await page.getByText(/iniciado às/).waitFor();
       await page.locator('.item-aberto').first().waitFor();
       await page.screenshot({ path: `${SAIDA}03-eventos-aberto.png`, fullPage: true });
       await page.getByRole('button', { name: 'Finalizar agora' }).click();
@@ -204,14 +204,14 @@ async function main() {
       await page.fill('input[name="fim"]', `${d}T09:35`);
       await page.fill('textarea[name="observacao"]', 'Parou a medição de bitola');
       await page.getByRole('button', { name: 'Salvar evento' }).click();
-      await page.getByText('Evento salvo.').waitFor();
+      await page.getByText(/Evento EV-\d{6}-\w{4} salvo\./).waitFor();
 
       // Outro equipamento
       await page.selectOption('select[name="equipamento"]', 'Outro');
       await page.fill('input[name="outro"]', 'Gerador');
       await page.fill('input[name="inicio"]', `${d}T10:00`);
       await page.getByRole('button', { name: 'Salvar evento' }).click();
-      await page.getByText('Evento salvo (em aberto).').waitFor();
+      await page.getByText(/salvo \(em aberto\)\./).waitFor();
 
       const p = await aguardar(async () => { const x = await planilha(); return x.Eventos.length === 3 && x; }, 'eventos na planilha');
       const manual = p.Eventos.find((e) => e['Observação / impacto'] === 'Parou a medição de bitola');
@@ -229,6 +229,57 @@ async function main() {
       assert.equal(p.Eventos.length, 3);
     });
 
+    await passo('eventos: evento sem equipamento com impacto, painel, exclusão e PDF', async () => {
+      const d = isoLocal(hoje);
+      await page.selectOption('select[name="categoria"]', 'Atraso da equipe');
+      assert.equal(await page.locator('select[name="equipamento"]').count(), 0); // sem equipamento
+      await page.fill('input[name="descricao"]', 'Manutenção liberou o carro com atraso');
+      await page.fill('input[name="inicio"]', `${d}T06:00`);
+      await page.fill('input[name="fim"]', `${d}T11:00`);
+      await page.fill('input[name="omsPerdidas"]', '83');
+      await page.fill('input[name="impactoValor"]', '1');
+      await page.selectOption('select[name="impactoUnidade"]', 'd');
+      await page.getByRole('button', { name: 'Salvar evento' }).click();
+      await page.getByText(/Evento EV-\d{6}-\w{4} salvo\./).waitFor();
+      const item = page.locator('.item', { hasText: 'Manutenção liberou o carro com atraso' });
+      await item.getByText('83 OMs perdidas').waitFor();
+      assert.match(await item.locator('.ev-codigo').textContent(), /^EV-\d{6}-\w{4} · Atraso da equipe$/);
+      // painel: indicadores e gráficos
+      const painel = page.locator('.cartao', { has: page.getByRole('heading', { name: 'Painel de eventos' }) });
+      assert.equal(await painel.locator('.kpi', { hasText: 'OMs perdidas' }).locator('.kpi-valor').textContent(), '83');
+      assert.equal(await painel.locator('.kpi', { hasText: 'Impacto no tempo' }).locator('.kpi-valor').textContent(), '24 h (1 dia)');
+      assert.ok(await painel.locator('svg.graf-largo').count() >= 3);
+      // outro evento, excluído em seguida
+      await page.selectOption('select[name="categoria"]', 'Chuva');
+      await page.fill('input[name="inicio"]', `${d}T13:00`);
+      await page.fill('input[name="fim"]', `${d}T14:00`);
+      await page.getByRole('button', { name: 'Salvar evento' }).click();
+      await page.getByText(/Evento EV-\d{6}-\w{4} salvo\./).waitFor();
+      await page.locator('.item', { hasText: 'Chuva' }).getByRole('button', { name: /Excluir/ }).click();
+      await page.locator('.modal').getByRole('button', { name: 'Excluir' }).click();
+      await page.getByText(/excluído\./).waitFor();
+      assert.equal(await page.locator('.item', { hasText: 'Chuva' }).count(), 0);
+      const p = await aguardar(async () => { const x = await planilha(); return x.Eventos.some((e) => e['Tipo de evento'] === 'Chuva' && e['Excluído em']) && x; }, 'exclusão na planilha');
+      const atraso = p.Eventos.find((e) => e['Tipo de evento'] === 'Atraso da equipe');
+      assert.equal(atraso['OMs perdidas'], 83);
+      assert.equal(atraso['Impacto (h)'], 24);
+      assert.equal(atraso['Descrição'], 'Manutenção liberou o carro com atraso');
+      assert.match(atraso['Código do evento'], /^EV-\d{6}-\w{4}$/);
+      // PDF (impressão simulada)
+      await page.evaluate(() => { window.__impressoes = 0; window.print = () => { window.__impressoes++; }; });
+      await painel.getByRole('button', { name: 'Exportar PDF' }).click();
+      await page.waitForFunction(() => window.__impressoes === 1);
+      const pdf = page.locator('#laudo');
+      assert.ok((await pdf.textContent()).includes('Relatório de Eventos'));
+      assert.ok((await pdf.textContent()).includes('Manutenção liberou o carro com atraso'));
+      assert.ok(!(await pdf.textContent()).includes('Chuva'), 'evento excluído fora do PDF');
+      await page.emulateMedia({ media: 'print' });
+      await page.pdf({ path: `${SAIDA}04-eventos.pdf`, format: 'A4', printBackground: true, preferCSSPageSize: true });
+      await page.emulateMedia({ media: 'screen' });
+      await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+      await page.screenshot({ path: `${SAIDA}04-eventos-painel.png`, fullPage: true });
+    });
+
     await passo('produção: importa planilha do SAP (ciclo digitado)', async () => {
       await page.getByRole('navigation').getByRole('button', { name: 'Produção' }).click();
       await page.getByRole('heading', { name: 'Produção de OMs' }).waitFor();
@@ -243,12 +294,12 @@ async function main() {
       const p = await planilha();
       assert.equal(p.OMs.length, 40);
       assert.equal(p.OMs[0]['Ciclo'], '5');
-      await page.locator('.kpi').first().waitFor();
+      await page.locator('.kpi:visible').first().waitFor();
       await page.screenshot({ path: `${SAIDA}04-producao.png`, fullPage: true });
     });
 
     await passo('produção: marcar, desfazer e metas do dia', async () => {
-      const textoKpi = () => page.locator('.kpi').first().locator('.kpi-sub').textContent();
+      const textoKpi = () => page.locator('.kpi:visible').first().locator('.kpi-sub').textContent();
       assert.equal(await textoKpi(), '0 de 6 OMs');
       const oms = page.locator('.lista-om .om-botao');
       assert.equal(await oms.count(), 6);
@@ -258,7 +309,7 @@ async function main() {
       await page.waitForTimeout(800);
       await oms.nth(2).click();
       await aguardar(async () => (await textoKpi()) === '3 de 6 OMs', 'kpi 3 de 6');
-      assert.equal(await page.locator('.kpi').first().locator('.kpi-valor').textContent(), '50%');
+      assert.equal(await page.locator('.kpi:visible').first().locator('.kpi-valor').textContent(), '50%');
       // toque duplo rápido não desfaz sem querer
       await oms.nth(3).click();
       await oms.nth(3).click();
@@ -329,7 +380,7 @@ async function main() {
     await passo('produção: programação no calendário (adicionar, mover, retirar)', async () => {
       await page.locator('.seg-modo').getByRole('button', { name: 'Programação' }).click();
       await page.locator('.cal-dia.sel').waitFor();
-      const kpiDia = () => page.locator('.kpi').first().locator('.kpi-sub').textContent();
+      const kpiDia = () => page.locator('.kpi:visible').first().locator('.kpi-sub').textContent();
       assert.equal(await kpiDia(), '5 de 6 OMs');
       await page.getByRole('heading', { name: /^Programadas para .* \(6\)$/ }).waitFor();
       const cartaoAdd = page.locator('section.cartao').filter({ hasText: 'Adicionar OMs em' });
@@ -456,7 +507,7 @@ async function main() {
       await page.locator('input[type="file"][accept=".csv,.txt"]').setInputFiles({ name: 'TESTE.csv', mimeType: 'text/csv', buffer: Buffer.from(gerarCSV(), 'latin1') });
       await page.locator('.graf-km svg').first().waitFor();
       assert.deepEqual(await page.locator('.tabela:not(.tabela-offset)').first().locator('tbody .el-tag').allTextContents(), ['T02', 'T01', 'C01', 'C02']); // maior perda primeiro
-      assert.equal(await page.locator('.kpi').first().locator('.kpi-valor').textContent(), '5,0%');
+      assert.equal(await page.locator('.kpi:visible').first().locator('.kpi-valor').textContent(), '5,0%');
       await page.locator('.conf-ok', { hasText: 'Conferido' }).waitFor(); // dupla checagem independente
       const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Planilha de conferência' }).click()]);
       const planilhaConf = await (async () => { const st = await download.createReadStream(); const parts = []; for await (const ch of st) parts.push(ch); return Buffer.concat(parts).toString('utf8'); })();
@@ -465,7 +516,7 @@ async function main() {
       assert.equal(linhasConf.slice(1).filter((l) => l.split(';')[7] === '1').length, 200); // pontos acima da regra
       // os cartões batem com a planilha: pontos = soma de "Na estatística"; acima = acima e na estatística
       const naEst = linhasConf.slice(1).map((l) => l.split(';')).filter((c) => c[11] === '1');
-      const cartao = await page.locator('.kpi').first().locator('.kpi-sub').textContent();
+      const cartao = await page.locator('.kpi:visible').first().locator('.kpi-sub').textContent();
       assert.equal(cartao, `${naEst.filter((c) => c[7] === '1').length.toLocaleString('pt-BR')} de ${naEst.length.toLocaleString('pt-BR')} pontos`);
       const rk = page.locator('.tabela:not(.tabela-offset)').nth(1).locator('tbody tr').first();
       assert.equal(await rk.locator('td').nth(1).textContent(), '1+700');
@@ -613,7 +664,7 @@ async function main() {
         localStorage.setItem('em80:aba', JSON.stringify('producao'));
       }, [`${BASE}/exec`, srv.estado.token]);
       await pd.goto(BASE);
-      await pd.locator('.kpi').first().waitFor();
+      await pd.locator('.kpi:visible').first().waitFor();
       await pd.locator('.graf-alvo').first().hover();
       await pd.locator('.graf-tip:not([hidden])').waitFor();
       await pd.screenshot({ path: `${SAIDA}09-computador.png`, fullPage: true });
@@ -663,7 +714,7 @@ async function main() {
       await pa.getByRole('navigation').getByRole('button', { name: 'Eventos' }).click();
       await pa.selectOption('select[name="equipamento"]', 'OGMS');
       await pa.getByRole('button', { name: 'Iniciar agora' }).click();
-      await pa.getByText(/Falha iniciada às/).waitFor();
+      await pa.getByText(/iniciado às/).waitFor();
       await pa.locator('.sync-badge.erro, .sync-badge.pendente').waitFor();
       await pa.waitForTimeout(3500); // o pedido de código não reaparece em sequência
       await pa.locator('.sync-badge').click();
