@@ -14,7 +14,10 @@
   const { U } = App;
   const B = {};
 
-  /** Colunas usadas na análise, identificadas pelo título (sem espaços, acentos ou maiúsculas). */
+  /**
+   * Colunas usadas na análise, identificadas pelo título (sem espaços, acentos ou maiúsculas).
+   * Uma lista aceita nomes alternativos (o formato do CSV muda entre versões do carro).
+   */
   B.COLUNAS = {
     km: 'km',
     loc: 'localizacao',
@@ -29,6 +32,7 @@
     emp10: 'emp10',
     emp20: 'emp20',
     nl5: 'nlmax5',
+    nl10: 'nlmax10',
     nl20: 'nlmax20',
     nlTqi: 'nltqi',
     vrbt5: 'vrbtmax5',
@@ -37,7 +41,8 @@
     al20: 'al20b10',
     alr10: 'alr1010',
     alr20: 'alr1020',
-    val25: 'valb25'
+    val25: ['valb25', 'alvb25'],
+    al10mean: 'al10mean'
   };
 
   /** Parâmetros de alinhamento que podem ser exibidos junto com a bitola. */
@@ -47,12 +52,14 @@
     { id: 'al10', nome: 'AL10_B10' },
     { id: 'al20', nome: 'AL20_B10' },
     { id: 'alMax10', nome: 'ALmax_10' },
-    { id: 'val25', nome: 'VAL_B2,5' }
+    { id: 'val25', nome: 'VAL_B2,5 (ALv_B2,5)' },
+    { id: 'al10mean', nome: 'AL10mean' }
   ];
 
   /** Parâmetros de nivelamento para o ranking. */
   B.NIVELAMENTO = [
     { id: 'nl5', nome: 'NLmax_5' },
+    { id: 'nl10', nome: 'NLmax_10' },
     { id: 'nl20', nome: 'NLmax_20' },
     { id: 'emp2', nome: 'EMP_2 (empeno)' },
     { id: 'emp10', nome: 'EMP_10 (empeno)' },
@@ -64,8 +71,8 @@
 
   /** Parâmetros que podem ser vistos no gráfico selecionável (por grupo). */
   B.GRUPOS_GRAFICO = [
-    { grupo: 'Alinhamento', ids: ['alr10', 'alr20', 'al10', 'al20', 'alMax10', 'val25'] },
-    { grupo: 'Nivelamento longitudinal', ids: ['nl5', 'nl20'] },
+    { grupo: 'Alinhamento', ids: ['alr10', 'alr20', 'al10', 'al20', 'alMax10', 'val25', 'al10mean'] },
+    { grupo: 'Nivelamento longitudinal', ids: ['nl5', 'nl10', 'nl20'] },
     { grupo: 'Empeno e torção', ids: ['emp2', 'emp10', 'emp20', 'warp'] },
     { grupo: 'Superelevação', ids: ['sup'] },
     { grupo: 'Outros', ids: ['vrbt5'] }
@@ -132,7 +139,10 @@
 
     if (!cab) throw new Error('Cabeçalho (linha "H") não encontrado. Confira se é o arquivo gerado pelo carro controle.');
     const idx = {};
-    Object.entries(B.COLUNAS).forEach(([campo, chave]) => { idx[campo] = cab.indexOf(chave); });
+    Object.entries(B.COLUNAS).forEach(([campo, chave]) => {
+      const nomes = Array.isArray(chave) ? chave : [chave];
+      idx[campo] = nomes.map((nm) => cab.indexOf(nm)).find((i) => i >= 0) ?? -1;
+    });
     ['km', 'loc', 'bitF', 'bitT'].forEach((c) => {
       if (idx[c] < 0) throw new Error(`Coluna obrigatória não encontrada: ${c === 'loc' ? 'LOCALIZACAO' : c === 'bitF' ? 'Bitola F' : c === 'bitT' ? 'Bitola T' : 'KM'}.`);
     });

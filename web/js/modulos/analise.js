@@ -74,6 +74,12 @@
     }
     nomeArquivo = nome || 'arquivo.csv';
     textoArquivo = texto; // texto original, usado na conferência independente
+    // Parâmetro do gráfico que não existe neste formato de arquivo: usa o primeiro disponível.
+    const temDados = (id) => arquivo.dados[id] && arquivo.dados[id].some((v) => !Number.isNaN(v));
+    if (!temDados(opcoes.alinhamento)) {
+      const alt = B.GRUPOS_GRAFICO.flatMap((g) => g.ids).find(temDados);
+      if (alt) opcoes = { ...opcoes, alinhamento: alt };
+    }
     zoom = null;
     recalcular();
     if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto }).catch(() => {});
@@ -542,6 +548,20 @@
     ];
   }
 
+  /** Linha de total das tabelas: os mesmos pontos do cartão "Perda de bitola" (circuitos não entram). */
+  function valoresTotal(cols) {
+    const g = resultado.geral;
+    const temRh = resultado.elementos.some((e) => e.tipo === 'X' || e.rh);
+    return cols.map((c, k) => {
+      if (k === 0) return temRh ? 'Total (sem circuitos)' : 'Total';
+      if (c.t === 'Pontos') return int(g.pontos);
+      if (c.t === 'Pontos acima') return int(g.perdas);
+      if (c.t === 'Ext. acima (m)') return fmt(extAcima(g.perdas), 1);
+      if (c.t === '% perda') return `${fmt(g.pctPerda)}%`;
+      return '';
+    });
+  }
+
   function tabelaTela(cols, itens, aoClicar) {
     return h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela tabela-centro' },
       h('thead', null, h('tr', null, cols.map((c) => h('th', { text: c.t })))),
@@ -552,7 +572,8 @@
       }, cols.map((c) => {
         const v = c.v(x);
         return v instanceof Node ? h('td', { class: c.n ? 'num' : '' }, v) : h('td', { class: c.ev ? 'ev' : (c.n ? 'num' : ''), text: v });
-      }))))));
+      })))),
+      h('tfoot', null, h('tr', { class: 'linha-total' }, valoresTotal(cols).map((v, k) => h('td', { class: k ? 'num' : '', text: v }))))));
   }
 
   function renderElementos() {
@@ -806,7 +827,7 @@
       .map(({ titulo, op }) => ({ titulo, g: charts.graficoKm({ ...op, titulo, altura: 140 }) }));
 
     const nivel = B.NIVELAMENTO.filter((p) => arquivo.dados[p.id] && arquivo.dados[p.id].some((v) => !Number.isNaN(v)));
-    const tabelaCols = (cols, itens) => tabela(cols.map((c) => c.t), itens.map((x) => cols.map((c) => c.v(x))), 'centro');
+    const tabelaCols = (cols, itens) => tabela(cols.map((c) => c.t), [...itens.map((x) => cols.map((c) => c.v(x))), valoresTotal(cols)], 'centro');
     const off = opcoes.offset;
     const criterios = [
       `Bitola = ${B.NOMINAL} mm + valor do arquivo.`,
