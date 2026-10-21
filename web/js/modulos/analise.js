@@ -342,8 +342,8 @@
     ui.trocar(secoes.kpis, h('div', { class: 'kpis kpis-auto' },
       kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${int(r.geral.perdas)} de ${int(r.geral.pontos)} pontos`),
       kpi('Elementos com perda', `${r.tangentes.comPerda + r.curvas.comPerda} de ${r.tangentes.quantidade + r.curvas.quantidade}`, `acima de ${fmt(opcoes.limiteElemento ?? 10, 0)}%`),
-      kpi('Em tangentes', `${fmt(r.tangentes.pctPerda)}%`, `${r.tangentes.comPerda} de ${r.tangentes.quantidade} com perda`),
-      kpi('Em curvas', `${fmt(r.curvas.pctPerda)}%`, `${r.curvas.comPerda} de ${r.curvas.quantidade} com perda`),
+      kpi('Em tangentes', `${fmt(r.tangentes.pctPerda)}%`, `${int(r.tangentes.perdas)} de ${int(r.tangentes.pontos)} pontos`),
+      kpi('Em curvas', `${fmt(r.curvas.pctPerda)}%`, `${int(r.curvas.perdas)} de ${int(r.curvas.pontos)} pontos`),
       kpi('OGMS − KLD', `${fmt(r.geral.difKldMedia, 2)} mm`, 'diferença média')));
   }
 
@@ -604,7 +604,7 @@
     const doPonto = new Array(pos.length);
     r.elementos.forEach((e) => { for (let i = e.i0; i <= e.i1; i++) doPonto[i] = e; });
     const num = (v, casas = 2) => (Number.isNaN(v) ? '' : v.toFixed(casas).replace('.', ','));
-    const linhas = ['KM;LOCALIZACAO;Linha;Bitola F;Bitola T;F - T;|F - T| (módulo);Acima do limite (1 = sim);Elemento;EH / RH;Fora da estatística (circuito)'];
+    const linhas = ['KM;LOCALIZACAO;Linha;Bitola F;Bitola T;F - T;|F - T| (módulo);Acima do limite (1 = sim);Elemento;Tipo;EH / RH;Na estatística (1 = sim)'];
     for (let i = 0; i < pos.length; i++) {
       const e = doPonto[i] || {};
       const dif = B.difBitola(dados.bitF[i], dados.bitT[i]);
@@ -613,7 +613,8 @@
         km, num(pos[i] - km * 1000), arquivo.linhasValores ? arquivo.linhasValores[arquivo.linhaIdx[i]] : '',
         num(dados.bitF[i]), num(dados.bitT[i]), num(dif), num(Math.abs(dif)),
         Number.isNaN(dif) ? '' : (B.ehPerda(dif, lim) ? 1 : 0),
-        e.sigla || '', e.trecho || e.eh || '', r.mascara && !r.mascara[i] ? 1 : 0
+        e.sigla || '', !e.tipo ? '' : (e.tipo === 'X' || e.rh ? 'Circuito' : (e.tipo === 'C' ? 'Curva' : 'Tangente')),
+        e.trecho || e.eh || '', (r.mascara && !r.mascara[i]) || Number.isNaN(dif) ? 0 : 1
       ].join(';'));
     }
     const blob = new Blob(['\ufeff' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -636,8 +637,8 @@
     const depois = B.avaliarPerda(simulado, lim, 0, simulado.bitF.length - 1, mascara);
     const porTipo = (dados, tipo) => {
       let pontos = 0; let perdas = 0;
-      resultado.elementos.filter((e) => e.tipo === tipo).forEach((e) => {
-        const x = B.avaliarPerda(dados, lim, e.i0, e.i1);
+      resultado.elementos.filter((e) => e.tipo === tipo && !e.rh).forEach((e) => {
+        const x = B.avaliarPerda(dados, lim, e.i0, e.i1, mascara);
         pontos += x.pontos; perdas += x.perdas;
       });
       return pontos ? (perdas / pontos) * 100 : null;
