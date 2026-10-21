@@ -384,3 +384,20 @@ test('elementos pelo raio: oscilação na tangente e curva aberta com ruído nã
   assert.equal(els2.length, els.length);
   assert.ok(Math.abs(els2.reduce((s, e) => s + e.extensao, 0) - 2000) < 2);
 });
+
+test('resumo por trecho: o mesmo EH percorrido duas vezes (ida e volta) fica em duas linhas, sem somar elementos', () => {
+  const els = B.elementosDaPlanta(B.lerPlanta(plantaSintetica()), 'TST', '1');
+  // ida de 1.760 a 2.531 e volta de 2.531 a 1.760 (EH 11: tangente, curva, tangente)
+  const ida = []; for (let p = 1760; p < 2531; p += 0.25) ida.push(p);
+  const pos = Float64Array.from([...ida, ...[...ida].reverse()]);
+  const n = pos.length;
+  const dados = {}; Object.keys(B.COLUNAS).forEach((c) => { dados[c] = new Float64Array(n).fill(NaN); });
+  pos.forEach((p, i) => { dados.curv[i] = p >= 2030 && p < 2230 ? (i < ida.length ? 20 : -20) : 0; dados.bitF[i] = 0; dados.bitT[i] = 0; });
+  const arq = { pos, dados, eventos: [], avisos: [], meta: { ramal: 'TST', linha: '1' } };
+  for (const modo of ['curvatura', 'hibrido', 'planta']) {
+    const r = B.analisar(arq, { modo, elementosPlanta: els, ajusteKm: 0 });
+    const eh11 = r.porEh.filter((g) => g.eh === 'EH 11/12');
+    assert.equal(eh11.length, 2, modo);
+    assert.deepEqual(j(eh11.map((g) => [g.passada, g.tangentes, g.curvas])), [[1, 2, 1], [2, 2, 1]], modo);
+  }
+});

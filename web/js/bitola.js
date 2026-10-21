@@ -260,6 +260,31 @@
   };
 
   /**
+   * Parte do arquivo em cada ponto: muda quando o carro inverte o sentido de marcha (o km passa a andar
+   * ao contrário por pelo menos 10 m). Uma volta de km isolada (correção em campo) não conta.
+   */
+  B.partesPorSentido = (pos, esp) => {
+    const n = pos.length;
+    const parte = new Uint32Array(n);
+    const passo = (i) => {
+      const d = pos[i] - pos[i - 1];
+      return !Number.isFinite(d) || d === 0 || Math.abs(d) > 5 * esp ? 0 : Math.sign(d);
+    };
+    const meia = Math.max(2, Math.round(10 / esp));
+    let soma = 0; // soma dos sinais dos passos na janela [i - meia, i + meia]
+    for (let i = 1; i <= Math.min(n - 1, meia); i++) soma += passo(i);
+    let sentido = Math.sign(soma) || 1; let p = 0;
+    for (let i = 0; i < n; i++) {
+      if (i + meia + 1 < n) soma += passo(i + meia + 1);
+      if (i - meia >= 1) soma -= passo(i - meia);
+      const s = Math.sign(soma);
+      if (s && s !== sentido) { sentido = s; p++; }
+      parte[i] = p;
+    }
+    return parte;
+  };
+
+  /**
    * Elementos pelo raio medido (coluna 10000/R), na ordem de inspeção.
    * 1. Raio suavizado por média móvel (suavizacao, em m).
    * 2. Classificação com histerese: entra em curva quando o raio fica ≤ raioCurva;
@@ -294,16 +319,17 @@
       classe[i] = est;
     }
 
-    // 2) Trechos contínuos.
+    // 2) Trechos contínuos. Onde o carro inverte o sentido (manobra, ida e volta) o elemento é cortado.
+    const parte = B.partesPorSentido(pos, esp);
     let seg = [];
     for (let i = 0, ini = 0; i <= n; i++) {
-      if (i === n || classe[i] !== classe[ini]) { seg.push({ c: classe[ini], i0: ini, i1: i - 1 }); ini = i; }
+      if (i === n || classe[i] !== classe[ini] || parte[i] !== parte[ini]) { seg.push({ c: classe[ini], p: parte[ini], i0: ini, i1: i - 1 }); ini = i; }
     }
     const ext = (s) => dist[s.i1] - dist[s.i0] + esp;
     const juntar = () => {
       seg = seg.reduce((acc, x) => {
         const u = acc[acc.length - 1];
-        if (u && u.c === x.c) u.i1 = x.i1; else acc.push({ ...x });
+        if (u && u.c === x.c && u.p === x.p) u.i1 = x.i1; else acc.push({ ...x });
         return acc;
       }, []);
     };
@@ -321,6 +347,7 @@
       seg.forEach((s, j) => {
         const curto = s.c === 'T'
           ? ext(s) < o.tangenteMin && seg[j - 1] && seg[j + 1] && seg[j - 1].c !== 'T' && seg[j + 1].c !== 'T'
+            && seg[j - 1].p === s.p && seg[j + 1].p === s.p
           : ext(s) < o.curvaMin || mediaAbs(s) < kEntra;
         if (curto && (alvo < 0 || ext(s) < ext(seg[alvo]))) alvo = j;
       });
@@ -343,7 +370,7 @@
     const foraDaCurva = (i) => Number.isNaN(fino[i]) || Math.abs(fino[i]) < kSai;
     for (let j = 0; j < seg.length - 1; j++) {
       const a = seg[j]; const b = seg[j + 1];
-      if ((a.c === 'T') === (b.c === 'T')) continue; // só tangente ↔ curva
+      if ((a.c === 'T') === (b.c === 'T') || a.p !== b.p) continue; // só tangente ↔ curva, no mesmo sentido
       const lim0 = Math.max(a.i0 + 1, a.i1 - janela); const lim1 = Math.min(b.i1, a.i1 + 1 + janela);
       let novo = a.i1 + 1; // primeiro ponto do segundo trecho
       if (b.c !== 'T') { // entra na curva: da curva para trás até achar tangente
@@ -826,10 +853,11 @@
 
     // 3) Junta pedaços vizinhos com o mesmo elemento da planta.
     const saida = [];
+    const parte = B.partesPorSentido(pos, esp);
     pedacos.forEach((p) => {
       const r = rotulo(p);
       const u = saida[saida.length - 1];
-      if (u && u.chave === r.chave) { u.i1 = p.i1; return; }
+      if (u && u.chave === r.chave && parte[u.i0] === parte[p.i0]) { u.i1 = p.i1; return; }
       saida.push({ ...r, i0: p.i0, i1: p.i1 });
     });
     return saida.map(({ chave, ...e }) => ({ ...e, ini: pos[e.i0], fim: pos[e.i1], extensao: abs(pos[e.i1] - pos[e.i0]) + esp, linha: linhaPlanta }));
@@ -874,9 +902,10 @@
     const linhaPlanta = els.length ? els[0].linha : '';
     const seg = [];
     let atual = null;
+    const parte = B.partesPorSentido(pos, esp); // inversão de sentido: outro elemento
     for (let i = 0; i < n; i++) {
       const el = achar ? achar(i, pos[i] + ajuste) : naPlanta(els, pos[i] + ajuste);
-      if (!atual || atual.ref !== el) {
+      if (!atual || atual.ref !== el || parte[i] !== parte[atual.i0]) {
         atual = { ref: el, i0: i, i1: i };
         seg.push(atual);
       } else {
@@ -1009,7 +1038,12 @@
     elementos.forEach((e) => coberto.fill(1, e.i0, e.i1 + 1));
     coberto.forEach((v, i) => { if (!v) mascara[i] = 0; });
     const geral = resumoTrecho(dados, 0, pos.length - 1, o, { ...extras, mascara });
-    let foraRh = 0; mascara.forEach((v) => { if (!v) foraRh++; });
+    let foraRh = 0; let pontosCircuito = 0;
+    mascara.forEach((v, i) => {
+      if (v) return;
+      foraRh++;
+      if (!Number.isNaN(B.difBitola(dados.bitF[i], dados.bitT[i]))) pontosCircuito++; // F e T lidas, mas em circuito
+    });
     const extensaoRh = foraRh * esp;
 
     // Totais = soma dos pontos dos elementos (mesma regra do geral) e quantos elementos perderam a bitola.
@@ -1028,10 +1062,24 @@
     // Resumo por trecho (EH e RH; com planta), na ordem da inspeção.
     const porEh = [];
     if (usarPlanta || locais) {
+      // Um grupo por passada: o mesmo EH percorrido de novo (ida pela L1 e volta pela L2, ou outra passada
+      // no mesmo km) é outro grupo. Muda de grupo quando muda o EH/RH ou o sentido do km.
+      const sentido = (e) => Math.sign(pos[e.i1] - pos[e.i0]);
       elementos.forEach((e) => {
-        let g = porEh.find((x) => x.eh === e.eh);
-        if (!g) { g = { eh: e.eh, rh: e.tipo === 'X' || !!e.rh, linha: e.linha, els: [] }; porEh.push(g); }
+        let g = porEh[porEh.length - 1];
+        const sen = sentido(e);
+        if (!g || g.eh !== e.eh || (sen && g.sentido && sen !== g.sentido)) {
+          g = { eh: e.eh, rh: e.tipo === 'X' || !!e.rh, linha: e.linha, els: [], sentido: sen };
+          porEh.push(g);
+        } else if (!g.sentido) g.sentido = sen;
         g.els.push(e);
+      });
+      const vezes = new Map(); porEh.forEach((g) => vezes.set(g.eh, (vezes.get(g.eh) || 0) + 1));
+      const ordem = new Map();
+      porEh.forEach((g) => {
+        if (vezes.get(g.eh) < 2) return;
+        const k = (ordem.get(g.eh) || 0) + 1; ordem.set(g.eh, k);
+        g.passada = k; // 1ª, 2ª… passada no mesmo EH/RH
       });
       porEh.forEach((g) => {
         const r = resumoTrecho(dados, Math.min(...g.els.map((e) => e.i0)), Math.max(...g.els.map((e) => e.i1)), o, extras);
@@ -1040,6 +1088,18 @@
         // Elemento com a maior perda de bitola no trecho (na RH, o próprio pátio).
         const pior = g.els.reduce((m, e) => ((e.pctPerda ?? -1) > (m ? m.pctPerda ?? -1 : -2) ? e : m), null);
         g.pior = pior ? { sigla: pior.sigla, tipo: pior.tipo, nome: pior.nome, pctPerda: pior.pctPerda, ini: pior.ini, fim: pior.fim } : null;
+        // Quantos elementos a planta tem no mesmo trecho percorrido (para comparar com o que foi medido).
+        if (!g.rh && temPlanta) {
+          const vistos = new Set();
+          const passo = Math.max(1, Math.round(1 / esp));
+          const i0 = Math.min(...g.els.map((e) => e.i0)); const i1 = Math.max(...g.els.map((e) => e.i1));
+          for (let i = i0; i <= i1; i += passo) {
+            const el = o.localizar ? o.localizar(i, pos[i] + (o.ajusteKm || 0)) : naPlanta(o.elementosPlanta, pos[i] + (o.ajusteKm || 0));
+            if (el) vistos.add(el);
+          }
+          const pl = [...vistos];
+          g.planta = { tangentes: pl.filter((e) => e.tipo === 'T').length, curvas: pl.filter((e) => e.tipo === 'C').length };
+        }
         delete g.els;
       });
     }
@@ -1053,7 +1113,7 @@
       dados,
       elementos,
       porEh,
-      geral: { ...geral, extensao: abs(pos[pos.length - 1] - pos[0]) + esp, extensaoRh },
+      geral: { ...geral, extensao: abs(pos[pos.length - 1] - pos[0]) + esp, extensaoRh, pontosCircuito },
       tangentes: somar(elementos.filter((e) => e.tipo === 'T' && !e.rh)), // elementos dentro de circuito não contam
       curvas: somar(elementos.filter((e) => e.tipo === 'C' && !e.rh)),
       difFT: B.diferenca(dados.bitF, dados.bitT),

@@ -70,7 +70,8 @@ Coluna usada: `10000/R` (R = raio em metros). Raio de 3.000 m → 10000/R = 3,33
    - tangente com menos de **20 m** entre duas curvas: do mesmo lado, une as curvas; de lados opostos, é dividida entre as duas.
 4. **Início e fim da curva:** ajustados no 10000/R pouco suavizado (5 m), no ponto onde ele cruza o raio de saída (6.000 m), até 20 m do limite encontrado no passo 2.
 5. **Extensão:** distância percorrida entre os pontos (não usa o km). Se o km volta ou salta (correção em campo), conta só o espaçamento normal.
-6. Numeração na ordem do arquivo: Tangente 01 (T01), Curva 01 (C01), Tangente 02…
+6. **Inversão de sentido** (o km passa a andar ao contrário por pelo menos 10 m, ex.: ida pela L1 e volta pela L2): o elemento é cortado ali, em todos os modos. Uma volta de km isolada (correção em campo) não conta.
+7. Numeração na ordem do arquivo: Tangente 01 (T01), Curva 01 (C01), Tangente 02…
 
 Todos os valores em **negrito** podem ser alterados em Critérios da análise.
 
@@ -136,7 +137,8 @@ Todos os valores em **negrito** podem ser alterados em Critérios da análise.
 
 ## 12. Resumo por trecho (EH e RH)
 
-- Agrupa os elementos pelo EH/RH.
+- Agrupa os elementos pelo EH/RH **e pela passada**: se o arquivo passa duas vezes pelo mesmo EH (ida e volta, ou outra passada no mesmo km), cada passada é uma linha ("EH 42/43 (2ª passada)"). Muda de grupo quando muda o EH/RH ou o sentido do km.
+- **Medidos (T + C)** × **Na planta (T + C)**: tangentes e curvas encontradas no arquivo e as que a planta tem no mesmo trecho percorrido.
 - Pontos, pontos acima, extensão acima e % de perda: soma dos elementos do trecho (item 3.3).
 - "Perderam": quantos elementos do trecho passaram de 10%.
 - "Maior perda": elemento do trecho com a maior % de perda.
@@ -150,6 +152,7 @@ Todos os valores em **negrito** podem ser alterados em Critérios da análise.
   - Tudo igual: selo **✓ Conferido** na tabela de elementos.
   - Diferente: botão **⚠ N divergência(s)** com o elemento, os pontos e os pontos acima pelo app e pela conferência, e a lista dos pontos onde o km volta.
   - Elemento que atravessa um circuito é conferido inteiro (antes de tirar os pontos do RH).
+- **Cartão Perda de bitola:** mostra também quantos pontos com F e T lidas estão em circuito (fora da estatística). Pontos do cartão + pontos em circuito = linhas da planilha com F − T preenchida.
 - **Planilha de conferência (CSV para o Excel):** um ponto por linha, com KM, LOCALIZACAO, Linha, Bitola F, Bitola T, F − T (arredondada), **|F − T| (módulo)**, "Acima do limite" (1 = sim), Elemento, **Tipo** (Tangente, Curva ou Circuito), EH/RH e **"Na estatística"** (1 = sim).
   - Cartões: filtre **Na estatística = 1**. **Pontos** = quantidade de linhas; **pontos acima** = soma de "Acima do limite". Para "Em tangentes" / "Em curvas", filtre também o Tipo.
   - Um elemento (tabela de elementos): filtre a coluna Elemento; pontos = linhas com F − T preenchida (e Na estatística = 1, se ele atravessa um circuito); pontos acima = soma de "Acima do limite".

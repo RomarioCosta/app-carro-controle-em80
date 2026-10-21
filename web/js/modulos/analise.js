@@ -351,7 +351,7 @@
       h('div', { class: 'kpi-valor', text: valor }),
       h('div', { class: 'kpi-sub', text: sub }));
     ui.trocar(secoes.kpis, h('div', { class: 'kpis kpis-auto' },
-      kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${int(r.geral.perdas)} de ${int(r.geral.pontos)} pontos`),
+      kpi('Perda de bitola', `${fmt(r.geral.pctPerda)}%`, `${int(r.geral.perdas)} de ${int(r.geral.pontos)} pontos${r.geral.pontosCircuito ? ` · ${int(r.geral.pontosCircuito)} em circuito (fora)` : ''}`),
       kpi('Elementos com perda', `${r.tangentes.comPerda + r.curvas.comPerda} de ${r.tangentes.quantidade + r.curvas.quantidade}`, `acima de ${fmt(opcoes.limiteElemento ?? 10, 0)}%`),
       kpi('Em tangentes', `${fmt(r.tangentes.pctPerda)}%`, `${int(r.tangentes.perdas)} de ${int(r.tangentes.pontos)} pontos`),
       kpi('Em curvas', `${fmt(r.curvas.pctPerda)}%`, `${int(r.curvas.perdas)} de ${int(r.curvas.pontos)} pontos`),
@@ -538,7 +538,7 @@
       return paraLaudo ? texto : h('span', { class: `el-tag ${p.tipo === 'C' ? 'el-curva' : 'el-tangente'}`, text: p.sigla, title: texto });
     };
     return [
-      { t: 'EH / RH', v: (g) => g.eh },
+      { t: 'EH / RH', v: (g) => (g.passada ? `${g.eh} (${g.passada}ª passada)` : g.eh) },
       { t: 'Linha', v: (g) => g.linha || linhaAtual() },
       { t: 'Início', v: (g) => B.fmtKm(g.ini) },
       { t: 'Fim', v: (g) => B.fmtKm(g.fim) },
@@ -547,6 +547,8 @@
       { t: 'Pontos acima', n: true, v: (g) => int(g.perdas) },
       { t: 'Ext. acima (m)', n: true, v: (g) => fmt(extAcima(g.perdas), 1) },
       { t: '% perda', n: true, v: (g) => `${fmt(g.pctPerda)}%` },
+      { t: 'Medidos (T + C)', n: true, v: (g) => (g.rh ? '—' : `${g.tangentes || 0} + ${g.curvas || 0}`) },
+      { t: 'Na planta (T + C)', n: true, v: (g) => (g.planta ? `${g.planta.tangentes} + ${g.planta.curvas}` : '—') },
       { t: `Perderam (>${fmt(opcoes.limiteElemento ?? 10, 0)}%)`, n: true, v: (g) => (g.rh ? '—' : `${g.comPerda || 0} de ${(g.tangentes || 0) + (g.curvas || 0)}`) },
       { t: 'Maior perda', v: (g) => nomeEl(g.pior) },
       { t: '% do elemento', n: true, v: (g) => (g.pior ? `${fmt(g.pior.pctPerda)}%` : '—') }
@@ -630,7 +632,7 @@
     const doPonto = new Array(pos.length);
     r.elementos.forEach((e) => { for (let i = e.i0; i <= e.i1; i++) doPonto[i] = e; });
     const num = (v, casas = 2) => (Number.isNaN(v) ? '' : v.toFixed(casas).replace('.', ','));
-    const linhas = ['KM;LOCALIZACAO;Linha;Bitola F;Bitola T;F - T;|F - T| (módulo);Acima do limite (1 = sim);Elemento;Tipo;EH / RH;Na estatística (1 = sim)'];
+    const linhas = ['KM;LOCALIZACAO;Linha;Bitola F;Bitola T;F - T;|F - T| (módulo);Acima do limite (1 = sim);Elemento;Tipo;EH / RH;Na estatística (1 = sim; 0 = circuito ou sem F/T)'];
     for (let i = 0; i < pos.length; i++) {
       const e = doPonto[i] || {};
       const dif = B.difBitola(dados.bitF[i], dados.bitT[i]);
