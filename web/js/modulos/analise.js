@@ -20,7 +20,11 @@
   let nomeArquivo = '';
   let resultado = null; // resultado de B.analisar
   const OPCOES_PADRAO = { ...B.PADRAO, alinhamento: 'alr10', modo: 'hibrido', ajusteKm: 'auto', offset: { bitola: 'bitT', valor: 0, aplicar: false }, bitolas: ['bitF', 'bitT'] };
-  let opcoes = { ...OPCOES_PADRAO, ...(U.pref.get('bitola:opcoes', {}) || {}) };
+  const opcoesSalvas = { ...(U.pref.get('bitola:opcoes', {}) || {}) };
+  if ('limiarCurva' in opcoesSalvas) { // versão antiga (curvatura): passa a valer o padrão do método pelo raio
+    delete opcoesSalvas.limiarCurva; delete opcoesSalvas.suavizacao;
+  }
+  let opcoes = { ...OPCOES_PADRAO, ...opcoesSalvas };
   let planta = null; // { nome, importadoEm, elementos, ramais }
   let infoPlanta = null; // { ramal, linha, ajuste, acerto, qtd, automatico }
   const cacheAjuste = new Map();
@@ -98,7 +102,7 @@
     // O ramal vem do arquivo CSV. A localização (EH/RH e elemento) é feita pelo km; a coluna LINHA
     // só escolhe a linha da planta consultada primeiro e é mostrada como informação (pode ser 0, 1, 2, 3 ou um texto).
     const ramal = B.ramalDaPlanta(arquivo.meta.ramal, planta.ramais);
-    if (!ramal) { problemaPlanta = `O ramal do arquivo (${arquivo.meta.ramal || '—'}) não existe na planta. Elementos identificados pela curvatura.`; return null; }
+    if (!ramal) { problemaPlanta = `O ramal do arquivo (${arquivo.meta.ramal || '—'}) não existe na planta. Elementos identificados pelo raio.`; return null; }
     const linhasPlanta = (planta.ramais[ramal] || []).map(String);
     // Linha de referência: a linha válida mais frequente no arquivo; sem nenhuma válida, a L1 (ou a primeira do ramal).
     const contagem = new Map();
@@ -112,7 +116,7 @@
     const els = B.elementosDaPlanta(planta, ramal, linha);
     let ajuste = 0; let acerto = null; const automatico = opcoes.ajusteKm === 'auto';
     if (automatico) {
-      const k = `${nomeArquivo}|${arquivo.pos.length}|${ramal}|${linha}|${opcoes.limiarCurva}|${opcoes.suavizacao}`;
+      const k = `${nomeArquivo}|${arquivo.pos.length}|${ramal}|${linha}|${opcoes.raioCurva}|${opcoes.suavizacao}`;
       if (!cacheAjuste.has(k)) cacheAjuste.set(k, B.ajusteAutomatico(arquivo.pos, arquivo.dados.curv, els, opcoes));
       ({ ajuste, acerto } = cacheAjuste.get(k));
     } else {
@@ -204,7 +208,7 @@
     const input = h('input', { type: 'file', accept: '.xls,.xlsx', onchange: (e) => { const f = e.target.files[0]; if (f) importarPlanta(f); } });
     const resumo = planta
       ? `${planta.nome} · ${planta.elementos.length.toLocaleString('pt-BR')} elementos · ramais ${Object.keys(planta.ramais).join(', ')} · importada em ${U.fmtData(planta.importadoEm)}`
-      : 'Importe a planilha "Planta da linha" para separar os elementos por EH e linha. Sem ela, os elementos são identificados pela curvatura.';
+      : 'Importe a planilha "Planta da linha" para separar os elementos por EH e linha. Sem ela, os elementos são identificados pelo raio.';
     ui.trocar(secoes.planta, h('details', { class: 'cartao detalhes', open: !planta || null },
       h('summary', null, h('strong', { text: 'Planta da linha' }), h('span', { class: 'sub', text: planta ? ` · ${planta.elementos.length.toLocaleString('pt-BR')} elementos` : ' · não importada' })),
       h('div', { class: 'pilha', style: { marginTop: '10px' } },
@@ -287,7 +291,7 @@
     const conf = infoPlanta && infoPlanta.conferencia;
     const blocoPlanta = planta ? h('div', { class: 'pilha' },
       ui.campo('Elementos', h('div', { class: 'seg seg-modos-analise', role: 'group' },
-        [['hibrido', 'Curvatura + planta'], ['planta', 'Pelo km da planta'], ['curvatura', 'Só curvatura']].map(([v, r]) => h('button', {
+        [['hibrido', 'Raio + planta'], ['planta', 'Pelo km da planta'], ['curvatura', 'Só raio']].map(([v, r]) => h('button', {
           type: 'button',
           class: `seg-opcao${opcoes.modo === v ? ' ativo' : ''}`,
           'aria-pressed': opcoes.modo === v ? 'true' : 'false',
@@ -309,16 +313,17 @@
 
     ui.trocar(secoes.parametros, h('details', { class: 'cartao detalhes' },
       h('summary', null, h('strong', { text: 'Critérios da análise' }),
-        h('span', { class: 'sub', text: ` · ${usandoPlanta ? `elementos da planta (${infoPlanta.ramal}, pelo km, correção ${fmt(infoPlanta.ajuste, 0)} m)` : `curva a partir de |10000/R| ${opcoes.limiarCurva}`} · perda acima de ${opcoes.limitePerda} mm` })),
+        h('span', { class: 'sub', text: ` · ${usandoPlanta ? `elementos da planta (${infoPlanta.ramal}, pelo km, correção ${fmt(infoPlanta.ajuste, 0)} m)` : `curva com raio até ${int(opcoes.raioCurva)} m`} · perda acima de ${opcoes.limitePerda} mm` })),
       h('div', { class: 'pilha', style: { marginTop: '12px' } },
         blocoPlanta,
         h('div', { class: 'grade-2' },
           numero('limitePerda', 'Limite de perda de bitola (mm)', '|Bitola F − Bitola T| acima disso = perda.'),
           numero('limiteElemento', 'Elemento perdeu a bitola acima de (%)', 'Curva ou tangente com % de perda acima disso conta como elemento que perdeu a bitola.'),
           numero('limiteVariacao', 'Limite de variação rápida (mm)', 'Desvio padrão da bitola em 1 m acima disso = provável erro de leitura.'),
-          numero('limiarCurva', 'Limite de curva (|10000/R|)', 'Abaixo disso é tangente. 3 ≈ raio de 3.333 m.'),
-          numero('suavizacao', 'Suavização da curvatura (m)', 'Média móvel para evitar oscilações.'),
-          numero('comprimentoMin', 'Comprimento mínimo do elemento (m)', 'Só no modo pela curvatura: trechos menores são unidos ao vizinho.'))),
+          numero('raioCurva', 'Raio máximo de curva (m)', 'Raio medido até este valor é curva; volta a tangente acima do dobro.'),
+          numero('suavizacao', 'Suavização do raio (m)', 'Média móvel do 10000/R.'),
+          numero('curvaMin', 'Curva mínima (m)', 'Curva mais curta vira tangente.'),
+          numero('tangenteMin', 'Tangente mínima entre curvas (m)', 'Mais curta, entre duas curvas: une (mesmo lado) ou divide entre elas (curva reversa).'))),
       h('button', {
         class: 'btn btn-fantasma',
         onclick: () => {
@@ -381,7 +386,7 @@
     const fino = { classe: 'graf-fino' };
     const offsetTxt = opcoes.offset.aplicar && opcoes.offset.valor ? ` · offset ${fmt(opcoes.offset.valor, 1)} mm em ${NOMES_BITOLA[opcoes.offset.bitola]}` : '';
     return [
-      { titulo: 'Curvatura (10000/R) — tangentes e curvas', op: { ...base, series: [{ nome: '10000/R', valores: d.curv, classe: 's1' }], referencias: [opcoes.limiarCurva, -opcoes.limiarCurva], eventos } },
+      { titulo: 'Raio (10000/R) — tangentes e curvas', op: { ...base, series: [{ nome: '10000/R', valores: d.curv, classe: 's1' }], referencias: [10000 / opcoes.raioCurva, -10000 / opcoes.raioCurva], eventos } },
       { titulo: `Bitolas (mm): ${nomesEscolhidas}${offsetTxt}`, seletor: 'bitolas', op: { ...base, ...fino, altura: 230, estilo: 'faixa', corteY: 0.01, series: escolhidas.map((k) => serieBitola[k]) } },
       { titulo: `${B.parametroGrafico(opcoes.alinhamento).grupo}: ${nomeAlin}`, seletor: 'alinhamento', op: { ...base, ...fino, series: [{ nome: nomeAlin, valores: d[opcoes.alinhamento], classe: 's1' }] } },
       { titulo: `Diferença Bitola F − Bitola T (mm) — perda acima de ±${fmt(lim, 0)} mm`, op: { ...base, ...fino, series: [{ nome: 'F − T', valores: r.difFT, classe: 's1' }, { nome: 'Perda', valores: alertas, classe: 's-alerta', tipo: 'pontos' }], referencias: [lim, -lim], legenda: false } },
@@ -490,7 +495,7 @@
     cols.push({ t: 'Linha', v: (e) => e.linha || linhaAtual() });
     cols.push({ t: 'Elemento', v: (e) => (paraLaudo ? (e.tipo === 'X' ? 'Circuito' : `${e.tipo === 'C' ? 'Curva' : 'Tangente'} ${e.sigla.slice(1)}`) : h('span', { class: `el-tag ${e.tipo === 'C' ? 'el-curva' : e.tipo === 'X' ? 'el-fora' : 'el-tangente'}`, text: e.sigla, title: e.nome })) });
     if (planta) cols.push({ t: 'Lado', v: (e) => (e.tipo === 'C' ? (e.lado === 'D' ? 'Dir.' : e.lado === 'E' ? 'Esq.' : '—') : '') });
-    // Só curvatura: elemento(s) da planta a que o km do elemento pertence (o de mais pontos primeiro).
+    // Só raio: elemento(s) da planta a que o km do elemento pertence (o de mais pontos primeiro).
     cols.push(
       { t: 'Início', v: (e) => B.fmtKm(e.ini) },
       { t: 'Fim', v: (e) => B.fmtKm(e.fim) },
@@ -834,8 +839,8 @@
       `Ponto acima da regra: |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm, com a diferença arredondada a 0,01 mm (exatamente ${fmt(opcoes.limitePerda, 0)},00 mm não está acima); só pontos com Bitola F e T lidas. % perda = pontos acima da regra ÷ total de pontos. Curva ou tangente perdeu a bitola quando a % de perda passa de ${fmt(opcoes.limiteElemento ?? 10, 0)}%. * = elemento com menos de 90% dos pontos com leitura.`,
       `Variação rápida quando o desvio padrão da bitola em 1 m passa de ${fmt(opcoes.limiteVariacao, 1)} mm.`,
       r.modo !== 'curvatura'
-        ? `${r.modo === 'hibrido' ? 'Elementos com limites pela curvatura medida e nomes da planta da linha' : 'Elementos pelo km da planta da linha'} (${planta.nome}), por trecho EH x/y e RH (circuito); circuitos (RH) fora das estatísticas gerais: ramal ${infoPlanta.ramal} do arquivo CSV, localização pelo km (a coluna LINHA é só informativa), correção do km de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automático' + (infoPlanta.acerto !== null ? `, curvas coincidentes em ${fmt(infoPlanta.acerto, 0)}% do trecho` : '') + ')' : ''}.`
-        : `Elementos pela curvatura: curva quando |10000/R| ≥ ${fmt(opcoes.limiarCurva, 1)} (média móvel de ${fmt(opcoes.suavizacao, 0)} m; elementos com menos de ${fmt(opcoes.comprimentoMin, 0)} m unidos ao vizinho).`,
+        ? `${r.modo === 'hibrido' ? 'Elementos com limites pelo raio medido e nomes da planta da linha' : 'Elementos pelo km da planta da linha'} (${planta.nome}), por trecho EH x/y e RH (circuito); circuitos (RH) fora das estatísticas gerais: ramal ${infoPlanta.ramal} do arquivo CSV, localização pelo km (a coluna LINHA é só informativa), correção do km de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automático' + (infoPlanta.acerto !== null ? `, curvas coincidentes em ${fmt(infoPlanta.acerto, 0)}% do trecho` : '') + ')' : ''}.`
+        : `Elementos pelo raio medido (10000/R, média móvel de ${fmt(opcoes.suavizacao, 0)} m): curva com raio até ${int(opcoes.raioCurva)} m, volta a tangente acima de ${int(opcoes.raioCurva * 2)} m; curva mínima ${fmt(opcoes.curvaMin, 0)} m; tangente menor que ${fmt(opcoes.tangenteMin, 0)} m entre curvas é absorvida por elas.`,
       off.aplicar && off.valor ? `Offset de ${fmt(off.valor, 1)} mm aplicado em ${NOMES_BITOLA[off.bitola]}.` : ''
     ].filter(Boolean).join(' ');
 

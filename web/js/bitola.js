@@ -85,9 +85,11 @@
   };
 
   B.PADRAO = {
-    limiarCurva: 3, // |10000/R| a partir do qual o trecho é curva (R ≈ 3.333 m)
-    suavizacao: 10, // metros (média móvel da curvatura)
-    comprimentoMin: 20, // metros: trechos menores são unidos ao vizinho
+    raioCurva: 3000, // m: raio medido até este valor é curva (10000/R ≥ 3,33); volta a tangente acima do dobro
+    suavizacao: 20, // m: média móvel do raio medido (10000/R)
+    curvaMin: 50, // m: curva mais curta que isso vira tangente
+    tangenteMin: 20, // m: tangente mais curta que isso entre curvas do mesmo lado une as curvas
+    comprimentoMin: 20, // m: trechos menores são unidos ao vizinho (modos com a planta)
     limitePerda: 2, // mm: |Bitola F − Bitola T| acima disso = perda de bitola
     limiteVariacao: 1.5, // mm: desvio padrão da bitola em 1 m acima disso = variação rápida (provável erro)
     janelaVariacao: 1, // metros
@@ -240,73 +242,137 @@
     return out;
   };
 
+  /** Curvatura (|10000/R|) correspondente a um raio em metros. */
+  B.curvaturaDoRaio = (raio) => (raio > 0 ? 10000 / raio : Infinity);
+
   /**
-   * Divide o trecho em elementos (tangentes e curvas), na ordem de inspeção.
-   * Retorna [{ tipo: 'T'|'C', nome: 'Tangente 01', sigla: 'T01', i0, i1, ini, fim, extensao }].
+   * Distância percorrida até cada ponto (m). Não depende do km: se o km volta (correção em campo)
+   * ou salta, o trecho conta só o espaçamento normal entre os pontos.
+   */
+  B.distanciaPercorrida = (pos, esp) => {
+    const n = pos.length;
+    const d = new Float64Array(n);
+    for (let i = 1; i < n; i++) {
+      const passo = Math.abs(pos[i] - pos[i - 1]);
+      d[i] = d[i - 1] + (Number.isFinite(passo) && passo <= 5 * esp ? passo : esp);
+    }
+    return d;
+  };
+
+  /**
+   * Elementos pelo raio medido (coluna 10000/R), na ordem de inspeção.
+   * 1. Raio suavizado por média móvel (suavizacao, em m).
+   * 2. Classificação com histerese: entra em curva quando o raio fica ≤ raioCurva;
+   *    só volta a tangente quando o raio passa de raioCurva × 2 (evita liga-desliga em curvas abertas).
+   *    O sinal de 10000/R separa curvas para lados opostos (curvas reversas).
+   * 3. Limpeza, sempre pelo trecho mais curto primeiro:
+   *    - curva com menos de curvaMin (m), ou com raio médio maior que raioCurva, vira tangente;
+   *    - tangente com menos de tangenteMin (m) entre duas curvas: do mesmo lado, une as curvas;
+   *      de lados opostos (curva reversa), é dividida entre as duas.
+   * Retorna [{ tipo: 'T'|'C', lado: 'E'|'D'|'', nome, sigla, i0, i1, ini, fim, extensao, raioMin }].
    */
   B.segmentar = (pos, curv, opcoes = {}) => {
     const o = { ...B.PADRAO, ...opcoes };
     const n = pos.length;
     if (!n) return [];
     const esp = B.espacamento(pos) || 0.25;
-    const suave = B.mediaMovel(curv, Math.max(1, Math.round(o.suavizacao / esp)));
+    const dist = B.distanciaPercorrida(pos, esp);
+    const k = B.mediaMovel(curv, Math.max(1, Math.round(o.suavizacao / esp)));
+    const kEntra = B.curvaturaDoRaio(o.raioCurva);
+    const kSai = kEntra / 2;
 
-    // Classificação ponto a ponto (sem dado: mantém a classe anterior).
+    // 1) Classe de cada ponto: 'T', 'E' (10000/R negativo) ou 'D' (positivo). Sem leitura: mantém a anterior.
     const classe = new Array(n);
-    let anterior = 'T';
+    let est = 'T';
     for (let i = 0; i < n; i++) {
-      const v = suave[i];
-      classe[i] = Number.isNaN(v) ? anterior : (Math.abs(v) >= o.limiarCurva ? 'C' : 'T');
-      anterior = classe[i];
+      const v = k[i];
+      if (!Number.isNaN(v)) {
+        if (v >= kEntra) est = 'D';
+        else if (v <= -kEntra) est = 'E';
+        else if ((est === 'D' && v < kSai) || (est === 'E' && v > -kSai)) est = 'T';
+      }
+      classe[i] = est;
     }
 
-    // Trechos contínuos.
+    // 2) Trechos contínuos.
     let seg = [];
-    let ini = 0;
-    for (let i = 1; i <= n; i++) {
-      if (i === n || classe[i] !== classe[ini]) {
-        seg.push({ tipo: classe[ini], i0: ini, i1: i - 1 });
-        ini = i;
-      }
+    for (let i = 0, ini = 0; i <= n; i++) {
+      if (i === n || classe[i] !== classe[ini]) { seg.push({ c: classe[ini], i0: ini, i1: i - 1 }); ini = i; }
     }
-    const ext = (s) => Math.abs(pos[s.i1] - pos[s.i0]) + esp;
-
-    // Une trechos curtos ao vizinho (repete até não sobrar nenhum curto).
-    for (let guarda = 0; guarda < 10000 && seg.length > 1; guarda++) {
-      let menor = -1;
-      seg.forEach((s, k) => { if (ext(s) < o.comprimentoMin && (menor < 0 || ext(s) < ext(seg[menor]))) menor = k; });
-      if (menor < 0) break;
-      const s = seg[menor];
-      const ant = seg[menor - 1];
-      const prox = seg[menor + 1];
-      if (ant && prox && ant.tipo === prox.tipo) {
-        seg.splice(menor - 1, 3, { tipo: ant.tipo, i0: ant.i0, i1: prox.i1 });
-      } else {
-        const alvo = !ant ? prox : !prox ? ant : (ext(ant) >= ext(prox) ? ant : prox);
-        alvo.i0 = Math.min(alvo.i0, s.i0);
-        alvo.i1 = Math.max(alvo.i1, s.i1);
-        seg.splice(menor, 1);
-      }
-      // junta vizinhos que ficaram do mesmo tipo
+    const ext = (s) => dist[s.i1] - dist[s.i0] + esp;
+    const juntar = () => {
       seg = seg.reduce((acc, x) => {
         const u = acc[acc.length - 1];
-        if (u && u.tipo === x.tipo) u.i1 = x.i1;
-        else acc.push({ ...x });
+        if (u && u.c === x.c) u.i1 = x.i1; else acc.push({ ...x });
         return acc;
       }, []);
+    };
+
+    // Raio médio da curva: tem que ficar dentro do raio de curva (não só um pico).
+    const mediaAbs = (s) => {
+      let soma = 0; let q = 0;
+      for (let i = s.i0; i <= s.i1; i++) if (!Number.isNaN(k[i])) { soma += Math.abs(k[i]); q++; }
+      return q ? soma / q : 0;
+    };
+
+    // 3) Limpeza: resolve primeiro o trecho mais curto que viola a regra.
+    for (let guarda = 0; guarda < 100000; guarda++) {
+      let alvo = -1;
+      seg.forEach((s, j) => {
+        const curto = s.c === 'T'
+          ? ext(s) < o.tangenteMin && seg[j - 1] && seg[j + 1] && seg[j - 1].c !== 'T' && seg[j + 1].c !== 'T'
+          : ext(s) < o.curvaMin || mediaAbs(s) < kEntra;
+        if (curto && (alvo < 0 || ext(s) < ext(seg[alvo]))) alvo = j;
+      });
+      if (alvo < 0) break;
+      const s = seg[alvo];
+      if (s.c !== 'T') s.c = 'T';
+      else if (seg[alvo - 1].c === seg[alvo + 1].c) s.c = seg[alvo - 1].c; // une as duas curvas
+      else { // curva reversa: a tangente curta é dividida entre as duas curvas
+        const meio = Math.floor((s.i0 + s.i1) / 2);
+        seg[alvo - 1].i1 = meio; seg[alvo + 1].i0 = meio + 1;
+        seg.splice(alvo, 1);
+      }
+      juntar();
+    }
+
+    // 4) Ajuste fino do início/fim de cada curva: a suavização de suavizacao m desloca a transição,
+    //    então o limite é procurado no raio pouco suavizado (5 m), onde ele cruza o raio de saída.
+    const fino = B.mediaMovel(curv, Math.max(1, Math.round(5 / esp)));
+    const janela = Math.max(1, Math.round(o.suavizacao / esp));
+    const foraDaCurva = (i) => Number.isNaN(fino[i]) || Math.abs(fino[i]) < kSai;
+    for (let j = 0; j < seg.length - 1; j++) {
+      const a = seg[j]; const b = seg[j + 1];
+      if ((a.c === 'T') === (b.c === 'T')) continue; // só tangente ↔ curva
+      const lim0 = Math.max(a.i0 + 1, a.i1 - janela); const lim1 = Math.min(b.i1, a.i1 + 1 + janela);
+      let novo = a.i1 + 1; // primeiro ponto do segundo trecho
+      if (b.c !== 'T') { // entra na curva: da curva para trás até achar tangente
+        for (let i = lim1 - 1; i >= lim0; i--) if (foraDaCurva(i)) { novo = i + 1; break; }
+      } else { // sai da curva: da curva para frente até achar tangente
+        for (let i = lim0; i < lim1; i++) if (foraDaCurva(i)) { novo = i; break; }
+      }
+      novo = Math.min(Math.max(novo, a.i0 + 1), b.i1);
+      a.i1 = novo - 1; b.i0 = novo;
     }
 
     const cont = { T: 0, C: 0 };
     return seg.map((s) => {
-      cont[s.tipo]++;
-      const numero = String(cont[s.tipo]).padStart(2, '0');
+      const tipo = s.c === 'T' ? 'T' : 'C';
+      cont[tipo]++;
+      const numero = String(cont[tipo]).padStart(2, '0');
+      let kMax = 0;
+      for (let i = s.i0; i <= s.i1; i++) if (Math.abs(k[i]) > kMax) kMax = Math.abs(k[i]);
       return {
-        ...s,
-        sigla: `${s.tipo}${numero}`,
-        nome: `${s.tipo === 'T' ? 'Tangente' : 'Curva'} ${numero}`,
+        tipo,
+        lado: tipo === 'C' ? s.c : '',
+        i0: s.i0,
+        i1: s.i1,
+        sigla: `${tipo}${numero}`,
+        nome: `${tipo === 'T' ? 'Tangente' : 'Curva'} ${numero}`,
         ini: pos[s.i0],
         fim: pos[s.i1],
-        extensao: ext(s)
+        extensao: ext(s),
+        raioMin: tipo === 'C' && kMax > 0 ? 10000 / kMax : null
       };
     });
   };
@@ -612,7 +678,7 @@
     const passo = Math.max(1, Math.round(1 / esp)); // 1 amostra por metro
     const amostras = [];
     for (let i = 0; i < pos.length; i += passo) {
-      if (!Number.isNaN(suave[i])) amostras.push([pos[i], suave[i] <= -o.limiarCurva ? 'E' : suave[i] >= o.limiarCurva ? 'D' : 'T']);
+      if (!Number.isNaN(suave[i])) amostras.push([pos[i], suave[i] <= -B.curvaturaDoRaio(o.raioCurva) ? 'E' : suave[i] >= B.curvaturaDoRaio(o.raioCurva) ? 'D' : 'T']);
     }
     const nota = (aj, troca) => {
       let ok = 0; let total = 0;
@@ -652,7 +718,7 @@
     const passo = Math.max(1, Math.round(5 / esp)); // 1 amostra a cada 5 m
     const amostras = [];
     for (let i = 0; i < pos.length; i += passo) {
-      if (!Number.isNaN(suave[i])) amostras.push([pos[i], abs(suave[i]) >= o.limiarCurva]);
+      if (!Number.isNaN(suave[i])) amostras.push([pos[i], abs(suave[i]) >= B.curvaturaDoRaio(o.raioCurva)]);
     }
     const nota = (aj) => {
       let vp = 0; let medidas = 0; let planta = 0; let dentro = 0;
@@ -897,7 +963,7 @@
 
   /**
    * Análise completa: elementos, indicadores por elemento, por EH e gerais.
-   * opcoes: limiarCurva, suavizacao, comprimentoMin, limitePerda, limiteVariacao, alinhamento (id),
+   * opcoes: raioCurva, suavizacao, curvaMin, tangenteMin, comprimentoMin, limitePerda, limiteVariacao, alinhamento (id),
    *         offset { bitola, valor, aplicar }, modo ('planta'|'curvatura'), elementosPlanta, ajusteKm.
    */
   B.analisar = (arquivo, opcoes = {}) => {
