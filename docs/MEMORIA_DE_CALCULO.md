@@ -56,21 +56,30 @@ O código está em `web/js/bitola.js`. Os valores padrão podem ser alterados em
 - Cobertura do elemento = pontos com F e T lidas ÷ pontos do elemento.
 - Abaixo de 90%: o elemento é marcado (⚠ na tela, * no laudo), porque o resultado é pouco confiável.
 
-## 4. Tangentes e curvas (curvatura)
+## 4. Tangentes e curvas (pelo raio)
 
-1. Curvatura de cada ponto: coluna `10000/R`.
-2. Suavização: média móvel de **10 m** (ignora pontos sem leitura).
-3. Ponto em **curva** quando |10000/R suavizado| ≥ **3** (raio ≈ 3.333 m); abaixo, **tangente**.
-4. Trechos seguidos da mesma classe formam um elemento.
-5. Elementos com menos de **20 m** são unidos ao vizinho (repetido até não sobrar nenhum curto).
+Coluna usada: `10000/R` (R = raio em metros). Raio de 3.000 m → 10000/R = 3,33.
+
+1. **Suavização:** média móvel de **20 m** do 10000/R (ignora pontos sem leitura).
+2. **Classificação com histerese** (evita o liga-desliga em curvas abertas e em tangentes com oscilação):
+   - entra em curva quando o **raio suavizado ≤ 3.000 m** (raio máximo de curva);
+   - só volta a tangente quando o **raio passa de 6.000 m** (o dobro);
+   - o sinal do 10000/R separa curvas para lados opostos (curva reversa).
+3. **Limpeza**, sempre pelo trecho mais curto primeiro, até não sobrar nenhum:
+   - curva com menos de **50 m**, ou com raio médio maior que 3.000 m, vira tangente;
+   - tangente com menos de **20 m** entre duas curvas: do mesmo lado, une as curvas; de lados opostos, é dividida entre as duas.
+4. **Início e fim da curva:** ajustados no 10000/R pouco suavizado (5 m), no ponto onde ele cruza o raio de saída (6.000 m), até 20 m do limite encontrado no passo 2.
+5. **Extensão:** distância percorrida entre os pontos (não usa o km). Se o km volta ou salta (correção em campo), conta só o espaçamento normal.
 6. Numeração na ordem do arquivo: Tangente 01 (T01), Curva 01 (C01), Tangente 02…
+
+Todos os valores em **negrito** podem ser alterados em Critérios da análise.
 
 ## 5. Modos de identificar os elementos
 
 | Modo | Limites dos elementos | Nome / local |
 |---|---|---|
-| **Só curvatura** | Curvatura (item 4), sem nenhuma alteração. | Com a planta: para cada elemento, o km de cada ponto é procurado na planta e o elemento recebe o **EH/RH** (o de mais pontos), os **EH/RH que atravessa** e o(s) **elemento(s) da planta** a que o km pertence (os que têm ≥ 20% dos pontos, o maior primeiro). Sem planta: só a numeração da curvatura. |
-| **Curvatura + planta** | Curvatura, cortada onde entra/sai de um circuito. | Nome do elemento da planta com mais pontos (preferindo o do mesmo tipo). |
+| **Só raio** | Raio (item 4), sem nenhuma alteração. | Com a planta: para cada elemento, o km de cada ponto é procurado na planta e o elemento recebe o **EH/RH** (o de mais pontos), os **EH/RH que atravessa** e o(s) **elemento(s) da planta** a que o km pertence (os que têm ≥ 20% dos pontos, o maior primeiro). Sem planta: só a numeração pelo raio. |
+| **Raio + planta** | Raio medido, cortado onde entra/sai de um circuito. | Nome do elemento da planta com mais pontos (preferindo o do mesmo tipo). |
 | **Pelo km da planta** | Início e fim de cada elemento da planta. | Nome da planta. |
 
 ### 5.1 Localização pelo km
@@ -83,15 +92,15 @@ O código está em `web/js/bitola.js`. Os valores padrão podem ser alterados em
 | Modo | Regra do ponto de RH |
 |---|---|
 | Pelo km da planta | Ponto cujo km (com a correção) **não cai em nenhum elemento da planta**. |
-| Curvatura + planta e Só curvatura | Ponto sem elemento na planta, num trecho contínuo sem elemento de **pelo menos 25 m** (buracos menores são tratados como falha da planta). |
+| Raio + planta e Só raio | Ponto sem elemento na planta, num trecho contínuo sem elemento de **pelo menos 25 m** (buracos menores são tratados como falha da planta). |
 
 - Nome: **RH-n**, onde n é o número do EH logo acima no km (ex.: entre o EH 49/50 e o EH 50/51 → RH-50).
 - Pontos de RH ficam **fora de todas as estatísticas gerais** (perda, tangentes, curvas, OGMS × KLD, variação, offset).
-- No modo Só curvatura, o elemento cuja maioria dos pontos está em RH é tratado como do circuito. Um elemento que só atravessa parte do circuito conta apenas os pontos fora do RH.
+- No modo Só raio, o elemento cuja maioria dos pontos está em RH é tratado como do circuito. Um elemento que só atravessa parte do circuito conta apenas os pontos fora do RH.
 
 ## 7. Correção do km (automática)
 
-1. Amostras a cada 1 m: classe pela curvatura suavizada (curva à esquerda, curva à direita ou tangente).
+1. Amostras a cada 1 m: classe pelo raio suavizado (curva à esquerda, curva à direita ou tangente).
 2. Para cada deslocamento de −300 a +300 m (passo de 2 m), compara a classe medida com a da planta no km deslocado.
 3. Testa também a convenção de sinal invertida (esquerda/direita).
 4. Escolhe o deslocamento com mais coincidências (empate: o menor em módulo); depois refina em passos de 0,5 m (±2 m).

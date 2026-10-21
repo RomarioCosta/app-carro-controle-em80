@@ -361,3 +361,26 @@ test('formato novo do CSV: ALv_B2,5, NLmax_10 e AL10mean reconhecidos; sem ALR10
   const r = B.analisar(a);
   assert.equal(r.geral.perdas, 200);
 });
+
+test('elementos pelo raio: oscilação na tangente e curva aberta com ruído não fragmentam; curva reversa separa', () => {
+  let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const ruido = () => (rnd() - 0.5) * 4;
+  const n = 8000; // 2 km a cada 0,25 m
+  const pos = Float64Array.from({ length: n }, (_, i) => 100000 + i * 0.25);
+  const curv = Float64Array.from({ length: n }, (_, i) => {
+    const d = i * 0.25;
+    if (d >= 600 && d < 900) return 10000 / 2500 + ruido(); // curva aberta (R 2.500 m) com ruído
+    if (d >= 1300 && d < 1500) return 25 + ruido(); // curva à direita…
+    if (d >= 1500 && d < 1700) return -25 + ruido(); // …seguida de curva à esquerda (reversa)
+    return 5 * Math.sin((2 * Math.PI * d) / 30) + ruido(); // tangente com oscilação de 5 (período 30 m)
+  });
+  const els = B.segmentar(pos, curv);
+  assert.deepEqual(j(els.map((e) => e.tipo)), ['T', 'C', 'T', 'C', 'C', 'T']);
+  assert.ok(Math.abs(els[1].extensao - 300) <= 25, `curva aberta: ${els[1].extensao}`);
+  assert.equal(els[3].lado === els[4].lado, false);
+  // km que volta no meio (correção em campo) não aumenta a extensão
+  const pos2 = Float64Array.from(pos, (p, i) => (i >= 2000 ? p - 50 : p));
+  const els2 = B.segmentar(pos2, curv);
+  assert.equal(els2.length, els.length);
+  assert.ok(Math.abs(els2.reduce((s, e) => s + e.extensao, 0) - 2000) < 2);
+});
