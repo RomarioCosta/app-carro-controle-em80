@@ -699,7 +699,17 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .ev-pdf .laudo-tabela td { font-size: 9.5px; }
 .ev-tabela td:first-child { white-space: nowrap; font-family: ui-monospace, Menlo, monospace; }
 .graf-linha-2 { stroke-width: 1.6; }
-.ev-graficos { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: start; }
+@media (min-width: 900px) { .ev-graficos { grid-template-columns: 1.2fr 1fr; align-items: start; column-gap: 28px; } }
+.ev-graf-dir { display: grid; gap: 14px; }
+.ev-painel { display: flex; flex-direction: column; gap: 18px; }
+.ev-painel .cartao-cab { margin-bottom: 0; }
+.ev-kpis { gap: 14px; }
+.ev-impactos { border: 1px solid var(--borda); border-radius: 10px; padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.ev-impactos legend { padding: 0 6px; font-weight: 700; font-size: .85rem; color: var(--texto2); }
+.ev-impacto-linha { display: flex; gap: 8px; align-items: flex-end; width: 100%; }
+.ev-impacto-linha .grade-4 { flex: 1; }
+.ev-impacto-linha .btn-icone { margin-bottom: 4px; }
+.ev-tabela td { white-space: pre-line; }
 .ev-graficos .graf-largo { max-height: 230px; }
 .ev-kpis { grid-template-columns: repeat(2, 1fr); }
 @media (min-width: 640px) { .ev-kpis { grid-template-columns: repeat(4, 1fr); } }

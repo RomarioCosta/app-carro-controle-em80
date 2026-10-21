@@ -18,10 +18,10 @@ function novo(opcoes) {
 test('setup cria abas, remove a aba vazia padrão e gera código', () => {
   const s = novo();
   const nomes = s.ss.getSheets().map((x) => x.nome);
-  assert.deepEqual(nomes.sort(), ['Anomalias', 'Checklist_Amostras', 'Checklist_Respostas', 'Checklists', 'Eventos', 'Execucoes', 'OMs', 'Reprogramacoes', 'Rota_Dias', 'Rota_Pontos'].sort());
+  assert.deepEqual(nomes.sort(), ['Anomalias', 'Checklist_Amostras', 'Checklist_Respostas', 'Checklists', 'Eventos', 'Eventos_Impactos', 'Execucoes', 'OMs', 'Reprogramacoes', 'Rota_Dias', 'Rota_Pontos'].sort());
   assert.match(s.token, /^[0-9A-F]{12}$/);
   s.ctx.setup(); // rodar de novo não quebra
-  assert.equal(s.ss.getSheets().length, 10);
+  assert.equal(s.ss.getSheets().length, 11);
 });
 
 test('versão nova cria sozinha a aba que falta (sem rodar setup de novo)', () => {

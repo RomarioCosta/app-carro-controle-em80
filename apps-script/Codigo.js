@@ -14,7 +14,7 @@
  * Primeira instalação: execute a função setup() uma vez pelo editor.
  */
 
-var APP_VERSAO = '1.5.1';
+var APP_VERSAO = '1.6.0';
 var TZ = 'America/Sao_Paulo';
 
 /* ------------------------------------------------------------------ */
@@ -85,7 +85,20 @@ var SCHEMA = {
       ['impactoUnidade', 'Unidade do impacto', 'text'],
       ['impactoHoras', 'Impacto (h)', 'number'],
       ['excluidoEm', 'Excluído em', 'datetime'],
-      ['dataImpacto', 'Data do impacto', 'date']
+      ['dataImpacto', 'Data do impacto', 'date'],
+      ['impactosJson', 'Impactos (detalhe)', 'text']
+    ]
+  },
+  Eventos_Impactos: {
+    colunas: [
+      ['eventoId', 'ID Evento', 'text'],
+      ['codigo', 'Código do evento', 'text'],
+      ['categoria', 'Tipo de evento', 'text'],
+      ['data', 'Data do impacto', 'date'],
+      ['omsPerdidas', 'OMs perdidas', 'number'],
+      ['impactoValor', 'Impacto no tempo', 'number'],
+      ['impactoUnidade', 'Unidade do impacto', 'text'],
+      ['impactoHoras', 'Impacto (h)', 'number']
     ]
   },
   Anomalias: {
@@ -433,10 +446,25 @@ function gravarEvento_(d, tabela) {
     if (d.fim < d.inicio) throw erro_('VALIDACAO', 'O fim não pode ser antes do início.');
   }
   var obj = copiar_(d, ['id', 'inicio', 'fim', 'equipamento', 'parte', 'observacao', 'criadoEm', 'atualizadoEm',
-    'codigo', 'categoria', 'descricao', 'omsPerdidas', 'impactoValor', 'impactoUnidade', 'impactoHoras', 'excluidoEm', 'dataImpacto']);
+    'codigo', 'categoria', 'descricao', 'omsPerdidas', 'impactoValor', 'impactoUnidade', 'impactoHoras', 'excluidoEm', 'dataImpacto', 'impactosJson']);
   if (obj.dataImpacto) validarData_(obj.dataImpacto, 'data do impacto');
+  var impactos = Array.isArray(d.impactos) ? d.impactos : [];
+  impactos.forEach(function (i) { validarData_(i.data, 'data do impacto'); });
   obj.duracaoMin = d.fim ? minutosEntre_(d.inicio, d.fim) : '';
-  tabela('Eventos').upsert(obj);
+  if (!tabela('Eventos').upsert(obj)) return; // versão mais nova já gravada
+  // Um impacto por dia (para gráficos e BI). Evento excluído não tem impacto.
+  var tImp = tabela('Eventos_Impactos');
+  tImp.removerOnde('eventoId', d.id);
+  if (d.excluidoEm) return;
+  tImp.inserirVarios(impactos.map(function (i) {
+    var valor = i.valor === '' || i.valor === null || i.valor === undefined ? '' : Number(i.valor);
+    return {
+      eventoId: d.id, codigo: d.codigo || '', categoria: d.categoria || '', data: i.data,
+      omsPerdidas: i.oms === '' || i.oms === null || i.oms === undefined ? '' : Number(i.oms),
+      impactoValor: valor, impactoUnidade: i.unidade === 'd' ? 'dias' : 'horas',
+      impactoHoras: valor === '' ? '' : valor * (i.unidade === 'd' ? 24 : 1)
+    };
+  }));
 }
 
 function gravarAnomalia_(d, tabela) {
