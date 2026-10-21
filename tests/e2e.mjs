@@ -462,7 +462,7 @@ async function main() {
       const planilhaConf = await (async () => { const st = await download.createReadStream(); const parts = []; for await (const ch of st) parts.push(ch); return Buffer.concat(parts).toString('utf8'); })();
       const linhasConf = planilhaConf.trim().split(/\r?\n/);
       assert.equal(linhasConf.length, 4001); // cabeçalho + 4.000 pontos
-      assert.equal(linhasConf.slice(1).filter((l) => l.split(';')[6] === '1').length, 200); // pontos acima da regra
+      assert.equal(linhasConf.slice(1).filter((l) => l.split(';')[7] === '1').length, 200); // pontos acima da regra
       const rk = page.locator('.tabela:not(.tabela-offset)').nth(1).locator('tbody tr').first();
       assert.equal(await rk.locator('td').nth(1).textContent(), '1+700');
       await page.screenshot({ path: `${SAIDA}13-analise.png`, fullPage: true });
@@ -482,6 +482,7 @@ async function main() {
       assert.equal(await laudo.locator('.laudo-grafico svg').count(), 6);
       assert.ok((await laudo.textContent()).includes('Checklist de inspeção'), 'checklist incluído no laudo');
       assert.ok((await laudo.textContent()).includes('Tangente 02'));
+      assert.ok((await laudo.textContent()).includes('Melhor offset e resultado se aplicado'), 'tabela de melhor offset no laudo');
       await page.emulateMedia({ media: 'print' });
       await page.pdf({ path: `${SAIDA}14-laudo.pdf`, format: 'A4', printBackground: true, preferCSSPageSize: true });
       await page.emulateMedia({ media: 'screen' });

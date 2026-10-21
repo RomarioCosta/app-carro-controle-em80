@@ -16,6 +16,7 @@
   let raiz;
   let arquivo = null; // resultado de B.lerCSV
   let textoArquivo = '';
+  let opcoesAnalise = null; // opções usadas na última análise (o laudo refaz a análise com o offset)
   let nomeArquivo = '';
   let resultado = null; // resultado de B.analisar
   const OPCOES_PADRAO = { ...B.PADRAO, alinhamento: 'alr10', modo: 'hibrido', ajusteKm: 'auto', offset: { bitola: 'bitT', valor: 0, aplicar: false }, bitolas: ['bitF', 'bitT'] };
@@ -142,7 +143,8 @@
       resultado = null;
     } else {
       const cfg = configurarPlanta();
-      resultado = B.analisar(arquivo, { ...opcoes, modo: cfg ? opcoes.modo : 'curvatura', elementosPlanta: cfg ? cfg.els : null, localizar: cfg ? cfg.localizar : null, ajusteKm: cfg ? cfg.ajuste : 0 });
+      opcoesAnalise = { ...opcoes, modo: cfg ? opcoes.modo : 'curvatura', elementosPlanta: cfg ? cfg.els : null, localizar: cfg ? cfg.localizar : null, ajusteKm: cfg ? cfg.ajuste : 0 };
+      resultado = B.analisar(arquivo, opcoesAnalise);
     }
     renderTudo();
   }
@@ -574,7 +576,7 @@
   function cartaoConferencia() {
     const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda) : null;
     const selo = !c ? null : c.ok
-      ? h('span', { class: 'conf-ok', title: `Recontagem independente a partir do CSV original: ${c.linhas.toLocaleString('pt-BR')} linhas de medição; pontos e pontos acima de cada elemento iguais aos da análise.` }, ui.icone('check'), 'Conferido')
+      ? h('span', { class: 'conf-ok', title: `Recontagem independente a partir do CSV original: ${c.linhas.toLocaleString('pt-BR')} linhas de medição; pontos e pontos acima de cada elemento iguais aos da análise.${c.voltas.length ? ` O km volta ${c.voltas.length} vez(es) no arquivo.` : ''}` }, ui.icone('check'), 'Conferido')
       : h('button', { class: 'conf-erro', onclick: () => mostrarDivergencias(c) }, `⚠ ${c.divergencias.length} divergência(s)`);
     return h('div', { class: 'linha-acoes' }, selo,
       h('button', { class: 'btn btn-secundario btn-pequeno', onclick: baixarConferencia, title: 'Planilha com cada ponto: km, Bitola F, Bitola T, F − T e se está acima da regra' }, ui.icone('documento'), 'Planilha de conferência'));
@@ -583,10 +585,13 @@
   function mostrarDivergencias(c) {
     ui.modal({
       titulo: 'Divergências na conferência',
-      conteudo: h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela tabela-centro' },
+      conteudo: h('div', { class: 'pilha' },
+        c.linhasApp !== null && c.linhasApp !== c.linhas ? h('p', { class: 'aviso aviso-erro', text: `Linhas de medição: ${c.linhas.toLocaleString('pt-BR')} no CSV × ${c.linhasApp.toLocaleString('pt-BR')} na análise.` }) : null,
+        c.voltas.length ? h('p', { class: 'sub', text: `O km volta ${c.voltas.length} vez(es) no arquivo: ${c.voltas.slice(0, 5).map((v) => `${B.fmtKm(v.de)} → ${B.fmtKm(v.para)}`).join(', ')}${c.voltas.length > 5 ? '…' : ''}` }) : null,
+        h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela tabela-centro' },
         h('thead', null, h('tr', null, ['Elemento', 'Início', 'Fim', 'Pontos (app)', 'Pontos (conferência)', 'Acima (app)', 'Acima (conferência)'].map((t) => h('th', { text: t })))),
         h('tbody', null, c.divergencias.map((d) => h('tr', null,
-          [d.sigla, B.fmtKm(d.ini), B.fmtKm(d.fim), d.app.pontos, d.conferido.pontos, d.app.perdas, d.conferido.perdas].map((v) => h('td', { text: String(v) }))))))),
+          [d.sigla, B.fmtKm(d.ini), B.fmtKm(d.fim), d.app.pontos, d.conferido.pontos, d.app.perdas, d.conferido.perdas].map((v) => h('td', { text: String(v) })))))))),
       acoes: [{ texto: 'Fechar', classe: 'btn-secundario', onClick: (f) => f() }]
     });
   }
@@ -599,14 +604,14 @@
     const doPonto = new Array(pos.length);
     r.elementos.forEach((e) => { for (let i = e.i0; i <= e.i1; i++) doPonto[i] = e; });
     const num = (v, casas = 2) => (Number.isNaN(v) ? '' : v.toFixed(casas).replace('.', ','));
-    const linhas = ['KM;LOCALIZACAO;Linha;Bitola F;Bitola T;F - T;Acima do limite (1 = sim);Elemento;EH / RH;Fora da estatística (circuito)'];
+    const linhas = ['KM;LOCALIZACAO;Linha;Bitola F;Bitola T;F - T;|F - T| (módulo);Acima do limite (1 = sim);Elemento;EH / RH;Fora da estatística (circuito)'];
     for (let i = 0; i < pos.length; i++) {
       const e = doPonto[i] || {};
       const dif = B.difBitola(dados.bitF[i], dados.bitT[i]);
       const km = Math.floor(pos[i] / 1000);
       linhas.push([
         km, num(pos[i] - km * 1000), arquivo.linhasValores ? arquivo.linhasValores[arquivo.linhaIdx[i]] : '',
-        num(dados.bitF[i]), num(dados.bitT[i]), num(dif),
+        num(dados.bitF[i]), num(dados.bitT[i]), num(dif), num(Math.abs(dif)),
         Number.isNaN(dif) ? '' : (B.ehPerda(dif, lim) ? 1 : 0),
         e.sigla || '', e.trecho || e.eh || '', r.mascara && !r.mascara[i] ? 1 : 0
       ].join(';'));
@@ -762,6 +767,28 @@
     });
   }
 
+  /** Laudo: melhor offset em cada bitola e o resultado se ele for aplicado (mesma regra da análise). */
+  function tabelaOffsetLaudo(tabela) {
+    if (!opcoesAnalise) return null;
+    const lim = opcoes.limitePerda;
+    const base = B.analisar(arquivo, { ...opcoesAnalise, offset: { ...opcoes.offset, aplicar: false } });
+    const linhas = [];
+    ['bitF', 'bitT'].forEach((b) => {
+      const m = B.melhorOffset(arquivo.dados, b, lim, base.mascara);
+      if (!m) return;
+      const com = B.analisar(arquivo, { ...opcoesAnalise, offset: { bitola: b, valor: m.valor, aplicar: true } });
+      const el = (r) => `${r.tangentes.comPerda + r.curvas.comPerda} de ${r.tangentes.quantidade + r.curvas.quantidade}`;
+      const seta = (a, d) => `${fmt(a)}% → ${fmt(d)}%`;
+      linhas.push([NOMES_BITOLA[b], `${m.valor > 0 ? '+' : ''}${fmt(m.valor, 1)}`,
+        seta(base.geral.pctPerda, com.geral.pctPerda), seta(base.tangentes.pctPerda, com.tangentes.pctPerda),
+        seta(base.curvas.pctPerda, com.curvas.pctPerda), `${el(base)} → ${el(com)}`]);
+    });
+    if (!linhas.length) return null;
+    return h('section', { class: 'laudo-secao' }, h('h2', { text: 'Melhor offset e resultado se aplicado' }),
+      tabela(['Bitola', 'Melhor offset (mm)', 'Perda de bitola', 'Em tangentes', 'Em curvas', 'Elementos com perda'], linhas, 'centro'),
+      h('p', { class: 'laudo-nota', text: `Sem offset → com o melhor offset. Melhor offset: o valor de −10 a +10 mm (passo 0,1) que deixa menos pontos com |F − T| > ${fmt(lim, 0)} mm.` }));
+  }
+
   function montarLaudo(info) {
     const r = resultado;
     const m = arquivo.meta;
@@ -820,6 +847,8 @@
             ['Variação rápida', `${fmt(r.geral.pctVariacao)}%`, `σ em 1 m > ${fmt(opcoes.limiteVariacao, 1)} mm`]
           ].map(([t, v, sub]) => h('div', { class: 'laudo-kpi' }, h('span', { text: t }), h('strong', { text: v }), h('small', { text: sub })))),
         h('p', { class: 'laudo-nota', text: `Critérios: ${criterios}` })),
+
+      tabelaOffsetLaudo(tabela),
 
       secao('Gráficos ao longo do km', graficosLaudo.map(({ titulo, g }) => h('div', { class: 'laudo-grafico' }, h('h3', { text: titulo }), g.el))),
 
