@@ -831,8 +831,9 @@
           Object.entries(GRAVIDADES).map(([g, c]) => h('span', { class: 'leg-item' }, h('span', { class: 'leg-caixa', style: { background: c } }), g)))));
     });
 
-    return h('div', { id: 'laudo', class: 'laudo rota-pdf' }, paginas,
-      h('footer', { class: 'laudo-rodape', text: `Gerado pelo App Carro Controle EM80 · ${U.fmtDataHora(U.agora())}` }));
+    return h('div', { id: 'laudo', class: 'laudo rota-pdf' },
+      ui.cabecalhoPdf({ titulo: `Rota do Carro Controle EM80 · Ciclo ${ciclo}${execucao ? ' · Execução' : ''}`, emissao: U.fmtDataHora(U.agora()) }),
+      paginas);
   }
 
   function imprimir(el) {

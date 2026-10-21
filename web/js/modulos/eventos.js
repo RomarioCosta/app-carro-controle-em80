@@ -511,14 +511,8 @@
     const tabela = (cab, linhas) => h('table', { class: 'laudo-tabela ev-tabela' },
       h('thead', null, h('tr', null, cab.map((t) => h('th', { text: t })))),
       h('tbody', null, linhas.map((l) => h('tr', null, l.map((c) => h('td', { text: c === null || c === undefined ? '' : String(c) }))))));
-    const foto = document.querySelector('.cab-foto');
     const el = h('div', { id: 'laudo', class: 'laudo ev-pdf' },
-      h('header', { class: 'laudo-cab' },
-        foto ? h('img', { src: foto.src, alt: '', class: 'laudo-foto' }) : null,
-        h('div', null,
-          h('h1', { text: 'Relatório de Eventos – Carro Controle EM80' }),
-          h('p', { text: `Período: ${U.fmtData(de)} a ${U.fmtData(ate)}` })),
-        h('div', { class: 'laudo-emissao' }, h('span', { text: 'Emitido em' }), h('strong', { text: U.fmtDataHora(U.agora()) }))),
+      ui.cabecalhoPdf({ titulo: 'Relatório de Eventos – Carro Controle EM80', subtitulo: `Centro de Monitoramento de Ativos · Período: ${U.fmtData(de)} a ${U.fmtData(ate)}`, emissao: U.fmtDataHora(U.agora()) }),
       h('section', { class: 'laudo-secao' }, h('h2', { text: 'Indicadores' }),
         h('div', { class: 'laudo-kpis' },
           [['Eventos', fmtN(r.qtd), `${evs.filter(ehFalha).length} falha(s) de equipamento`],
@@ -533,7 +527,7 @@
             U.fmtDataHora(e.inicio), e.fim ? U.fmtDataHora(e.fim) : 'em aberto', U.fmtDuracao(U.minutosEntre(e.inicio, e.fim || U.agora())),
             omsDe(e) ? fmtN(omsDe(e)) : '', textoImpacto(e).join('\n'),
             e.observacao || '']))),
-      h('footer', { class: 'laudo-rodape', text: `Gerado pelo App Carro Controle EM80 · ${U.fmtDataHora(U.agora())}` }));
+      null);
     imprimir(el, `Eventos EM80 ${U.fmtData(de).replace(/\//g, '-')} a ${U.fmtData(ate).replace(/\//g, '-')}`);
   }
 

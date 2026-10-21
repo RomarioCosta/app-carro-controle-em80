@@ -547,8 +547,12 @@ async function main() {
       assert.equal(await laudo.locator('.laudo-resultado strong').textContent(), 'Reprovado');
       assert.equal(await laudo.locator('.laudo-grafico svg').count(), 6);
       assert.ok((await laudo.textContent()).includes('Checklist de inspeção'), 'checklist incluído no laudo');
-      assert.ok((await laudo.textContent()).includes('Tangente 02'));
+      assert.ok((await laudo.textContent()).includes('TGT 02'));
       assert.ok((await laudo.textContent()).includes('Melhor offset e resultado se aplicado'), 'tabela de melhor offset no laudo');
+      assert.ok((await laudo.textContent()).includes('% c/ offset'), 'coluna de perda com offset por elemento');
+      assert.ok((await laudo.textContent()).includes('TGT 02'), 'elemento abreviado (TGT/CVA)');
+      assert.ok(!(await laudo.textContent()).includes('Gerado pelo App'), 'sem rodapé de texto');
+      assert.equal(await laudo.locator('.laudo-cab .laudo-foto').count(), 1);
       await page.emulateMedia({ media: 'print' });
       await page.pdf({ path: `${SAIDA}14-laudo.pdf`, format: 'A4', printBackground: true, preferCSSPageSize: true });
       await page.emulateMedia({ media: 'screen' });

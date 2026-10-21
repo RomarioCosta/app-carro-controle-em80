@@ -513,11 +513,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .laudo h2 { font-size: 13px; margin: 14px 0 6px; padding-bottom: 3px; border-bottom: 2px solid #f2c200; }
 .laudo h3 { font-size: 11px; margin: 6px 0 2px; color: #4f5d67; }
 .laudo p { margin: 0; }
-.laudo-cab { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #33434e; }
-.laudo-cab p { color: #4f5d67; }
-.laudo-foto { width: 96px; height: 60px; object-fit: cover; border-radius: 4px; }
-.laudo-emissao { margin-left: auto; display: flex; flex-direction: column; text-align: right; color: #4f5d67; }
-.laudo-emissao strong { color: #1b2329; }
+.laudo-cab { display: flex; align-items: center; gap: 14px; padding: 10px 14px; background: linear-gradient(180deg, #33434e, #2a3841); color: #fff; border-bottom: 4px solid #f2c200; border-radius: 6px 6px 0 0; }
+.laudo-cab h1 { color: #fff; }
+.laudo-cab p { color: #c9d3da; }
+.laudo-foto { width: 104px; height: 62px; object-fit: cover; border-radius: 6px; }
+.laudo-emissao { margin-left: auto; display: flex; flex-direction: column; text-align: right; color: #c9d3da; }
+.laudo-emissao strong { color: #fff; }
 .laudo-tabela { width: 100%; border-collapse: collapse; font-size: 10px; font-variant-numeric: tabular-nums; }
 .laudo-tabela th, .laudo-tabela td { border: 1px solid #d6dce1; padding: 3px 6px; text-align: left; vertical-align: top; }
 .laudo-tabela th { background: #eef1f4; font-weight: 700; }
@@ -738,6 +739,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .grade-4 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (min-width: 900px) { .grade-4 { grid-template-columns: repeat(4, 1fr); } }
 .ev-pdf .ev-graficos { grid-template-columns: 1fr 1fr; }
+
+/* Marcos nos gráficos por km (travador – TRAV) */
+.graf-marco-faixa { fill: #8e44ad; opacity: .14; }
+.graf-marco-simbolo { fill: #8e44ad; }
+.graf-marco-texto { fill: #8e44ad; font-size: 9px; font-weight: 800; }
+.rota-pdf > .laudo-cab { margin-bottom: 8px; }
 
 </style>
 </head>
@@ -960,7 +967,7 @@ window.App = window.App || {};
     versao: '2026.10.21',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-ab4a57ece2', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-6bc7e7389a', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -1686,7 +1693,16 @@ window.App = window.App || {};
     if (foco) setTimeout(() => foco.focus({ preventScroll: true }), 300);
   }
 
-  App.ui = { h, limpar, trocar, icone, toast, modal, confirmar, copiar, tema, campo, marcarErro, limparErros, rolarAte };
+  /** Cabeçalho dos PDFs: igual ao topo do app (fundo escuro, foto do carro e faixa amarela). */
+  function cabecalhoPdf({ titulo, subtitulo = 'Centro de Monitoramento de Ativos', emissao }) {
+    const foto = document.querySelector('.cab-foto');
+    return h('header', { class: 'laudo-cab' },
+      foto ? h('img', { src: foto.src, alt: '', class: 'laudo-foto' }) : null,
+      h('div', null, h('h1', { text: titulo }), h('p', { text: subtitulo })),
+      emissao ? h('div', { class: 'laudo-emissao' }, h('span', { text: 'Emitido em' }), h('strong', { text: emissao })) : null);
+  }
+
+  App.ui = { h, cabecalhoPdf, limpar, trocar, icone, toast, modal, confirmar, copiar, tema, campo, marcarErro, limparErros, rolarAte };
 })(window.App);
 
 </script>
@@ -1993,6 +2009,20 @@ window.App = window.App || {};
         svg.appendChild(s('line', { x1: xx, x2: xx, y1: m.t, y2: m.t + ih, class: 'graf-grade' }));
         svg.appendChild(s('text', { x: xx, y: H - 8, class: 'graf-eixo', 'text-anchor': 'middle' }, (op.fmtX || String)(p)));
       }
+
+      // Marcos (ex.: travadores – TRAV): faixa sombreada e símbolo no topo.
+      (op.marcos || []).forEach((mk) => {
+        const xa = Math.max(m.l, Math.min(x(mk.ini), x(mk.fim)));
+        const xb = Math.min(m.l + iw, Math.max(x(mk.ini), x(mk.fim)));
+        if (xb < m.l || xa > m.l + iw || xb < xa) return;
+        const larg = Math.max(2, xb - xa);
+        const cx = xa + larg / 2;
+        const g = s('g', { class: 'graf-marco' }, s('title', {}, mk.titulo || mk.rotulo));
+        g.appendChild(s('rect', { x: cx - larg / 2, y: m.t, width: larg, height: ih, class: 'graf-marco-faixa' }));
+        g.appendChild(s('path', { d: `M${cx - 5},${m.t + 1} L${cx + 5},${m.t + 1} L${cx},${m.t + 9} Z`, class: 'graf-marco-simbolo' }));
+        g.appendChild(s('text', { x: cx, y: m.t + 19, class: 'graf-marco-texto', 'text-anchor': 'middle' }, mk.rotulo));
+        svg.appendChild(g);
+      });
 
       // Eventos (AMV, passagem superior…).
       (op.eventos || []).forEach((e) => {
@@ -4905,6 +4935,24 @@ window.App = window.App || {};
   const mais1000 = (arr) => Float64Array.from(arr, (v) => v + B.NOMINAL);
   const nomeAlinhamento = () => B.parametroGrafico(opcoes.alinhamento).nome;
 
+  /**
+   * Travadores (eventos TRAV/TRV do arquivo): marcados em todos os gráficos, porque nesses locais a perda de bitola é esperada.
+   * "INICIO TRV" e "FIM TRV" próximos viram uma faixa; um evento solto vira uma marca.
+   */
+  function marcosTrav() {
+    const ehTrav = (e) => /\bTRA?V(ADOR)?\b/i.test(`${e.texto} ${e.codigo}`);
+    const evs = (arquivo.eventos || []).filter(ehTrav);
+    const marcos = [];
+    for (let k = 0; k < evs.length; k++) {
+      const e = evs[k]; const prox = evs[k + 1];
+      if (/INIC/i.test(e.texto) && prox && /FIM/i.test(prox.texto) && Math.abs(prox.pos - e.pos) <= 300) {
+        marcos.push({ ini: e.pos, fim: prox.pos, rotulo: 'TRAV', titulo: `Travador ${B.fmtKm(e.pos)} – ${B.fmtKm(prox.pos)}` });
+        k++;
+      } else marcos.push({ ini: e.pos, fim: e.pos, rotulo: 'TRAV', titulo: `${e.texto} (${B.fmtKm(e.pos)})` });
+    }
+    return marcos;
+  }
+
   /** Definição dos gráficos (usada na tela e no laudo). Retorna [{ titulo, op, seletor }]. */
   function definirGraficos({ x0, x1, aoPassar }) {
     const { pos, eventos } = arquivo;
@@ -4914,7 +4962,7 @@ window.App = window.App || {};
     const faixas = r.elementos.map((e) => ({ ini: e.ini, fim: e.fim, classe: e.tipo === 'C' ? 'faixa-curva' : (e.tipo === 'X' ? 'faixa-fora' : null), rotulo: e.tipo === 'X' ? e.trecho || '' : e.sigla }));
     const nomeAlin = nomeAlinhamento();
     const alertas = Float64Array.from(r.difFT, (v) => (Math.abs(v) > lim ? v : NaN));
-    const base = { pos, x0, x1, fmtX: B.fmtKm, aoPassar, faixas };
+    const base = { pos, x0, x1, fmtX: B.fmtKm, aoPassar, faixas, marcos: marcosTrav() };
     const pctPorPonto = new Float64Array(pos.length).fill(NaN);
     r.elementos.forEach((e) => { for (let i = e.i0; i <= e.i1; i++) pctPorPonto[i] = e.pctPerda === null ? NaN : e.pctPerda; });
     const serieBitola = {
@@ -5021,6 +5069,19 @@ window.App = window.App || {};
     h('span', { class: 'barra-pct-fundo' }, h('span', { style: { width: `${Math.min(pct || 0, 100)}%` } })),
     h('span', { text: `${fmt(pct)}%` }));
 
+  /** No laudo: % de perda de cada linha se o melhor offset for aplicado (mesmos elementos, mesma ordem). */
+  let laudoOffset = null; // { bitola, valor, r } enquanto o laudo é montado
+  function colunaOffset(paraLaudo, lista, daAnalise) {
+    if (!paraLaudo || !laudoOffset) return null;
+    const outra = daAnalise(laudoOffset.r);
+    const rotulo = `% c/ offset ${laudoOffset.bitola === 'bitF' ? 'F' : 'T'} ${laudoOffset.valor > 0 ? '+' : ''}${fmt(laudoOffset.valor, 1)}`;
+    return {
+      t: rotulo, n: true,
+      total: `${fmt(laudoOffset.r.geral.pctPerda)}%`,
+      v: (x) => { const k = lista.indexOf(x); const y = k >= 0 ? outra[k] : null; return y && y.pctPerda !== null && y.pctPerda !== undefined ? `${fmt(y.pctPerda)}%` : '—'; }
+    };
+  }
+
   /** Colunas da tabela de elementos (usadas na tela e no laudo). */
   function colunasElementos(paraLaudo) {
     const planta = resultado.comLocais;
@@ -5035,7 +5096,7 @@ window.App = window.App || {};
     // Sempre: trecho (EH/RH) primeiro, depois a linha.
     if (planta) cols.push({ t: 'EH / RH', v: (e) => e.trecho || '—' });
     cols.push({ t: 'Linha', v: (e) => e.linha || linhaAtual() });
-    cols.push({ t: 'Elemento', v: (e) => (paraLaudo ? (e.tipo === 'X' ? 'Circuito' : `${e.tipo === 'C' ? 'Curva' : 'Tangente'} ${e.sigla.slice(1)}`) : h('span', { class: `el-tag ${e.tipo === 'C' ? 'el-curva' : e.tipo === 'X' ? 'el-fora' : 'el-tangente'}`, text: e.sigla, title: e.nome })) });
+    cols.push({ t: 'Elemento', v: (e) => (paraLaudo ? (e.tipo === 'X' ? 'RH' : `${e.tipo === 'C' ? 'CVA' : 'TGT'} ${e.sigla.slice(1)}`) : h('span', { class: `el-tag ${e.tipo === 'C' ? 'el-curva' : e.tipo === 'X' ? 'el-fora' : 'el-tangente'}`, text: e.sigla, title: e.nome })) });
     if (planta) cols.push({ t: 'Lado', v: (e) => (e.tipo === 'C' ? (e.lado === 'D' ? 'Dir.' : e.lado === 'E' ? 'Esq.' : '—') : '') });
     // Só raio: elemento(s) da planta a que o km do elemento pertence (o de mais pontos primeiro).
     cols.push(
@@ -5052,9 +5113,10 @@ window.App = window.App || {};
         const v = pct(e.pctPerda);
         return baixa ? h('span', { class: 'baixa-cobertura', title: `Só ${fmt(e.cobertura * 100, 0)}% dos pontos do elemento com Bitola F e T lidas` }, v, ' ⚠') : v;
       } },
+      colunaOffset(paraLaudo, resultado.elementos, (x) => x.elementos),
       { t: `Máx ${nomeAlinhamento()}`, n: true, v: (e) => fmt(e.alinhMax, 2) });
     cols.push({ t: 'Eventos', ev: true, v: eventosDo });
-    return cols;
+    return cols.filter(Boolean);
   }
 
   /** Linha da inspeção: sempre a do arquivo CSV. */
@@ -5077,7 +5139,7 @@ window.App = window.App || {};
       if (!p) return '—';
       if (p.tipo === 'X') return 'Circuito';
       const texto = `${p.tipo === 'C' ? 'Curva' : 'Tangente'} ${p.sigla.slice(1)}`;
-      return paraLaudo ? texto : h('span', { class: `el-tag ${p.tipo === 'C' ? 'el-curva' : 'el-tangente'}`, text: p.sigla, title: texto });
+      return paraLaudo ? `${p.tipo === 'C' ? 'CVA' : 'TGT'} ${p.sigla.slice(1)}` : h('span', { class: `el-tag ${p.tipo === 'C' ? 'el-curva' : 'el-tangente'}`, text: p.sigla, title: texto });
     };
     return [
       { t: 'EH / RH', v: (g) => g.eh },
@@ -5089,10 +5151,11 @@ window.App = window.App || {};
       { t: 'Pontos acima', n: true, v: (g) => int(g.perdas) },
       { t: 'Ext. acima (m)', n: true, v: (g) => fmt(extAcima(g.perdas), 1) },
       { t: '% perda', n: true, v: (g) => `${fmt(g.pctPerda)}%` },
+      colunaOffset(paraLaudo, resultado.porEh, (x) => x.porEh),
       { t: `Perderam (>${fmt(opcoes.limiteElemento ?? 10, 0)}%)`, n: true, v: (g) => (g.rh ? '—' : `${g.comPerda || 0} de ${(g.tangentes || 0) + (g.curvas || 0)}`) },
       { t: 'Maior perda', v: (g) => nomeEl(g.pior) },
       { t: '% do elemento', n: true, v: (g) => (g.pior ? `${fmt(g.pior.pctPerda)}%` : '—') }
-    ];
+    ].filter(Boolean);
   }
 
   /** Linha de total das tabelas: os mesmos pontos do cartão "Perda de bitola" (circuitos não entram). */
@@ -5105,6 +5168,7 @@ window.App = window.App || {};
       if (c.t === 'Pontos acima') return int(g.perdas);
       if (c.t === 'Ext. acima (m)') return fmt(extAcima(g.perdas), 1);
       if (c.t === '% perda') return `${fmt(g.pctPerda)}%`;
+      if (c.total) return c.total;
       return '';
     });
   }
@@ -5337,15 +5401,28 @@ window.App = window.App || {};
   }
 
   /** Laudo: melhor offset em cada bitola e o resultado se ele for aplicado (mesma regra da análise). */
-  function tabelaOffsetLaudo(tabela) {
+  /** Melhor offset em cada bitola e a análise refeita com ele. Define laudoOffset (o de menor perda). */
+  function calcularOffsetsLaudo() {
+    laudoOffset = null;
     if (!opcoesAnalise) return null;
     const lim = opcoes.limitePerda;
     const base = B.analisar(arquivo, { ...opcoesAnalise, offset: { ...opcoes.offset, aplicar: false } });
-    const linhas = [];
+    const lista = [];
     ['bitF', 'bitT'].forEach((b) => {
       const m = B.melhorOffset(arquivo.dados, b, lim, base.mascara);
       if (!m) return;
-      const com = B.analisar(arquivo, { ...opcoesAnalise, offset: { bitola: b, valor: m.valor, aplicar: true } });
+      lista.push({ b, m, com: B.analisar(arquivo, { ...opcoesAnalise, offset: { bitola: b, valor: m.valor, aplicar: true } }) });
+    });
+    const melhor = lista.filter((x) => x.m.valor).sort((a, c) => (a.com.geral.pctPerda ?? 1e9) - (c.com.geral.pctPerda ?? 1e9))[0];
+    if (melhor) laudoOffset = { bitola: melhor.b, valor: melhor.m.valor, r: melhor.com };
+    return { base, lista };
+  }
+
+  function tabelaOffsetLaudo(tabela, calc) {
+    if (!calc) return null;
+    const { base } = calc;
+    const linhas = [];
+    calc.lista.forEach(({ b, m, com }) => {
       const el = (r) => `${r.tangentes.comPerda + r.curvas.comPerda} de ${r.tangentes.quantidade + r.curvas.quantidade}`;
       const seta = (a, d) => `${fmt(a)}% → ${fmt(d)}%`;
       linhas.push([NOMES_BITOLA[b], `${m.valor > 0 ? '+' : ''}${fmt(m.valor, 1)}`,
@@ -5355,7 +5432,7 @@ window.App = window.App || {};
     if (!linhas.length) return null;
     return h('section', { class: 'laudo-secao' }, h('h2', { text: 'Melhor offset e resultado se aplicado' }),
       tabela(['Bitola', 'Melhor offset (mm)', 'Perda de bitola', 'Em tangentes', 'Em curvas', 'Elementos com perda'], linhas, 'centro'),
-      h('p', { class: 'laudo-nota', text: `Sem offset → com o melhor offset. Melhor offset: o valor de −10 a +10 mm (passo 0,1) que deixa menos pontos com |F − T| > ${fmt(lim, 0)} mm.` }));
+      h('p', { class: 'laudo-nota', text: `Sem offset → com o melhor offset. Melhor offset: o valor de −10 a +10 mm (passo 0,1) que deixa menos pontos com |F − T| > ${fmt(opcoes.limitePerda, 0)} mm.` }));
   }
 
   function montarLaudo(info) {
@@ -5367,7 +5444,7 @@ window.App = window.App || {};
       h('thead', null, h('tr', null, cab.map((t) => h('th', { text: t })))),
       h('tbody', null, linhas.map((l) => h('tr', null, l.map((c) => (c instanceof Node ? h('td', null, c) : h('td', { text: c === null || c === undefined ? '' : String(c) })))))));
     const secao = (titulo, ...filhos) => h('section', { class: 'laudo-secao' }, h('h2', { text: titulo }), filhos);
-    const foto = document.querySelector('.cab-foto');
+    const calcOffset = calcularOffsetsLaudo(); // antes das tabelas: coluna "% perda c/ offset"
 
     // Gráficos com largura fixa (o PDF reduz para caber na página).
     const graficosLaudo = definirGraficos({ x0: pos[0], x1: pos[pos.length - 1], aoPassar: null })
@@ -5387,12 +5464,7 @@ window.App = window.App || {};
     ].filter(Boolean).join(' ');
 
     const el = h('div', { id: 'laudo', class: 'laudo' },
-      h('header', { class: 'laudo-cab' },
-        foto ? h('img', { src: foto.src, alt: '', class: 'laudo-foto' }) : null,
-        h('div', null,
-          h('h1', { text: 'Laudo de Inspeção – Carro Controle EM80' }),
-          h('p', { text: 'Centro de Monitoramento de Ativos' })),
-        h('div', { class: 'laudo-emissao' }, h('span', { text: 'Emitido em' }), h('strong', { text: U.fmtDataHora(agora) }))),
+      ui.cabecalhoPdf({ titulo: 'Laudo de Inspeção – Carro Controle EM80', emissao: U.fmtDataHora(agora) }),
 
       secao('Identificação', tabela(['Campo', 'Valor'], [
         ['Arquivo', nomeArquivo],
@@ -5417,7 +5489,7 @@ window.App = window.App || {};
           ].map(([t, v, sub]) => h('div', { class: 'laudo-kpi' }, h('span', { text: t }), h('strong', { text: v }), h('small', { text: sub })))),
         h('p', { class: 'laudo-nota', text: `Critérios: ${criterios}` })),
 
-      tabelaOffsetLaudo(tabela),
+      tabelaOffsetLaudo(tabela, calcOffset),
 
       secao('Gráficos ao longo do km', graficosLaudo.map(({ titulo, g }) => h('div', { class: 'laudo-grafico' }, h('h3', { text: titulo }), g.el))),
 
@@ -5445,7 +5517,7 @@ window.App = window.App || {};
           h('div', null, h('div', { class: 'laudo-linha' }), h('strong', { text: '\u00a0' }), h('span', { text: 'Aceite (nome e assinatura)' })),
           h('div', null, h('div', { class: 'laudo-linha' }), h('strong', { text: '\u00a0' }), h('span', { text: 'Data' })))),
 
-      h('footer', { class: 'laudo-rodape', text: `Gerado pelo App Carro Controle EM80 · ${App.config.build || App.config.versao} · ${U.fmtDataHora(agora)}` }));
+      null);
 
     return { el, graficosLaudo };
   }
@@ -6352,14 +6424,8 @@ window.App = window.App || {};
     const tabela = (cab, linhas) => h('table', { class: 'laudo-tabela ev-tabela' },
       h('thead', null, h('tr', null, cab.map((t) => h('th', { text: t })))),
       h('tbody', null, linhas.map((l) => h('tr', null, l.map((c) => h('td', { text: c === null || c === undefined ? '' : String(c) }))))));
-    const foto = document.querySelector('.cab-foto');
     const el = h('div', { id: 'laudo', class: 'laudo ev-pdf' },
-      h('header', { class: 'laudo-cab' },
-        foto ? h('img', { src: foto.src, alt: '', class: 'laudo-foto' }) : null,
-        h('div', null,
-          h('h1', { text: 'Relatório de Eventos – Carro Controle EM80' }),
-          h('p', { text: `Período: ${U.fmtData(de)} a ${U.fmtData(ate)}` })),
-        h('div', { class: 'laudo-emissao' }, h('span', { text: 'Emitido em' }), h('strong', { text: U.fmtDataHora(U.agora()) }))),
+      ui.cabecalhoPdf({ titulo: 'Relatório de Eventos – Carro Controle EM80', subtitulo: `Centro de Monitoramento de Ativos · Período: ${U.fmtData(de)} a ${U.fmtData(ate)}`, emissao: U.fmtDataHora(U.agora()) }),
       h('section', { class: 'laudo-secao' }, h('h2', { text: 'Indicadores' }),
         h('div', { class: 'laudo-kpis' },
           [['Eventos', fmtN(r.qtd), `${evs.filter(ehFalha).length} falha(s) de equipamento`],
@@ -6374,7 +6440,7 @@ window.App = window.App || {};
             U.fmtDataHora(e.inicio), e.fim ? U.fmtDataHora(e.fim) : 'em aberto', U.fmtDuracao(U.minutosEntre(e.inicio, e.fim || U.agora())),
             omsDe(e) ? fmtN(omsDe(e)) : '', textoImpacto(e).join('\n'),
             e.observacao || '']))),
-      h('footer', { class: 'laudo-rodape', text: `Gerado pelo App Carro Controle EM80 · ${U.fmtDataHora(U.agora())}` }));
+      null);
     imprimir(el, `Eventos EM80 ${U.fmtData(de).replace(/\//g, '-')} a ${U.fmtData(ate).replace(/\//g, '-')}`);
   }
 
@@ -8032,8 +8098,9 @@ window.App = window.App || {};
           Object.entries(GRAVIDADES).map(([g, c]) => h('span', { class: 'leg-item' }, h('span', { class: 'leg-caixa', style: { background: c } }), g)))));
     });
 
-    return h('div', { id: 'laudo', class: 'laudo rota-pdf' }, paginas,
-      h('footer', { class: 'laudo-rodape', text: `Gerado pelo App Carro Controle EM80 · ${U.fmtDataHora(U.agora())}` }));
+    return h('div', { id: 'laudo', class: 'laudo rota-pdf' },
+      ui.cabecalhoPdf({ titulo: `Rota do Carro Controle EM80 · Ciclo ${ciclo}${execucao ? ' · Execução' : ''}`, emissao: U.fmtDataHora(U.agora()) }),
+      paginas);
   }
 
   function imprimir(el) {

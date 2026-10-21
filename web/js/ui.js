@@ -235,5 +235,14 @@
     if (foco) setTimeout(() => foco.focus({ preventScroll: true }), 300);
   }
 
-  App.ui = { h, limpar, trocar, icone, toast, modal, confirmar, copiar, tema, campo, marcarErro, limparErros, rolarAte };
+  /** Cabeçalho dos PDFs: igual ao topo do app (fundo escuro, foto do carro e faixa amarela). */
+  function cabecalhoPdf({ titulo, subtitulo = 'Centro de Monitoramento de Ativos', emissao }) {
+    const foto = document.querySelector('.cab-foto');
+    return h('header', { class: 'laudo-cab' },
+      foto ? h('img', { src: foto.src, alt: '', class: 'laudo-foto' }) : null,
+      h('div', null, h('h1', { text: titulo }), h('p', { text: subtitulo })),
+      emissao ? h('div', { class: 'laudo-emissao' }, h('span', { text: 'Emitido em' }), h('strong', { text: emissao })) : null);
+  }
+
+  App.ui = { h, cabecalhoPdf, limpar, trocar, icone, toast, modal, confirmar, copiar, tema, campo, marcarErro, limparErros, rolarAte };
 })(window.App);
