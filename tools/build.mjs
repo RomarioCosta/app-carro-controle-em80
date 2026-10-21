@@ -21,15 +21,22 @@ const swOriginal = ler('sw.js');
 const lista = [...swOriginal.matchAll(/^\s+'([^']+)',?$/gm)].map((m) => m[1]).filter((p) => p !== './');
 const hash = createHash('sha256');
 const normalizar = (p, conteudo) => {
-  if (p === 'js/config.js') return Buffer.from(conteudo.toString('utf8').replace(/build: '[^']*'/, "build: ''"));
+  if (p === 'js/config.js') return Buffer.from(conteudo.toString('utf8').replace(/build: '[^']*'/, "build: ''").replace(/versao: '[^']*'/, "versao: ''"));
   return conteudo;
 };
 lista.forEach((p) => hash.update(normalizar(p, readFileSync(join(web, p)))));
 const versao = `em80-${hash.digest('hex').slice(0, 10)}`;
 writeFileSync(join(web, 'sw.js'), swOriginal.replace(/const VERSAO = '[^']*';/, `const VERSAO = '${versao}';`));
 // O mesmo código aparece em Ajustes, para conferir qual versão está aberta.
+// Versão mostrada em Ajustes: data do build (AAAA.MM.DD), trocada só quando o conteúdo muda.
 const configPath = join(web, 'js', 'config.js');
-writeFileSync(configPath, readFileSync(configPath, 'utf8').replace(/build: '[^']*'/, `build: '${versao}'`));
+let config = readFileSync(configPath, 'utf8');
+const buildAnterior = (/build: '([^']*)'/.exec(config) || [])[1];
+if (buildAnterior !== versao) {
+  const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }).replace(/-/g, '.');
+  config = config.replace(/versao: '[^']*'/, `versao: '${hoje}'`);
+}
+writeFileSync(configPath, config.replace(/build: '[^']*'/, `build: '${versao}'`));
 
 // 2) Index.html do Apps Script (com a versão já preenchida).
 let html = ler('index.html');

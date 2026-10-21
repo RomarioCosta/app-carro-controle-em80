@@ -28,18 +28,18 @@
       conexaoEl, syncEl, temaEl,
       h('section', { class: 'cartao' },
         h('h2', { text: 'Sobre' }),
-        h('p', { class: 'sub', text: `App Carro Controle EM80 · versão ${config.versao} (${config.build}) · modo ${api.modo() === 'appsscript' ? 'Apps Script' : 'site (PWA)'}` }),
-        h('div', { class: 'linha-acoes' },
+        h('p', { class: 'sub', text: `App Carro Controle EM80 · versão ${config.versao} · código ${config.build} · modo ${api.modo() === 'appsscript' ? 'Apps Script' : 'site (PWA)'}` }),
+        h('div', { class: 'linha-acoes', style: { marginTop: '10px' } },
           h('button', {
-            class: 'btn btn-secundario',
+            class: 'btn btn-secundario btn-pequeno',
             onclick: async () => {
               const publicada = await App.versao.verificar();
               if (publicada === null) ui.toast('Não foi possível conferir agora (sem internet?).', 'erro');
               else if (publicada === config.build) ui.toast('Você já está na versão mais recente.', 'ok');
             }
           }, ui.icone('sync'), 'Procurar atualização'),
-          api.modo() === 'web' ? h('button', { class: 'btn btn-secundario', onclick: () => App.versao.atualizar() }, 'Recarregar app') : null),
-        h('button', { class: 'btn btn-perigo', onclick: apagarDados }, ui.icone('lixo'), 'Apagar dados deste aparelho')));
+          api.modo() === 'web' ? h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => App.versao.atualizar() }, 'Recarregar app') : null,
+          h('button', { class: 'btn btn-perigo btn-pequeno', onclick: apagarDados }, ui.icone('lixo'), 'Apagar dados deste aparelho'))));
     renderConexao();
     renderTema();
     document.addEventListener('em80:sync', () => renderSync());
