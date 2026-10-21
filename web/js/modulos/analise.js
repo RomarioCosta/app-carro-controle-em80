@@ -180,7 +180,7 @@
   }
 
   async function importarPlanta(f) {
-    ui.toast('Lendo a planta…', 'info', 2000);
+    ui.toast('Lendo o arquivo…', 'info', 2000);
     try {
       const XLSX = await carregarXLSX();
       const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: false });
@@ -192,25 +192,28 @@
         } catch (e) { ultimoErro = e; }
       }
       if (!lida) throw ultimoErro || new Error('Planta não encontrada no arquivo.');
-      planta = { nome: f.name, importadoEm: U.agora(), elementos: lida.elementos, ramais: lida.ramais };
+      planta = { nome: f.name, importadoEm: U.agora(), elementos: lida.elementos, ramais: lida.ramais, fonte: lida.fonte || 'planta' };
       await store.set(CHAVE_PLANTA, planta);
       cacheAjuste.clear();
-      opcoes = { ...opcoes, ajusteKm: 'auto' };
+      // Geometria do carro controle: os elementos vêm dela (pelo km).
+      opcoes = { ...opcoes, ajusteKm: 'auto', ...(planta.fonte === 'geometria' ? { modo: 'planta' } : {}) };
       salvarOpcoes();
-      ui.toast(`Planta importada: ${lida.elementos.length.toLocaleString('pt-BR')} elementos.`, 'ok', 5000);
+      ui.toast(`${planta.fonte === 'geometria' ? 'Geometria' : 'Planta'} importada: ${lida.elementos.length.toLocaleString('pt-BR')} elementos.`, 'ok', 5000);
       if (arquivo) recalcular(); else renderPlanta();
     } catch (e) {
       ui.toast(`Não foi possível ler a planta: ${e.message}`, 'erro', 8000);
     }
   }
 
+  const nomeFonte = () => (planta && planta.fonte === 'geometria' ? 'geometria' : 'planta');
+
   function renderPlanta() {
     const input = h('input', { type: 'file', accept: '.xls,.xlsx', onchange: (e) => { const f = e.target.files[0]; if (f) importarPlanta(f); } });
     const resumo = planta
       ? `${planta.nome} · ${planta.elementos.length.toLocaleString('pt-BR')} elementos · ramais ${Object.keys(planta.ramais).join(', ')} · importada em ${U.fmtData(planta.importadoEm)}`
-      : 'Importe a planilha "Planta da linha" para separar os elementos por EH e linha. Sem ela, os elementos são identificados pelo raio.';
+      : 'Importe a "Geometria da EFVM – Carro Controle" (ou a planilha "Planta da linha") para separar os elementos por EH e linha. Sem ela, os elementos são identificados pelo raio.';
     ui.trocar(secoes.planta, h('details', { class: 'cartao detalhes', open: !planta || null },
-      h('summary', null, h('strong', { text: 'Planta da linha' }), h('span', { class: 'sub', text: planta ? ` · ${planta.elementos.length.toLocaleString('pt-BR')} elementos` : ' · não importada' })),
+      h('summary', null, h('strong', { text: planta && planta.fonte === 'geometria' ? 'Geometria da linha' : 'Planta da linha' }), h('span', { class: 'sub', text: planta ? ` · ${planta.elementos.length.toLocaleString('pt-BR')} elementos` : ' · não importada' })),
       h('div', { class: 'pilha', style: { marginTop: '10px' } },
         h('p', { class: 'sub', text: resumo }),
         ui.campo(planta ? 'Substituir planta (.xls ou .xlsx)' : 'Planta da linha (.xls ou .xlsx)', input),
@@ -291,7 +294,7 @@
     const conf = infoPlanta && infoPlanta.conferencia;
     const blocoPlanta = planta ? h('div', { class: 'pilha' },
       ui.campo('Elementos', h('div', { class: 'seg seg-modos-analise', role: 'group' },
-        [['hibrido', 'Raio + planta'], ['planta', 'Pelo km da planta'], ['curvatura', 'Só raio']].map(([v, r]) => h('button', {
+        [['planta', `Pelo km da ${nomeFonte()}`], ['hibrido', `Raio + ${nomeFonte()}`], ['curvatura', 'Só raio']].map(([v, r]) => h('button', {
           type: 'button',
           class: `seg-opcao${opcoes.modo === v ? ' ativo' : ''}`,
           'aria-pressed': opcoes.modo === v ? 'true' : 'false',
@@ -313,7 +316,7 @@
 
     ui.trocar(secoes.parametros, h('details', { class: 'cartao detalhes' },
       h('summary', null, h('strong', { text: 'Critérios da análise' }),
-        h('span', { class: 'sub', text: ` · ${usandoPlanta ? `elementos da planta (${infoPlanta.ramal}, pelo km, correção ${fmt(infoPlanta.ajuste, 0)} m)` : `curva com raio até ${int(opcoes.raioCurva)} m`} · perda acima de ${opcoes.limitePerda} mm` })),
+        h('span', { class: 'sub', text: ` · ${usandoPlanta ? `elementos da ${nomeFonte()} (${infoPlanta.ramal}, pelo km, correção ${fmt(infoPlanta.ajuste, 0)} m)` : `curva com raio até ${int(opcoes.raioCurva)} m`} · perda acima de ${opcoes.limitePerda} mm` })),
       h('div', { class: 'pilha', style: { marginTop: '12px' } },
         blocoPlanta,
         h('div', { class: 'grade-2' },
@@ -591,7 +594,7 @@
         tabelaTela(colunasEh(false), porPerda(r.porEh), (g) => (g.pior ? aproximar(g.pior.ini, g.pior.fim) : aproximar(g.ini, g.fim)))) : null,
       h('section', { class: 'cartao' },
         h('div', { class: 'cartao-cab' },
-          h('h2', { text: r.modo === 'curvatura' ? 'Elementos: tangentes e curvas' : 'Elementos da planta: tangentes e curvas' }),
+          h('h2', { text: r.modo === 'curvatura' ? 'Elementos: tangentes e curvas' : `Elementos da ${nomeFonte()}: tangentes e curvas` }),
           cartaoConferencia()),
         tabelaTela(colunasElementos(false), porPerda(r.elementos), (e) => aproximar(e.ini, e.fim))));
   }
