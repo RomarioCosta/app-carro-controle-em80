@@ -114,15 +114,21 @@
     const linha = valida ? valida.valida : (linhasPlanta.includes('1') ? '1' : linhasPlanta[0]);
     const localizar = B.localizador(planta, ramal, arquivo, linha);
     const els = B.elementosDaPlanta(planta, ramal, linha);
-    let ajuste = 0; let acerto = null; const automatico = opcoes.ajusteKm === 'auto';
+    let ajuste = 0; let acerto = null; let faixa = [0, 0]; const automatico = opcoes.ajusteKm === 'auto';
     if (automatico) {
       const k = `${nomeArquivo}|${arquivo.pos.length}|${ramal}|${linha}|${opcoes.raioCurva}|${opcoes.suavizacao}`;
-      if (!cacheAjuste.has(k)) cacheAjuste.set(k, B.ajusteAutomatico(arquivo.pos, arquivo.dados.curv, els, opcoes));
-      ({ ajuste, acerto } = cacheAjuste.get(k));
+      // Correção ponto a ponto: o odômetro escorrega ao longo do arquivo e o km é acertado em campo.
+      if (!cacheAjuste.has(k)) cacheAjuste.set(k, B.ajusteVariavel(arquivo.pos, arquivo.dados.curv, els, opcoes));
+      const v = cacheAjuste.get(k);
+      ajuste = v.ajustes;
+      acerto = v.curvas ? (v.casadas / v.curvas) * 100 : null;
+      faixa = [v.min, v.max];
     } else {
       ajuste = Number(opcoes.ajusteKm) || 0;
+      faixa = [ajuste, ajuste];
     }
-    infoPlanta = { ramal, linha, ajuste, acerto, automatico, qtd: els.length, linhasArquivo: resumoLinhas, conferencia: conferirRamal(ramal, linha, els) };
+    const ajusteTxt = Math.abs(faixa[1] - faixa[0]) < 1 ? `${fmt(faixa[0], 0)} m` : `${fmt(faixa[0], 0)} a ${fmt(faixa[1], 0)} m`;
+    infoPlanta = { ramal, linha, ajuste, ajusteTxt, acerto, automatico, qtd: els.length, linhasArquivo: resumoLinhas, conferencia: conferirRamal(ramal, linha, els) };
     return { els, ajuste, localizar };
   }
 
@@ -306,7 +312,7 @@
           type: 'text',
           inputmode: 'tel',
           value: opcoes.ajusteKm === 'auto' ? '' : String(opcoes.ajusteKm).replace('.', ','),
-          placeholder: infoPlanta ? `auto: ${fmt(infoPlanta.ajuste, 1)}` : 'auto',
+          placeholder: infoPlanta ? `auto: ${infoPlanta.ajusteTxt}` : 'auto',
           onchange: (e) => {
             const v = U.numero(e.target.value);
             mudar('ajusteKm', e.target.value.trim() === '' || v === null ? 'auto' : v);
@@ -316,7 +322,7 @@
 
     ui.trocar(secoes.parametros, h('details', { class: 'cartao detalhes' },
       h('summary', null, h('strong', { text: 'Critérios da análise' }),
-        h('span', { class: 'sub', text: ` · ${usandoPlanta ? `elementos da ${nomeFonte()} (${infoPlanta.ramal}, pelo km, correção ${fmt(infoPlanta.ajuste, 0)} m)` : `curva com raio até ${int(opcoes.raioCurva)} m`} · perda acima de ${opcoes.limitePerda} mm` })),
+        h('span', { class: 'sub', text: ` · ${usandoPlanta ? `elementos da ${nomeFonte()} (${infoPlanta.ramal}, pelo km, correção ${infoPlanta.ajusteTxt})` : `curva com raio até ${int(opcoes.raioCurva)} m`} · perda acima de ${opcoes.limitePerda} mm` })),
       h('div', { class: 'pilha', style: { marginTop: '12px' } },
         blocoPlanta,
         h('div', { class: 'grade-2' },
@@ -842,7 +848,7 @@
       `Ponto acima da regra: |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm, com a diferença arredondada a 0,01 mm (exatamente ${fmt(opcoes.limitePerda, 0)},00 mm não está acima); só pontos com Bitola F e T lidas. % perda = pontos acima da regra ÷ total de pontos. Curva ou tangente perdeu a bitola quando a % de perda passa de ${fmt(opcoes.limiteElemento ?? 10, 0)}%. * = elemento com menos de 90% dos pontos com leitura.`,
       `Variação rápida quando o desvio padrão da bitola em 1 m passa de ${fmt(opcoes.limiteVariacao, 1)} mm.`,
       r.modo !== 'curvatura'
-        ? `${r.modo === 'hibrido' ? 'Elementos com limites pelo raio medido e nomes da planta da linha' : 'Elementos pelo km da planta da linha'} (${planta.nome}), por trecho EH x/y e RH (circuito); circuitos (RH) fora das estatísticas gerais: ramal ${infoPlanta.ramal} do arquivo CSV, localização pelo km (a coluna LINHA é só informativa), correção do km de ${fmt(infoPlanta.ajuste, 1)} m${infoPlanta.automatico ? ' (automático' + (infoPlanta.acerto !== null ? `, curvas coincidentes em ${fmt(infoPlanta.acerto, 0)}% do trecho` : '') + ')' : ''}.`
+        ? `${r.modo === 'hibrido' ? 'Elementos com limites pelo raio medido e nomes da planta da linha' : 'Elementos pelo km da planta da linha'} (${planta.nome}), por trecho EH x/y e RH (circuito); circuitos (RH) fora das estatísticas gerais: ramal ${infoPlanta.ramal} do arquivo CSV, localização pelo km (a coluna LINHA é só informativa), correção do km de ${infoPlanta.ajusteTxt}${infoPlanta.automatico ? ' (automática, ponto a ponto pelas curvas' + (infoPlanta.acerto !== null ? `; ${fmt(infoPlanta.acerto, 0)}% das curvas medidas casadas com a ${nomeFonte()}` : '') + ')' : ''}.`
         : `Elementos pelo raio medido (10000/R, média móvel de ${fmt(opcoes.suavizacao, 0)} m): curva com raio até ${int(opcoes.raioCurva)} m, volta a tangente acima de ${int(opcoes.raioCurva * 2)} m; curva mínima ${fmt(opcoes.curvaMin, 0)} m; tangente menor que ${fmt(opcoes.tangenteMin, 0)} m entre curvas é absorvida por elas.`,
       off.aplicar && off.valor ? `Offset de ${fmt(off.valor, 1)} mm aplicado em ${NOMES_BITOLA[off.bitola]}.` : ''
     ].filter(Boolean).join(' ');

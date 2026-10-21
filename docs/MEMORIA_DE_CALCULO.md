@@ -70,7 +70,7 @@ Coluna usada: `10000/R` (R = raio em metros). Raio de 3.000 m → 10000/R = 3,33
    - tangente com menos de **20 m** entre duas curvas: do mesmo lado, une as curvas; de lados opostos, é dividida entre as duas.
 4. **Início e fim da curva:** ajustados no 10000/R pouco suavizado (5 m), no ponto onde ele cruza o raio de saída (6.000 m), até 20 m do limite encontrado no passo 2.
 5. **Extensão:** distância percorrida entre os pontos (não usa o km). Se o km volta ou salta (correção em campo), conta só o espaçamento normal.
-6. Numeração na ordem do arquivo: Tangente 01 (T01), Curva 01 (C01), Tangente 02…
+6. Numeração: com planta/geometria, recomeça em cada EH/RH (a 1ª curva do EH 11/12 é C01); sem planta, na ordem do arquivo.
 
 Todos os valores em **negrito** podem ser alterados em Critérios da análise.
 
@@ -114,14 +114,17 @@ Ao importar a geometria, o modo passa para **Pelo km da geometria**. A correçã
 - Pontos de RH ficam **fora de todas as estatísticas gerais** (perda, tangentes, curvas, OGMS × KLD, variação, offset).
 - No modo Só raio, o elemento cuja maioria dos pontos está em RH é tratado como do circuito. Um elemento que só atravessa parte do circuito conta apenas os pontos fora do RH.
 
-## 7. Correção do km (automática)
+## 7. Correção do km (automática, ponto a ponto)
 
-1. Amostras a cada 1 m: classe pelo raio suavizado (curva à esquerda, curva à direita ou tangente).
-2. Para cada deslocamento de −300 a +300 m (passo de 2 m), compara a classe medida com a da planta no km deslocado.
-3. Testa também a convenção de sinal invertida (esquerda/direita).
-4. Escolhe o deslocamento com mais coincidências (empate: o menor em módulo); depois refina em passos de 0,5 m (±2 m).
-5. Só vale se pelo menos 30% das amostras caírem dentro da planta.
-6. "% coincidente" = amostras com a mesma classe ÷ amostras dentro da planta.
+O odômetro do carro escorrega aos poucos (no arquivo RLT_PV de 20/10/2026: de −62 m a +223 m ao longo de 38 km) e o km é acertado à mão em campo (saltos no km). Por isso a correção não é um valor único para o arquivo:
+
+1. O arquivo é dividido onde o km salta (acerto manual em campo).
+2. Em cada parte, a correção inicial vem dos primeiros 3 km: deslocamentos de −300 a +300 m (passo 2 m, refinado em 0,5 m), escolhendo o que mais coincide tangente/curva com a planta (testa também o lado invertido).
+3. Cada curva medida pelo raio (item 4) é casada com a curva da planta mais próxima do km previsto: até 100 m, mesmo lado, extensão entre a metade e o dobro. A correção daquela curva = centro da curva na planta − centro medido.
+4. Entre duas curvas casadas, a correção é interpolada; antes da primeira e depois da última, fica constante.
+5. "% casadas" = curvas medidas casadas ÷ curvas medidas.
+
+Correção digitada em Critérios (um número) vale para o arquivo todo.
 
 ### 7.1 Conferência do ramal
 - Compara só as **curvas** (F1 entre amostras em curva medidas e em curva na planta), a cada 5 m, com deslocamentos de −300 a +300 m (passo de 10 m), em todos os ramais/linhas da planta.

@@ -720,6 +720,9 @@
     return [...cont.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => arquivo.linhasValores[k] || '—').join(' / ');
   };
 
+  /** Correção do km no ponto i: um valor só ou um valor por ponto (correção variável). */
+  const aj = (ajuste, i) => (typeof ajuste === 'number' ? ajuste : ajuste[i]);
+
   /** Elemento da planta que contém a posição (busca binária). */
   function naPlanta(els, p) {
     let lo = 0; let hi = els.length - 1;
@@ -759,8 +762,9 @@
       return total >= amostras.length * 0.3 ? ok / total : 0;
     };
     let melhor = { ajuste: 0, acerto: -1, troca: false };
+    const [de, ate] = o.faixaAjuste || [-300, 300];
     [false, true].forEach((troca) => {
-      for (let aj = -300; aj <= 300; aj += 2) {
+      for (let aj = de; aj <= ate; aj += 2) {
         const v = nota(aj, troca);
         if (v > melhor.acerto + 1e-9 || (Math.abs(v - melhor.acerto) < 1e-9 && Math.abs(aj) < Math.abs(melhor.ajuste))) melhor = { ajuste: aj, acerto: v, troca };
       }
@@ -769,7 +773,75 @@
       const v = nota(aj, melhor.troca);
       if (v > melhor.acerto + 1e-9) melhor = { ...melhor, ajuste: aj, acerto: v };
     }
-    return { ajuste: melhor.ajuste, acerto: melhor.acerto < 0 ? null : melhor.acerto * 100 };
+    return { ajuste: melhor.ajuste, acerto: melhor.acerto < 0 ? null : melhor.acerto * 100, troca: melhor.troca };
+  };
+
+  /**
+   * Correção do km ponto a ponto. O odômetro do carro escorrega aos poucos (dezenas de metros por km)
+   * e o km é acertado à mão em campo (saltos). Uma correção única para o arquivo todo não serve.
+   * 1. O arquivo é dividido onde o km salta (correção manual).
+   * 2. Em cada parte, a correção inicial vem da comparação das curvas nos primeiros 3 km (−300 a +300 m).
+   * 3. Cada curva medida (pelo raio) é casada com a curva da planta mais próxima do km previsto
+   *    (até 100 m, mesmo lado, extensão parecida); a correção daquela curva = centro da planta − centro medido.
+   * 4. Entre duas curvas casadas, a correção é interpolada; antes da primeira e depois da última, fica constante.
+   * Retorna { ajustes: Float64Array, ancoras: [{ i, ajuste }], casadas, curvas, min, max }.
+   */
+  B.ajusteVariavel = (pos, curv, els, opcoes = {}) => {
+    const o = { ...B.PADRAO, ...opcoes };
+    const n = pos.length;
+    const ajustes = new Float64Array(n);
+    if (!els.length || !n) return { ajustes, ancoras: [], casadas: 0, curvas: 0, min: 0, max: 0 };
+    const esp = B.espacamento(pos) || 0.25;
+    const curvasPlanta = els.filter((e) => e.tipo === 'C').map((e) => ({ c: (e.ini + e.fim) / 2, ext: e.fim - e.ini, lado: e.lado }));
+    const medidas = B.segmentar(pos, curv, o).filter((e) => e.tipo === 'C');
+    // partes entre saltos de km
+    const partes = [];
+    for (let i = 1, ini = 0; i <= n; i++) {
+      if (i === n || !(Math.abs(pos[i] - pos[i - 1]) <= 5 * esp)) { partes.push([ini, i - 1]); ini = i; }
+    }
+    const ancoras = [];
+    let casadas = 0; let total = 0;
+    partes.forEach(([a, b]) => {
+      if (b - a < 4) return;
+      const doTrecho = medidas.filter((m) => m.i0 >= a && m.i1 <= b);
+      total += doTrecho.length;
+      // correção inicial: primeiros 3 km da parte
+      const fimIni = Math.min(b, a + Math.round(3000 / esp));
+      const ini = B.ajusteAutomatico(pos.subarray(a, fimIni + 1), curv.subarray(a, fimIni + 1), els, o);
+      let atual = ini.ajuste;
+      const troca = ini.troca;
+      const anc = [];
+      doTrecho.forEach((m) => {
+        const centro = (m.ini + m.fim) / 2;
+        const ext = Math.abs(m.fim - m.ini);
+        let ladoMedido = m.lado; if (troca) ladoMedido = ladoMedido === 'D' ? 'E' : 'D';
+        let melhor = null; let dMin = 100;
+        for (const c of curvasPlanta) {
+          const d = Math.abs(c.c - (centro + atual));
+          if (d > dMin) continue;
+          if (c.lado && ladoMedido && c.lado !== ladoMedido) continue;
+          if (ext < c.ext * 0.5 || ext > c.ext * 2) continue;
+          dMin = d; melhor = c;
+        }
+        if (!melhor) return;
+        atual = melhor.c - centro;
+        anc.push({ i: Math.round((m.i0 + m.i1) / 2), ajuste: atual });
+        casadas++;
+      });
+      if (!anc.length) { ajustes.fill(ini.ajuste, a, b + 1); return; }
+      for (let i = a; i <= b; i++) {
+        if (i <= anc[0].i) { ajustes[i] = anc[0].ajuste; continue; }
+        if (i >= anc[anc.length - 1].i) { ajustes[i] = anc[anc.length - 1].ajuste; continue; }
+      }
+      for (let k = 0; k < anc.length - 1; k++) {
+        const p = anc[k]; const q = anc[k + 1];
+        for (let i = p.i; i <= q.i; i++) ajustes[i] = p.ajuste + ((q.ajuste - p.ajuste) * (i - p.i)) / Math.max(1, q.i - p.i);
+      }
+      ancoras.push(...anc);
+    });
+    let min = Infinity; let max = -Infinity;
+    ajustes.forEach((v) => { if (v < min) min = v; if (v > max) max = v; });
+    return { ajustes, ancoras, casadas, curvas: total, min, max };
   };
   /**
    * Quanto as curvas do arquivo combinam com as curvas de um ramal/linha da planta (0 a 100),
@@ -821,7 +893,7 @@
     const linhaPlanta = els.length ? els[0].linha : '';
     const medidos = B.segmentar(pos, curv, o);
     const ref = new Array(n);
-    for (let i = 0; i < n; i++) ref[i] = achar ? achar(i, pos[i] + ajuste) : naPlanta(els, pos[i] + ajuste);
+    for (let i = 0; i < n; i++) ref[i] = achar ? achar(i, pos[i] + aj(ajuste, i)) : naPlanta(els, pos[i] + aj(ajuste, i));
     const minRh = Math.max(o.comprimentoMin, 25); // pátios reais têm ~260 m; buracos menores são falha da planta
 
     // 1) Pátios: trechos contínuos fora da planta com pelo menos o comprimento mínimo (no arquivo todo).
@@ -865,7 +937,7 @@
     // 2) Nome pela planta: o elemento da planta com mais pontos no pedaço.
     const rotulo = (p) => {
       if (p.fora) {
-        const rh = nomes.rh((pos[p.i0] + pos[p.i1]) / 2 + ajuste);
+        const rh = nomes.rh((pos[p.i0] + pos[p.i1]) / 2 + aj(ajuste, (p.i0 + p.i1) >> 1));
         return { chave: `RH|${rh}`, tipo: 'X', eh: rh, trecho: rh, sigla: 'RH', nome: `${rh} (circuito)`, lado: '', raioPlanta: null };
       }
       const cont = new Map();
@@ -874,7 +946,7 @@
       // prefere elemento do mesmo tipo do medido (curva medida → curva da planta)
       cont.forEach((q, e) => { const peso = q * (e.tipo === p.medido ? 1.5 : 1); if (peso > maior) { maior = peso; el = e; } });
       const numero = el.num ? String(el.num).padStart(2, '0') : '';
-      const trecho = nomes.eh(el.eh);
+      const trecho = (el.nomeEh || nomes.eh(el.eh));
       return {
         chave: `EL|${el.ini}|${el.fim}`,
         tipo: el.tipo,
@@ -945,7 +1017,7 @@
     // Mesmo elemento em outra linha da planta (a coluna LINHA mudou no meio dele) continua o mesmo elemento.
     const chaveEl = (e) => (e ? `${e.eh}|${e.tipo}|${e.num}|${e.lado}` : '');
     for (let i = 0; i < n; i++) {
-      const el = achar ? achar(i, pos[i] + ajuste) : naPlanta(els, pos[i] + ajuste);
+      const el = achar ? achar(i, pos[i] + aj(ajuste, i)) : naPlanta(els, pos[i] + aj(ajuste, i));
       if (!atual || chaveEl(atual.ref) !== chaveEl(el)) {
         atual = { ref: el, i0: i, i1: i };
         seg.push(atual);
@@ -957,11 +1029,11 @@
       const e = s.ref;
       const base = { i0: s.i0, i1: s.i1, ini: pos[s.i0], fim: pos[s.i1], extensao: abs(pos[s.i1] - pos[s.i0]) + esp, linha: e ? e.linha : linhaPlanta };
       if (!e) {
-        const rh = nomes.rh((pos[s.i0] + pos[s.i1]) / 2 + ajuste);
+        const rh = nomes.rh((pos[s.i0] + pos[s.i1]) / 2 + aj(ajuste, (s.i0 + s.i1) >> 1));
         return { ...base, tipo: 'X', eh: rh, trecho: rh, sigla: 'RH', nome: `${rh} (circuito)`, lado: '', raioPlanta: null };
       }
       const numero = e.num ? String(e.num).padStart(2, '0') : '';
-      const trecho = nomes.eh(e.eh);
+      const trecho = (e.nomeEh || nomes.eh(e.eh));
       return {
         ...base,
         tipo: e.tipo,
@@ -991,7 +1063,7 @@
     const nomes = B.nomesTrechos(els);
     const minRh = Math.max(o.comprimentoMin, 25);
     const ref = new Array(n);
-    for (let i = 0; i < n; i++) ref[i] = achar ? achar(i, pos[i] + ajuste) : naPlanta(els, pos[i] + ajuste);
+    for (let i = 0; i < n; i++) ref[i] = achar ? achar(i, pos[i] + aj(ajuste, i)) : naPlanta(els, pos[i] + aj(ajuste, i));
     const noRh = new Uint8Array(n);
     for (let i = 0; i < n;) {
       if (ref[i]) { i++; continue; }
@@ -1004,7 +1076,7 @@
     elementos.forEach((e) => {
       const locais = new Map(); const plantaEls = new Map();
       for (let i = e.i0; i <= e.i1; i++) {
-        const nome = noRh[i] ? nomes.rh(pos[i] + ajuste) : ref[i] ? nomes.eh(ref[i].eh) : '';
+        const nome = noRh[i] ? nomes.rh(pos[i] + aj(ajuste, i)) : ref[i] ? (ref[i].nomeEh || nomes.eh(ref[i].eh)) : '';
         if (nome) locais.set(nome, (locais.get(nome) || 0) + 1);
         if (ref[i]) plantaEls.set(ref[i], (plantaEls.get(ref[i]) || 0) + 1);
       }
@@ -1015,7 +1087,7 @@
       // locais na ordem do arquivo (ex.: "EH 50/51 · RH-50")
       const ordem = [];
       for (let i = e.i0; i <= e.i1; i += Math.max(1, Math.round(5 / esp))) {
-        const nome = noRh[i] ? nomes.rh(pos[i] + ajuste) : ref[i] ? nomes.eh(ref[i].eh) : '';
+        const nome = noRh[i] ? nomes.rh(pos[i] + aj(ajuste, i)) : ref[i] ? (ref[i].nomeEh || nomes.eh(ref[i].eh)) : '';
         if (nome && ordem[ordem.length - 1] !== nome) ordem.push(nome);
       }
       e.trecho = ordem.join(' · ') || e.eh;
@@ -1058,6 +1130,17 @@
     else brutos = B.segmentar(pos, dados.curv, o);
     // Só curvatura com planta: os elementos não mudam; ganham EH/RH e o elemento da planta pelo km.
     const locais = modo === 'curvatura' && temPlanta ? B.localizarElementos(brutos, pos, o.elementosPlanta, o.ajusteKm || 0, o, o.localizar || null) : null;
+    if (locais) {
+      // Numeração dentro de cada EH/RH (como na planta): a 1ª curva do EH 11/12 é C01, não a 70ª do arquivo.
+      let ehAtual = null; let cont = { T: 0, C: 0 };
+      brutos.forEach((e) => {
+        if (e.eh !== ehAtual) { ehAtual = e.eh; cont = { T: 0, C: 0 }; }
+        cont[e.tipo] = (cont[e.tipo] || 0) + 1;
+        const numero = String(cont[e.tipo]).padStart(2, '0');
+        e.sigla = `${e.tipo}${numero}`;
+        e.nome = `${e.tipo === 'T' ? 'Tangente' : 'Curva'} ${numero}`;
+      });
+    }
     // A linha mostrada é a da coluna LINHA do arquivo em cada trecho (só informativa).
     const elementos = brutos.map((e) => ({ ...e, linha: B.linhaDoTrecho(arquivo, e.i0, e.i1), ...resumoTrecho(dados, e.i0, e.i1, o, extras) }));
     // Circuitos (RH) ficam fora das estatísticas gerais (perda de bitola, OGMS × KLD, variação).

@@ -290,8 +290,9 @@ test('só curvatura com planta: elementos iguais, com EH/RH e elemento da planta
   const r = B.analisar(a, { modo: 'curvatura', elementosPlanta: els, ajusteKm: 30 });
   assert.equal(r.modo, 'curvatura');
   assert.equal(r.comLocais, true);
-  // mesmos elementos e numeração da curvatura
-  assert.deepEqual(j(r.elementos.map((e) => [e.sigla, e.i0, e.i1])), j(pura.elementos.map((e) => [e.sigla, e.i0, e.i1])));
+  // mesmos elementos (limites do raio); a numeração recomeça em cada EH/RH
+  assert.deepEqual(j(r.elementos.map((e) => [e.i0, e.i1])), j(pura.elementos.map((e) => [e.i0, e.i1])));
+  assert.deepEqual(j(r.elementos.map((e) => e.sigla)), ['T01', 'C01', 'T02', 'C01']);
   // EH (o de mais pontos) e elemento da planta a que o km pertence
   assert.deepEqual(j(r.elementos.map((e) => e.eh)), ['EH 11/12', 'EH 11/12', 'EH 11/12', 'EH 10/11']);
   assert.deepEqual(j(r.elementos.map((e) => e.elementoPlanta.split(' · ')[0])), ['T02', 'C01', 'T01', 'C01']);
@@ -405,4 +406,27 @@ test('geometria do carro controle: lida como planta (RH fora, nome do EH pronto,
   const pos = Float64Array.from({ length: 4800 }, (_, i) => 1100 + i * 0.25);
   const els = B.segmentarPorPlanta(pos, B.elementosDaPlanta(g, 'TS', '1'));
   assert.deepEqual(j(els.map((e) => `${e.sigla}@${e.eh}`)), ['RH@RH-11', 'T01@EH 11/13', 'C01@EH 11/13', 'T02@EH 11/13']);
+});
+
+test('correção do km ponto a ponto: odômetro que escorrega e km acertado em campo', () => {
+  // planta inventada: curvas de 300 m a cada 1.000 m, lados alternados
+  const els = [];
+  for (let k = 0; k < 12; k++) {
+    els.push({ ramal: 'X', linha: '1', eh: '1', tipo: 'T', lado: '', num: String(k + 1), ini: k * 1000, fim: k * 1000 + 700 });
+    els.push({ ramal: 'X', linha: '1', eh: '1', tipo: 'C', lado: k % 2 ? 'E' : 'D', num: String(k + 1), ini: k * 1000 + 700, fim: k * 1000 + 1000 });
+  }
+  // carro: anda 12 km reais, mas o odômetro marca 2% a menos; no km real 6.000 o km é acertado em campo
+  const pos = []; const curv = []; const real = [];
+  for (let r = 0; r < 12000; r += 0.25) {
+    const odo = r < 6000 ? 30 + r * 0.98 : r - 40 + (r - 6000) * -0.02; // começa 30 m à frente; depois do acerto, −40 m
+    pos.push(odo); real.push(r);
+    const e = els.find((x) => r >= x.ini && r < x.fim);
+    curv.push(e.tipo === 'C' ? (e.lado === 'D' ? 20 : -20) : 0);
+  }
+  const v = B.ajusteVariavel(Float64Array.from(pos), Float64Array.from(curv), els);
+  assert.ok(v.casadas >= 10, `casadas ${v.casadas}`);
+  // erro da correção em cada curva casada: até 15 m
+  v.ancoras.forEach((a) => assert.ok(Math.abs(pos[a.i] + a.ajuste - real[a.i]) <= 15, `${pos[a.i]}: ${a.ajuste}`));
+  // com uma correção única, o erro passaria de 100 m em algum ponto
+  assert.ok(v.max - v.min > 100);
 });
