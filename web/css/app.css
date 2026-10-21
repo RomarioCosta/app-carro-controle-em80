@@ -384,6 +384,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .tabela td.ev { white-space: normal; min-width: 140px; color: var(--texto3); font-size: .8rem; }
 .tabela tbody tr { cursor: pointer; }
 .tabela tbody tr:hover, .tabela tbody tr:focus { background: var(--sup2); outline: none; }
+.tabela tfoot .linha-total td { font-weight: 700; border-top: 2px solid var(--borda, currentColor); }
 .el-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-weight: 700; font-size: .8rem; }
 .el-tangente { background: var(--sup2); color: var(--texto); border: 1px solid var(--borda); }
 .el-curva { background: color-mix(in srgb, var(--serie-real) 15%, transparent); color: var(--texto); }

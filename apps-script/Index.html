@@ -402,6 +402,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .tabela td.ev { white-space: normal; min-width: 140px; color: var(--texto3); font-size: .8rem; }
 .tabela tbody tr { cursor: pointer; }
 .tabela tbody tr:hover, .tabela tbody tr:focus { background: var(--sup2); outline: none; }
+.tabela tfoot .linha-total td { font-weight: 700; border-top: 2px solid var(--borda, currentColor); }
 .el-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-weight: 700; font-size: .8rem; }
 .el-tangente { background: var(--sup2); color: var(--texto); border: 1px solid var(--borda); }
 .el-curva { background: color-mix(in srgb, var(--serie-real) 15%, transparent); color: var(--texto); }
@@ -919,7 +920,7 @@ window.App = window.App || {};
     versao: '1.0.0',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-294b56870c', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-64c78d56ab', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -2566,7 +2567,10 @@ window.App = window.App || {};
   const { U } = App;
   const B = {};
 
-  /** Colunas usadas na análise, identificadas pelo título (sem espaços, acentos ou maiúsculas). */
+  /**
+   * Colunas usadas na análise, identificadas pelo título (sem espaços, acentos ou maiúsculas).
+   * Uma lista aceita nomes alternativos (o formato do CSV muda entre versões do carro).
+   */
   B.COLUNAS = {
     km: 'km',
     loc: 'localizacao',
@@ -2581,6 +2585,7 @@ window.App = window.App || {};
     emp10: 'emp10',
     emp20: 'emp20',
     nl5: 'nlmax5',
+    nl10: 'nlmax10',
     nl20: 'nlmax20',
     nlTqi: 'nltqi',
     vrbt5: 'vrbtmax5',
@@ -2589,7 +2594,8 @@ window.App = window.App || {};
     al20: 'al20b10',
     alr10: 'alr1010',
     alr20: 'alr1020',
-    val25: 'valb25'
+    val25: ['valb25', 'alvb25'],
+    al10mean: 'al10mean'
   };
 
   /** Parâmetros de alinhamento que podem ser exibidos junto com a bitola. */
@@ -2599,12 +2605,14 @@ window.App = window.App || {};
     { id: 'al10', nome: 'AL10_B10' },
     { id: 'al20', nome: 'AL20_B10' },
     { id: 'alMax10', nome: 'ALmax_10' },
-    { id: 'val25', nome: 'VAL_B2,5' }
+    { id: 'val25', nome: 'VAL_B2,5 (ALv_B2,5)' },
+    { id: 'al10mean', nome: 'AL10mean' }
   ];
 
   /** Parâmetros de nivelamento para o ranking. */
   B.NIVELAMENTO = [
     { id: 'nl5', nome: 'NLmax_5' },
+    { id: 'nl10', nome: 'NLmax_10' },
     { id: 'nl20', nome: 'NLmax_20' },
     { id: 'emp2', nome: 'EMP_2 (empeno)' },
     { id: 'emp10', nome: 'EMP_10 (empeno)' },
@@ -2616,8 +2624,8 @@ window.App = window.App || {};
 
   /** Parâmetros que podem ser vistos no gráfico selecionável (por grupo). */
   B.GRUPOS_GRAFICO = [
-    { grupo: 'Alinhamento', ids: ['alr10', 'alr20', 'al10', 'al20', 'alMax10', 'val25'] },
-    { grupo: 'Nivelamento longitudinal', ids: ['nl5', 'nl20'] },
+    { grupo: 'Alinhamento', ids: ['alr10', 'alr20', 'al10', 'al20', 'alMax10', 'val25', 'al10mean'] },
+    { grupo: 'Nivelamento longitudinal', ids: ['nl5', 'nl10', 'nl20'] },
     { grupo: 'Empeno e torção', ids: ['emp2', 'emp10', 'emp20', 'warp'] },
     { grupo: 'Superelevação', ids: ['sup'] },
     { grupo: 'Outros', ids: ['vrbt5'] }
@@ -2684,7 +2692,10 @@ window.App = window.App || {};
 
     if (!cab) throw new Error('Cabeçalho (linha "H") não encontrado. Confira se é o arquivo gerado pelo carro controle.');
     const idx = {};
-    Object.entries(B.COLUNAS).forEach(([campo, chave]) => { idx[campo] = cab.indexOf(chave); });
+    Object.entries(B.COLUNAS).forEach(([campo, chave]) => {
+      const nomes = Array.isArray(chave) ? chave : [chave];
+      idx[campo] = nomes.map((nm) => cab.indexOf(nm)).find((i) => i >= 0) ?? -1;
+    });
     ['km', 'loc', 'bitF', 'bitT'].forEach((c) => {
       if (idx[c] < 0) throw new Error(`Coluna obrigatória não encontrada: ${c === 'loc' ? 'LOCALIZACAO' : c === 'bitF' ? 'Bitola F' : c === 'bitT' ? 'Bitola T' : 'KM'}.`);
     });
@@ -4172,6 +4183,12 @@ window.App = window.App || {};
     }
     nomeArquivo = nome || 'arquivo.csv';
     textoArquivo = texto; // texto original, usado na conferência independente
+    // Parâmetro do gráfico que não existe neste formato de arquivo: usa o primeiro disponível.
+    const temDados = (id) => arquivo.dados[id] && arquivo.dados[id].some((v) => !Number.isNaN(v));
+    if (!temDados(opcoes.alinhamento)) {
+      const alt = B.GRUPOS_GRAFICO.flatMap((g) => g.ids).find(temDados);
+      if (alt) opcoes = { ...opcoes, alinhamento: alt };
+    }
     zoom = null;
     recalcular();
     if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto }).catch(() => {});
@@ -4640,6 +4657,20 @@ window.App = window.App || {};
     ];
   }
 
+  /** Linha de total das tabelas: os mesmos pontos do cartão "Perda de bitola" (circuitos não entram). */
+  function valoresTotal(cols) {
+    const g = resultado.geral;
+    const temRh = resultado.elementos.some((e) => e.tipo === 'X' || e.rh);
+    return cols.map((c, k) => {
+      if (k === 0) return temRh ? 'Total (sem circuitos)' : 'Total';
+      if (c.t === 'Pontos') return int(g.pontos);
+      if (c.t === 'Pontos acima') return int(g.perdas);
+      if (c.t === 'Ext. acima (m)') return fmt(extAcima(g.perdas), 1);
+      if (c.t === '% perda') return `${fmt(g.pctPerda)}%`;
+      return '';
+    });
+  }
+
   function tabelaTela(cols, itens, aoClicar) {
     return h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela tabela-centro' },
       h('thead', null, h('tr', null, cols.map((c) => h('th', { text: c.t })))),
@@ -4650,7 +4681,8 @@ window.App = window.App || {};
       }, cols.map((c) => {
         const v = c.v(x);
         return v instanceof Node ? h('td', { class: c.n ? 'num' : '' }, v) : h('td', { class: c.ev ? 'ev' : (c.n ? 'num' : ''), text: v });
-      }))))));
+      })))),
+      h('tfoot', null, h('tr', { class: 'linha-total' }, valoresTotal(cols).map((v, k) => h('td', { class: k ? 'num' : '', text: v }))))));
   }
 
   function renderElementos() {
@@ -4904,7 +4936,7 @@ window.App = window.App || {};
       .map(({ titulo, op }) => ({ titulo, g: charts.graficoKm({ ...op, titulo, altura: 140 }) }));
 
     const nivel = B.NIVELAMENTO.filter((p) => arquivo.dados[p.id] && arquivo.dados[p.id].some((v) => !Number.isNaN(v)));
-    const tabelaCols = (cols, itens) => tabela(cols.map((c) => c.t), itens.map((x) => cols.map((c) => c.v(x))), 'centro');
+    const tabelaCols = (cols, itens) => tabela(cols.map((c) => c.t), [...itens.map((x) => cols.map((c) => c.v(x))), valoresTotal(cols)], 'centro');
     const off = opcoes.offset;
     const criterios = [
       `Bitola = ${B.NOMINAL} mm + valor do arquivo.`,

@@ -11,6 +11,7 @@ O código está em `web/js/bitola.js`. Os valores padrão podem ser alterados em
 | Posição do ponto | `KM × 1000 + LOCALIZACAO` (metros). Pontos sem posição são descartados. |
 | Valor ausente | `*******` → sem leitura (não entra em nenhuma conta daquele parâmetro). |
 | Decimal | Aceita ponto ou vírgula (`2.15` ou `2,15`). |
+| Nomes de colunas | Reconhecidos sem espaços, acentos e maiúsculas. Nomes alternativos: `VAL_B2,5` ou `ALv_B2,5`. Também lê `NLmax_10` e `AL10mean` (formato novo). Coluna que não existe no arquivo só some do gráfico. |
 | Espaçamento | Mediana das distâncias entre pontos seguidos (normalmente 0,25 m). |
 | Ramal | Coluna `RAMAL` do arquivo (ex.: `RLT` → `LT` da planta). |
 | Linha | Coluna `LINHA`, lida em **todos os pontos**. É só informativa: pode ser 0, 1, 2, 3 ou um texto (ex.: `TESTE01`). |
@@ -41,6 +42,8 @@ O código está em `web/js/bitola.js`. Os valores padrão podem ser alterados em
 | Pontos | Total de pontos com F e T lidas no elemento/trecho. |
 | Pontos acima | Pontos com \|F − T\| > limite. |
 | Ext. acima (m) | Pontos acima × espaçamento (0,25 m). |
+
+**Linha Total das tabelas:** soma só tangentes e curvas fora de circuito; é igual ao cartão "Perda de bitola". As linhas de RH (circuito) aparecem na tabela, mas não entram no total.
 
 **Ponto na estatística:** ponto com F e T lidas, dentro de uma tangente ou curva, fora de circuito (RH). Um elemento tratado como circuito tem todos os pontos fora. Por isso **Perda de bitola (geral) = tangentes + curvas**, nos pontos e nos pontos acima.
 

@@ -350,3 +350,14 @@ test('dupla checagem com km que volta (correção de km no meio da inspeção): 
   // vírgula decimal também é lida pela análise
   assert.equal(B.lerCSV(texto.replace(/(;\s*)3\.00(\s*;)/, '$13,00$2')).dados.bitF.some((v) => v === 3), true);
 });
+
+test('formato novo do CSV: ALv_B2,5, NLmax_10 e AL10mean reconhecidos; sem ALR10 não quebra', () => {
+  const texto = gerarCSV().replace('VAL_B2,5', 'ALv_B2,5').replace('ALR10_10', 'AL10mean').replace('ALR10_20', 'NLmax_10');
+  const a = B.lerCSV(texto);
+  assert.ok(a.dados.val25.some((v) => !Number.isNaN(v)), 'ALv_B2,5');
+  assert.ok(a.dados.al10mean.some((v) => !Number.isNaN(v)), 'AL10mean');
+  assert.ok(a.dados.nl10.some((v) => !Number.isNaN(v)), 'NLmax_10');
+  assert.ok(a.dados.alr10.every((v) => Number.isNaN(v)));
+  const r = B.analisar(a);
+  assert.equal(r.geral.perdas, 200);
+});
