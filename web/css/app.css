@@ -495,11 +495,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .laudo h2 { font-size: 13px; margin: 14px 0 6px; padding-bottom: 3px; border-bottom: 2px solid #f2c200; }
 .laudo h3 { font-size: 11px; margin: 6px 0 2px; color: #4f5d67; }
 .laudo p { margin: 0; }
-.laudo-cab { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 3px solid #33434e; }
-.laudo-cab p { color: #4f5d67; }
-.laudo-foto { width: 96px; height: 60px; object-fit: cover; border-radius: 4px; }
-.laudo-emissao { margin-left: auto; display: flex; flex-direction: column; text-align: right; color: #4f5d67; }
-.laudo-emissao strong { color: #1b2329; }
+.laudo-cab { display: flex; align-items: center; gap: 14px; padding: 10px 14px; background: linear-gradient(180deg, #33434e, #2a3841); color: #fff; border-bottom: 4px solid #f2c200; border-radius: 6px 6px 0 0; }
+.laudo-cab h1 { color: #fff; }
+.laudo-cab p { color: #c9d3da; }
+.laudo-foto { width: 104px; height: 62px; object-fit: cover; border-radius: 6px; }
+.laudo-emissao { margin-left: auto; display: flex; flex-direction: column; text-align: right; color: #c9d3da; }
+.laudo-emissao strong { color: #fff; }
 .laudo-tabela { width: 100%; border-collapse: collapse; font-size: 10px; font-variant-numeric: tabular-nums; }
 .laudo-tabela th, .laudo-tabela td { border: 1px solid #d6dce1; padding: 3px 6px; text-align: left; vertical-align: top; }
 .laudo-tabela th { background: #eef1f4; font-weight: 700; }
@@ -720,3 +721,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .grade-4 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (min-width: 900px) { .grade-4 { grid-template-columns: repeat(4, 1fr); } }
 .ev-pdf .ev-graficos { grid-template-columns: 1fr 1fr; }
+
+/* Marcos nos gráficos por km (travador – TRAV) */
+.graf-marco-faixa { fill: #8e44ad; opacity: .14; }
+.graf-marco-simbolo { fill: #8e44ad; }
+.graf-marco-texto { fill: #8e44ad; font-size: 9px; font-weight: 800; }
+.rota-pdf > .laudo-cab { margin-bottom: 8px; }

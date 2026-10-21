@@ -300,6 +300,20 @@
         svg.appendChild(s('text', { x: xx, y: H - 8, class: 'graf-eixo', 'text-anchor': 'middle' }, (op.fmtX || String)(p)));
       }
 
+      // Marcos (ex.: travadores – TRAV): faixa sombreada e símbolo no topo.
+      (op.marcos || []).forEach((mk) => {
+        const xa = Math.max(m.l, Math.min(x(mk.ini), x(mk.fim)));
+        const xb = Math.min(m.l + iw, Math.max(x(mk.ini), x(mk.fim)));
+        if (xb < m.l || xa > m.l + iw || xb < xa) return;
+        const larg = Math.max(2, xb - xa);
+        const cx = xa + larg / 2;
+        const g = s('g', { class: 'graf-marco' }, s('title', {}, mk.titulo || mk.rotulo));
+        g.appendChild(s('rect', { x: cx - larg / 2, y: m.t, width: larg, height: ih, class: 'graf-marco-faixa' }));
+        g.appendChild(s('path', { d: `M${cx - 5},${m.t + 1} L${cx + 5},${m.t + 1} L${cx},${m.t + 9} Z`, class: 'graf-marco-simbolo' }));
+        g.appendChild(s('text', { x: cx, y: m.t + 19, class: 'graf-marco-texto', 'text-anchor': 'middle' }, mk.rotulo));
+        svg.appendChild(g);
+      });
+
       // Eventos (AMV, passagem superior…).
       (op.eventos || []).forEach((e) => {
         if (e.pos < lo || e.pos > hi) return;

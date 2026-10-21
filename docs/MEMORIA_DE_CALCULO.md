@@ -150,6 +150,13 @@ Correção digitada em Critérios (um número) vale para o arquivo todo.
 - **Melhor offset**: testa de −10 a +10 mm (passo 0,1 mm) e escolhe o que deixa **menos pontos acima da regra**; em empate, o de menor módulo.
 - **Laudo:** tabela "Melhor offset e resultado se aplicado", uma linha para a Bitola F e outra para a Bitola T: melhor offset e, sem offset → com offset, a perda de bitola, a perda em tangentes, em curvas e os elementos com perda (a análise é refeita com o offset, mesmos elementos e mesma regra).
 
+- No laudo, as tabelas de trechos e de elementos ganham a coluna **"% c/ offset"**: a % de perda de cada linha com o melhor offset (a bitola com menor perda geral). A linha Total mostra o total com o offset.
+
+## 10.1 Travadores (TRAV)
+
+- Eventos do arquivo com TRAV/TRV/TRAVADOR no texto aparecem em todos os gráficos por km: faixa roxa com o símbolo ▼ e o texto TRAV.
+- "INICIO TRV" seguido de "FIM TRV" a até 300 m vira uma faixa só. Nesses locais a perda de bitola é esperada.
+
 ## 11. Ranking de nivelamento
 
 - Para cada parâmetro (NLmax_5, NLmax_20, EMP_2/10/20, Warp, SUPerABS, VrBTmax5): os N maiores valores em módulo.
