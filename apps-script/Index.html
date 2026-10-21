@@ -190,7 +190,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .campo > label { font-size: .85rem; font-weight: 600; color: var(--texto2); }
 .obrig { color: var(--erro); }
 .ajuda { color: var(--texto3); font-size: .8rem; }
-input[type="text"], input[type="date"], input[type="datetime-local"], input[type="url"], input[type="search"], input[type="file"], select, textarea {
+input[type="text"], input[type="number"], input[type="date"], input[type="datetime-local"], input[type="url"], input[type="search"], input[type="file"], select, textarea {
   width: 100%; min-height: 46px; padding: 10px 12px;
   background: var(--sup); border: 1px solid var(--borda); border-radius: 10px;
   font-size: 16px;
@@ -716,6 +716,18 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .ev-pdf { page: eventos; }
 .ev-pdf .laudo-tabela td { font-size: 9.5px; }
 .ev-tabela td:first-child { white-space: nowrap; font-family: ui-monospace, Menlo, monospace; }
+.graf-linha-2 { stroke-width: 1.6; }
+.ev-graficos { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: start; }
+.ev-graficos .graf-largo { max-height: 230px; }
+.ev-kpis { grid-template-columns: repeat(2, 1fr); }
+@media (min-width: 640px) { .ev-kpis { grid-template-columns: repeat(4, 1fr); } }
+.ev-kpis .kpi { padding: 10px 12px; }
+.ev-kpis .kpi-valor { font-size: 1.35rem; }
+.ev-kpis .kpi-sub { font-size: .78rem; }
+.seg-compacto .seg-opcao { min-height: 34px; min-width: 0; padding: 0 12px; font-size: .85rem; }
+.grade-4 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (min-width: 900px) { .grade-4 { grid-template-columns: repeat(4, 1fr); } }
+.ev-pdf .ev-graficos { grid-template-columns: 1fr 1fr; }
 
 </style>
 </head>
@@ -938,7 +950,7 @@ window.App = window.App || {};
     versao: '2026.10.21',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-147a0cec6b', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-4762cc8edc', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -2107,8 +2119,8 @@ window.App = window.App || {};
    * serie: [{ rotulo, barra, linha, dica }]; op: { nomeBarra, nomeLinha, fmtBarra, fmtLinha, titulo }
    */
   function barrasLinha(serie, op = {}) {
-    const W = 680; const H = 240;
-    const m = { t: 18, r: 46, b: 40, l: 40 };
+    const W = 560; const H = 200;
+    const m = { t: 16, r: 40, b: 34, l: 36 };
     const iw = W - m.l - m.r; const ih = H - m.t - m.b;
     const fmtB = op.fmtBarra || ((v) => String(v));
     const fmtL = op.fmtLinha || ((v) => String(v));
@@ -2140,11 +2152,11 @@ window.App = window.App || {};
         if (n <= 16) svg.appendChild(s('text', { x: cx, y: topo - 4, class: 'graf-eixo graf-valor', 'text-anchor': 'middle' }, fmtB(d.barra)));
       }
       pontos.push([cx, yL(d.linha || 0)]);
-      if (i % cada === 0) svg.appendChild(s('text', { x: cx, y: H - 22, class: 'graf-eixo', 'text-anchor': 'middle' }, d.rotulo));
+      if (i % cada === 0) svg.appendChild(s('text', { x: cx, y: H - 16, class: 'graf-eixo', 'text-anchor': 'middle' }, d.rotulo));
     });
     if (pontos.length) {
       svg.appendChild(s('path', { class: 'graf-linha-2', d: pontos.map(([x, y], k) => `${k ? 'L' : 'M'}${x},${y}`).join(' ') }));
-      pontos.forEach(([x, y]) => svg.appendChild(s('circle', { class: 'graf-ponto-2', cx: x, cy: y, r: 3 })));
+      pontos.forEach(([x, y]) => svg.appendChild(s('circle', { class: 'graf-ponto-2', cx: x, cy: y, r: 1.8 })));
     }
     serie.forEach((d, i) => {
       const alvo = s('rect', { x: m.l + banda * i, y: m.t, width: banda, height: ih + m.b, class: 'graf-alvo' });
@@ -2167,8 +2179,8 @@ window.App = window.App || {};
 
   /** Barras horizontais: itens [{ rotulo, valor, texto }] (maior primeiro). */
   function barrasH(itens, op = {}) {
-    const linhaH = 26; const W = 680;
-    const m = { t: 6, r: 70, b: 6, l: 190 };
+    const linhaH = 22; const W = 560;
+    const m = { t: 4, r: 80, b: 4, l: 170 };
     const H = m.t + m.b + Math.max(1, itens.length) * linhaH;
     const max = Math.max(1, ...itens.map((d) => d.valor || 0));
     const iw = W - m.l - m.r;
@@ -2177,7 +2189,7 @@ window.App = window.App || {};
       const y = m.t + i * linhaH;
       const w = ((d.valor || 0) / max) * iw;
       svg.appendChild(s('text', { x: m.l - 8, y: y + linhaH / 2 + 4, class: 'graf-eixo graf-eixo-forte', 'text-anchor': 'end' }, d.rotulo.length > 28 ? `${d.rotulo.slice(0, 27)}…` : d.rotulo));
-      svg.appendChild(s('rect', { class: op.classe || 'graf-barra', x: m.l, y: y + 5, width: Math.max(w, d.valor ? 2 : 0), height: linhaH - 10, rx: 3 }));
+      svg.appendChild(s('rect', { class: op.classe || 'graf-barra', x: m.l, y: y + 5, width: Math.max(w, d.valor ? 2 : 0), height: linhaH - 9, rx: 3 }));
       svg.appendChild(s('text', { x: m.l + w + 6, y: y + linhaH / 2 + 4, class: 'graf-eixo', 'text-anchor': 'start' }, d.texto ?? String(d.valor || 0)));
     });
     return ui.h('div', { class: 'graf-bloco' }, ui.h('div', { class: 'graf-caixa' }, svg));
@@ -5762,7 +5774,7 @@ window.App = window.App || {};
 
   const vazio = () => ({
     categoria: FALHA, equipamento: '', outro: '', parte: '', descricao: '',
-    inicio: '', fim: '', omsPerdidas: '', impactoValor: '', impactoUnidade: 'h', observacao: ''
+    inicio: '', fim: '', omsPerdidas: '', impactoValor: '', impactoUnidade: 'h', dataImpacto: '', observacao: ''
   });
 
   /* ---------------- Identificação e valores ---------------- */
@@ -5788,9 +5800,14 @@ window.App = window.App || {};
     const partes = [];
     if (num(ev.omsPerdidas)) partes.push(`${fmtN(ev.omsPerdidas)} OM${num(ev.omsPerdidas) > 1 ? 's' : ''} perdida${num(ev.omsPerdidas) > 1 ? 's' : ''}`);
     if (num(ev.impactoValor)) partes.push(`${fmtN(ev.impactoValor, 1)} ${ev.impactoUnidade === 'd' ? (num(ev.impactoValor) === 1 ? 'dia' : 'dias') : 'h'} de impacto`);
+    if (partes.length && diaImpacto(ev) !== String(ev.inicio || '').slice(0, 10)) partes.push(`impacto em ${U.fmtData(diaImpacto(ev))}`);
     return partes;
   };
   const visiveis = () => lista.filter((e) => !e.excluidoEm);
+  /** Dia em que o impacto aconteceu (ex.: OMs programadas para o dia 19 por um evento dos dias 15 e 16). */
+  const diaImpacto = (ev) => (U.ehData(String(ev.dataImpacto || '').slice(0, 10)) ? String(ev.dataImpacto).slice(0, 10) : String(ev.inicio || '').slice(0, 10));
+  /** Rótulo do tipo nos gráficos: em "Outro", a descrição do evento. */
+  const rotuloTipo = (ev) => (categoriaDe(ev) === 'Outro' && ev.descricao ? ev.descricao : categoriaDe(ev));
 
   /* ---------------- Montagem ---------------- */
 
@@ -5887,14 +5904,19 @@ window.App = window.App || {};
         h('div', { class: 'grade-2' },
           dataHora('inicio', 'Início'),
           dataHora('fim', 'Fim')),
-        h('div', { class: 'grade-3' },
+        h('div', { class: 'grade-4 ev-impacto-campos' },
           ui.campo('OMs perdidas', numero('omsPerdidas')),
           ui.campo('Impacto no tempo', numero('impactoValor', { step: 0.5 })),
           ui.campo('Unidade', h('select', {
             name: 'impactoUnidade',
             value: f.impactoUnidade,
             onchange: (e) => { f.impactoUnidade = e.target.value; }
-          }, Object.entries(UNIDADES).map(([v, t]) => h('option', { value: v, text: t }))))),
+          }, Object.entries(UNIDADES).map(([v, t]) => h('option', { value: v, text: t })))),
+          ui.campo('Data do impacto', h('input', {
+            type: 'date', name: 'dataImpacto', value: f.dataImpacto,
+            title: 'Dia em que as OMs foram perdidas. Em branco: o dia do início do evento.',
+            onchange: (e) => { f.dataImpacto = e.target.value; }
+          }))),
         ui.campo('Observação', h('textarea', {
           name: 'observacao',
           rows: 3,
@@ -5929,6 +5951,7 @@ window.App = window.App || {};
       omsPerdidas: ev.omsPerdidas === undefined || ev.omsPerdidas === null ? '' : String(ev.omsPerdidas),
       impactoValor: ev.impactoValor === undefined || ev.impactoValor === null ? '' : String(ev.impactoValor),
       impactoUnidade: ev.impactoUnidade === 'd' ? 'd' : 'h',
+      dataImpacto: U.ehData(String(ev.dataImpacto || '').slice(0, 10)) ? String(ev.dataImpacto).slice(0, 10) : '',
       observacao: ev.observacao || ''
     };
   }
@@ -5972,6 +5995,7 @@ window.App = window.App || {};
       impactoValor: imp,
       impactoUnidade: f.impactoUnidade,
       impactoHoras: imp === '' ? '' : imp * (f.impactoUnidade === 'd' ? 24 : 1),
+      dataImpacto: U.ehData(f.dataImpacto) ? f.dataImpacto : '',
       observacao: f.observacao.trim()
     };
   }
@@ -6010,7 +6034,7 @@ window.App = window.App || {};
   function duplicarUltimo() {
     const ultimo = visiveis()[0];
     if (!ultimo) return;
-    f = { ...paraForm(ultimo), inicio: '', fim: '', omsPerdidas: '', impactoValor: '' };
+    f = { ...paraForm(ultimo), inicio: '', fim: '', omsPerdidas: '', impactoValor: '', dataImpacto: '' };
     renderForm();
     ui.toast('Dados do último evento copiados. Ajuste os horários e o impacto.', 'info');
   }
@@ -6081,13 +6105,13 @@ window.App = window.App || {};
     if (periodo === '7d') return [U.somarDias(hoje, -6), hoje];
     if (periodo === '30d') return [U.somarDias(hoje, -29), hoje];
     if (periodo === 'mes') return [U.inicioMes(hoje), hoje];
-    const datas = visiveis().map((e) => String(e.inicio).slice(0, 10)).filter(U.ehData).sort();
-    return [datas[0] || hoje, hoje];
+    const datas = visiveis().flatMap((e) => [String(e.inicio).slice(0, 10), diaImpacto(e)]).filter(U.ehData).sort();
+    return [datas[0] || hoje, datas[datas.length - 1] > hoje ? datas[datas.length - 1] : hoje];
   }
 
   function doPeriodo() {
     const [de, ate] = intervalo();
-    return visiveis().filter((e) => { const d = String(e.inicio).slice(0, 10); return d >= de && d <= ate; })
+    return visiveis().filter((e) => [String(e.inicio).slice(0, 10), diaImpacto(e)].some((d) => d >= de && d <= ate))
       .sort((a, b) => String(a.inicio).localeCompare(String(b.inicio)));
   }
 
@@ -6111,7 +6135,8 @@ window.App = window.App || {};
     else { for (let d = de; d <= ate; d = U.somarDias(d, 1)) chaves.push(d); }
     const mapa = new Map(chaves.map((k) => [k, { oms: 0, horas: 0, qtd: 0 }]));
     evs.forEach((e) => {
-      const k = porMes ? String(e.inicio).slice(0, 7) : String(e.inicio).slice(0, 10);
+      const dia = diaImpacto(e); // OMs e tempo contam no dia do impacto
+      const k = porMes ? dia.slice(0, 7) : dia;
       const x = mapa.get(k); if (!x) return;
       x.oms += num(e.omsPerdidas); x.horas += horasDe(e); x.qtd++;
     });
@@ -6136,8 +6161,8 @@ window.App = window.App || {};
 
   function graficos(evs) {
     const { charts } = App;
-    const porTipoOms = porGrupo(evs, categoriaDe, (e) => num(e.omsPerdidas));
-    const porTipoHoras = porGrupo(evs, categoriaDe, horasDe);
+    const porTipoOms = porGrupo(evs, rotuloTipo, (e) => num(e.omsPerdidas));
+    const porTipoHoras = porGrupo(evs, rotuloTipo, horasDe);
     const falhas = porGrupo(evs.filter(ehFalha), (e) => e.equipamento, () => 1);
     const bloco = (t, g) => h('div', { class: 'laudo-grafico' }, h('h3', { text: t }), g);
     return [
@@ -6161,13 +6186,13 @@ window.App = window.App || {};
         h('h2', { text: 'Painel de eventos' }),
         h('button', { class: 'btn btn-secundario btn-pequeno', onclick: exportarPdf, disabled: !evs.length }, ui.icone('documento'), 'Exportar PDF')),
       h('div', { class: 'ev-periodo' },
-        h('div', { class: 'seg', role: 'group', 'aria-label': 'Período' },
+        h('div', { class: 'seg seg-compacto', role: 'group', 'aria-label': 'Período' },
           PERIODOS.map(([v, t]) => h('button', {
             type: 'button', class: `seg-opcao${periodo === v ? ' ativo' : ''}`, 'aria-pressed': periodo === v ? 'true' : 'false',
             onclick: () => { periodo = v; U.pref.set('eventos:periodo', v); renderPainel(); }
           }, t))),
         h('span', { class: 'sub', text: `${U.fmtData(de)} a ${U.fmtData(ate)}` })),
-      h('div', { class: 'kpis kpis-auto' },
+      h('div', { class: 'kpis ev-kpis' },
         kpi('Eventos', fmtN(r.qtd), `${evs.filter(ehFalha).length} falha(s) de equipamento`),
         kpi('OMs perdidas', fmtN(r.oms), 'informadas nos eventos'),
         kpi('Impacto no tempo', fmtHoras(r.horas), 'informado nos eventos'),
@@ -6201,10 +6226,11 @@ window.App = window.App || {};
           ].map(([t, v, sub]) => h('div', { class: 'laudo-kpi' }, h('span', { text: t }), h('strong', { text: v }), h('small', { text: sub }))))),
       h('section', { class: 'laudo-secao' }, h('h2', { text: 'Gráficos' }), graficos(evs)),
       h('section', { class: 'laudo-secao' }, h('h2', { text: 'Eventos do período' }),
-        tabela(['Código', 'Tipo', 'Equipamento / descrição', 'Início', 'Fim', 'Duração', 'OMs perdidas', 'Impacto', 'Observação'],
+        tabela(['Código', 'Tipo', 'Equipamento / descrição', 'Início', 'Fim', 'Duração', 'OMs perdidas', 'Impacto', 'Dia do impacto', 'Observação'],
           evs.map((e) => [codigoDe(e), categoriaDe(e), ehFalha(e) ? [e.equipamento, e.parte].filter(Boolean).join(' · ') : e.descricao,
             U.fmtDataHora(e.inicio), e.fim ? U.fmtDataHora(e.fim) : 'em aberto', U.fmtDuracao(U.minutosEntre(e.inicio, e.fim || U.agora())),
             num(e.omsPerdidas) ? fmtN(e.omsPerdidas) : '', num(e.impactoValor) ? `${fmtN(e.impactoValor, 1)} ${e.impactoUnidade === 'd' ? 'dia(s)' : 'h'}` : '',
+            num(e.omsPerdidas) || num(e.impactoValor) ? U.fmtData(diaImpacto(e)) : '',
             e.observacao || '']))),
       h('footer', { class: 'laudo-rodape', text: `Gerado pelo App Carro Controle EM80 · ${U.fmtDataHora(U.agora())}` }));
     imprimir(el, `Eventos EM80 ${U.fmtData(de).replace(/\//g, '-')} a ${U.fmtData(ate).replace(/\//g, '-')}`);
