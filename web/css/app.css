@@ -680,3 +680,21 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .conf-ok { display: inline-flex; align-items: center; gap: 4px; color: var(--ok); font-weight: 750; font-size: .85rem; }
 .conf-ok .ico { width: 16px; height: 16px; }
 .conf-erro { border: 1px solid var(--erro); color: var(--erro); background: transparent; border-radius: 8px; padding: 4px 10px; font: inherit; font-weight: 750; cursor: pointer; }
+
+/* Eventos: painel de impacto */
+.graf-largo { width: 100%; height: auto; display: block; }
+.graf-linha-2 { fill: none; stroke: var(--serie-2); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.graf-ponto-2 { fill: var(--serie-2); }
+.graf-eixo-linha { fill: var(--serie-2); }
+.graf-valor { font-size: 10px; }
+.leg-chave.leg-linha-2 { background: var(--serie-2); height: 3px; border-radius: 2px; align-self: center; }
+.graf-barra-2 { fill: var(--serie-2); }
+.ev-codigo { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; color: var(--texto2); }
+.ev-impacto { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.ev-impacto .etiqueta { font-size: .78rem; }
+.ev-periodo { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ev-graficos { display: grid; gap: 18px; }
+.ev-graficos h3 { margin: 0 0 6px; font-size: .95rem; }
+.ev-pdf { page: eventos; }
+.ev-pdf .laudo-tabela td { font-size: 9.5px; }
+.ev-tabela td:first-child { white-space: nowrap; font-family: ui-monospace, Menlo, monospace; }

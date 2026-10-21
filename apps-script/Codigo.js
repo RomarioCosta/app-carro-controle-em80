@@ -14,7 +14,7 @@
  * Primeira instalação: execute a função setup() uma vez pelo editor.
  */
 
-var APP_VERSAO = '1.4.0';
+var APP_VERSAO = '1.5.0';
 var TZ = 'America/Sao_Paulo';
 
 /* ------------------------------------------------------------------ */
@@ -76,7 +76,15 @@ var SCHEMA = {
       ['parte', 'Parte do equipamento', 'text'],
       ['observacao', 'Observação / impacto', 'text'],
       ['criadoEm', 'Criado em', 'datetime'],
-      ['atualizadoEm', 'Atualizado em', 'datetime']
+      ['atualizadoEm', 'Atualizado em', 'datetime'],
+      ['codigo', 'Código do evento', 'text'],
+      ['categoria', 'Tipo de evento', 'text'],
+      ['descricao', 'Descrição', 'text'],
+      ['omsPerdidas', 'OMs perdidas', 'number'],
+      ['impactoValor', 'Impacto no tempo', 'number'],
+      ['impactoUnidade', 'Unidade do impacto', 'text'],
+      ['impactoHoras', 'Impacto (h)', 'number'],
+      ['excluidoEm', 'Excluído em', 'datetime']
     ]
   },
   Anomalias: {
@@ -416,13 +424,15 @@ function gravarChecklist_(d, tabela) {
 }
 
 function gravarEvento_(d, tabela) {
-  exigir_(d, ['id', 'inicio', 'equipamento']);
+  exigir_(d, ['id', 'inicio']);
+  if (!d.equipamento && !d.categoria) throw erro_('VALIDACAO', 'Informe o tipo de evento ou o equipamento.');
   validarDataHora_(d.inicio, 'início');
   if (d.fim) {
     validarDataHora_(d.fim, 'fim');
     if (d.fim < d.inicio) throw erro_('VALIDACAO', 'O fim não pode ser antes do início.');
   }
-  var obj = copiar_(d, ['id', 'inicio', 'fim', 'equipamento', 'parte', 'observacao', 'criadoEm', 'atualizadoEm']);
+  var obj = copiar_(d, ['id', 'inicio', 'fim', 'equipamento', 'parte', 'observacao', 'criadoEm', 'atualizadoEm',
+    'codigo', 'categoria', 'descricao', 'omsPerdidas', 'impactoValor', 'impactoUnidade', 'impactoHoras', 'excluidoEm']);
   obj.duracaoMin = d.fim ? minutosEntre_(d.inicio, d.fim) : '';
   tabela('Eventos').upsert(obj);
 }

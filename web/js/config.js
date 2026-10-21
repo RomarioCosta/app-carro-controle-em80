@@ -15,7 +15,7 @@
     versao: '2026.10.21',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-8387e1ab43', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-147a0cec6b', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -61,6 +61,8 @@
     ],
 
     /** Equipamentos do Registro de Eventos. "Outro" abre um campo de texto. */
-    equipamentos: ['OGMS', 'KLD', 'Aplanix', 'M1', 'M2', 'M3', 'Outro']
+    equipamentos: ['OGMS', 'KLD', 'Aplanix', 'M1', 'M2', 'M3', 'Outro'],
+    /** Tipos de evento. "Falha de equipamento" pede o equipamento; os outros, uma descrição. */
+    categoriasEvento: ['Falha de equipamento', 'Atraso da equipe', 'Liberação do carro / da via', 'Chuva', 'Interdição / interrupção', 'Outro']
   };
 })(window.App);
