@@ -11,6 +11,8 @@ O código está em `web/js/bitola.js`. Os valores padrão podem ser alterados em
 | Posição do ponto | `KM × 1000 + LOCALIZACAO` (metros). Pontos sem posição são descartados. |
 | Valor ausente | `*******` → sem leitura (não entra em nenhuma conta daquele parâmetro). |
 | Decimal | Aceita ponto ou vírgula (`2.15` ou `2,15`). |
+| Trecho analisado | "Analisar a partir do km" / "até o km": só os pontos com km dentro do trecho entram na análise, nos gráficos, no laudo e na conferência. O CSV não é alterado. |
+| Arquivo alterado | Se mais de 1% das leituras de Bitola F/T passarem de ±60 mm, o app avisa (arquivo salvo no Excel costuma ter os números trocados). |
 | Nomes de colunas | Reconhecidos sem espaços, acentos e maiúsculas. Nomes alternativos: `VAL_B2,5` ou `ALv_B2,5`. Também lê `NLmax_10` e `AL10mean` (formato novo). Coluna que não existe no arquivo só some do gráfico. |
 | Espaçamento | Mediana das distâncias entre pontos seguidos (normalmente 0,25 m). |
 | Ramal | Coluna `RAMAL` do arquivo (ex.: `RLT` → `LT` da planta). |

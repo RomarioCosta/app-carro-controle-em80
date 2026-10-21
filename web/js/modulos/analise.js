@@ -51,7 +51,7 @@
   async function carregarUltimo() {
     try {
       const salvo = await store.get(CHAVE);
-      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false });
+      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null });
     } catch (e) { /* sem arquivo salvo */ }
   }
 
@@ -66,11 +66,26 @@
     processar(texto, f.name, { salvar: true });
   }
 
-  function processar(texto, nome, { salvar }) {
+  /** Trecho analisado (km inicial e final, em metros): descarta o resto do arquivo sem editar o CSV. */
+  let recorte = { de: null, ate: null };
+  let arquivoCompleto = null;
+
+  function aplicarRecorte() {
+    arquivo = B.recortar(arquivoCompleto, recorte.de, recorte.ate);
+    if (!arquivo.pos.length) {
+      ui.toast('Nenhum ponto do arquivo no trecho escolhido. O trecho foi limpo.', 'erro', 6000);
+      recorte = { de: null, ate: null };
+      arquivo = arquivoCompleto;
+    }
+  }
+
+  function processar(texto, nome, { salvar, trecho = null }) {
     try {
-      arquivo = B.lerCSV(texto);
+      arquivoCompleto = B.lerCSV(texto);
+      recorte = trecho ? { de: trecho.de ?? null, ate: trecho.ate ?? null } : { de: null, ate: null };
+      aplicarRecorte();
     } catch (e) {
-      arquivo = null;
+      arquivo = null; arquivoCompleto = null;
       resultado = null;
       renderTudo();
       ui.toast(`Não foi possível ler o arquivo: ${e.message}`, 'erro', 7000);
@@ -86,7 +101,17 @@
     }
     zoom = null;
     recalcular();
-    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto }).catch(() => {});
+    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte }).catch(() => {});
+  }
+
+  async function mudarRecorte(de, ate) {
+    if (de !== null && ate !== null && de > ate) [de, ate] = [ate, de];
+    recorte = { de, ate };
+    aplicarRecorte();
+    cacheAjuste.clear(); cacheConferencia.clear();
+    zoom = null;
+    recalcular();
+    try { const salvo = await store.get(CHAVE); if (salvo) await store.set(CHAVE, { ...salvo, recorte }); } catch (e) { /* ok */ }
   }
 
   function salvarOpcoes() {
@@ -266,12 +291,24 @@
           `${arquivo.pos.length.toLocaleString('pt-BR')} pontos`
         ].filter(Boolean).join(' · ') }),
         arquivo.avisos.length ? h('p', { class: 'aviso', text: arquivo.avisos.join(' ') }) : null,
+        h('div', { class: 'grade-2 trecho-analisado' },
+          ['de', 'ate'].map((lado) => ui.campo(lado === 'de' ? 'Analisar a partir do km' : 'Analisar até o km', h('input', {
+            type: 'text', inputmode: 'decimal', name: `recorte-${lado}`,
+            placeholder: lado === 'de' ? `início do arquivo (${B.fmtKm(Math.min(arquivoCompleto.pos[0], arquivoCompleto.pos[arquivoCompleto.pos.length - 1]))})` : `fim do arquivo (${B.fmtKm(Math.max(arquivoCompleto.pos[0], arquivoCompleto.pos[arquivoCompleto.pos.length - 1]))})`,
+            value: recorte[lado] === null ? '' : B.fmtKm(recorte[lado]),
+            onchange: (e) => {
+              const v = B.kmParaMetros(e.target.value);
+              if (e.target.value.trim() && v === null) { ui.toast('Km inválido. Use, por exemplo, 290 ou 290+500.', 'erro'); e.target.value = ''; return; }
+              mudarRecorte(lado === 'de' ? v : recorte.de, lado === 'ate' ? v : recorte.ate);
+            }
+          })))),
+        arquivo.recorte && arquivo.recorte.descartados ? h('p', { class: 'sub', text: `${arquivo.recorte.descartados.toLocaleString('pt-BR')} pontos fora do trecho analisado foram descartados (o arquivo não é alterado).` }) : null,
         h('div', { class: 'linha-acoes' },
           h('button', { class: 'btn btn-primario', onclick: abrirLaudo }, ui.icone('documento'), 'Gerar laudo (PDF)')),
         h('button', {
           class: 'btn btn-fantasma',
           onclick: async () => {
-            arquivo = null; resultado = null; nomeArquivo = '';
+            arquivo = null; arquivoCompleto = null; resultado = null; nomeArquivo = ''; recorte = { de: null, ate: null };
             await store.del(CHAVE).catch(() => {});
             renderTudo();
           }
@@ -609,7 +646,7 @@
 
   /** Selo da conferência independente (relê o CSV original e recalcula) e botão da planilha de conferência. */
   function cartaoConferencia() {
-    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda) : null;
+    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda, recorte) : null;
     const selo = !c ? null : c.ok
       ? h('span', { class: 'conf-ok', title: `Recontagem independente a partir do CSV original: ${c.linhas.toLocaleString('pt-BR')} linhas de medição; pontos e pontos acima de cada elemento iguais aos da análise.${c.voltas.length ? ` O km volta ${c.voltas.length} vez(es) no arquivo.` : ''}` }, ui.icone('check'), 'Conferido')
       : h('button', { class: 'conf-erro', onclick: () => mostrarDivergencias(c) }, `⚠ ${c.divergencias.length} divergência(s)`);
@@ -867,7 +904,7 @@
         ['Data da inspeção', m.data],
         ['Inspetor', m.inspetor],
         ['Responsável pela análise', info.responsavel || '—'],
-        ['Trecho', `${B.fmtKm(pos[0])} → ${B.fmtKm(pos[pos.length - 1])} (${fmt(r.geral.extensao / 1000, 2)} km · ${pos.length.toLocaleString('pt-BR')} pontos)`]
+        ['Trecho', `${B.fmtKm(pos[0])} → ${B.fmtKm(pos[pos.length - 1])} (${fmt(r.geral.extensao / 1000, 2)} km · ${pos.length.toLocaleString('pt-BR')} pontos)${arquivo.recorte && arquivo.recorte.descartados ? ` · trecho analisado ${recorte.de !== null ? `a partir de ${B.fmtKm(recorte.de)}` : ''}${recorte.de !== null && recorte.ate !== null ? ' ' : ''}${recorte.ate !== null ? `até ${B.fmtKm(recorte.ate)}` : ''}; ${arquivo.recorte.descartados.toLocaleString('pt-BR')} pontos do arquivo fora do trecho` : ''}`]
       ], 'laudo-id')),
 
       h('section', { class: `laudo-resultado laudo-res-${RESULTADOS.indexOf(info.resultado)}` },

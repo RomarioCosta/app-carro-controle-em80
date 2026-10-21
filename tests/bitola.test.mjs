@@ -430,3 +430,36 @@ test('correção do km ponto a ponto: odômetro que escorrega e km acertado em c
   // com uma correção única, o erro passaria de 100 m em algum ponto
   assert.ok(v.max - v.min > 100);
 });
+
+test('trecho analisado: recorta pelo km sem editar o CSV e a conferência acompanha', () => {
+  assert.equal(B.kmParaMetros('290'), 290000);
+  assert.equal(B.kmParaMetros('290+500'), 290500);
+  assert.equal(B.kmParaMetros('290,5'), 290500);
+  assert.equal(B.kmParaMetros(''), null);
+  assert.equal(B.kmParaMetros('abc'), null);
+  const texto = gerarCSV();
+  const a = B.lerCSV(texto);
+  const de = a.pos[0] + 300; const ate = a.pos[0] + 700; // posições crescentes no CSV sintético
+  const lo = Math.min(de, ate); const hi = Math.max(de, ate);
+  const r = B.recortar(a, lo, hi);
+  assert.ok(r.pos.every((p) => p >= lo && p <= hi));
+  assert.equal(r.pos.length + r.recorte.descartados, a.pos.length);
+  assert.equal(r.dados.bitF.length, r.pos.length);
+  const res = B.analisar(r);
+  const c = B.conferir(texto, res, 2, { de: lo, ate: hi });
+  assert.equal(c.ok, true, JSON.stringify(c.divergencias.slice(0, 2)));
+  assert.equal(c.linhas, r.pos.length);
+  assert.equal(B.recortar(a, null, null), a);
+});
+
+test('aviso de arquivo alterado (números multiplicados ao salvar no Excel)', () => {
+  const linhas = gerarCSV().split('\r\n');
+  const cab = linhas.find((l) => l.startsWith('H;')).split(';').map((x) => x.trim());
+  const iF = cab.indexOf('Bitola F');
+  const alterado = linhas.map((l) => {
+    if (!l.startsWith('D;')) return l;
+    const c = l.split(';'); const v = Number(c[iF]); if (Number.isFinite(v)) c[iF] = String(v * 100); return c.join(';');
+  }).join('\r\n');
+  assert.ok(B.lerCSV(alterado).avisos.some((a) => a.includes('Excel')));
+  assert.ok(!B.lerCSV(gerarCSV()).avisos.some((a) => a.includes('Excel')));
+});
