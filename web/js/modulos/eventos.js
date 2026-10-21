@@ -25,7 +25,7 @@
 
   const vazio = () => ({
     categoria: FALHA, equipamento: '', outro: '', parte: '', descricao: '',
-    inicio: '', fim: '', omsPerdidas: '', impactoValor: '', impactoUnidade: 'h', observacao: ''
+    inicio: '', fim: '', omsPerdidas: '', impactoValor: '', impactoUnidade: 'h', dataImpacto: '', observacao: ''
   });
 
   /* ---------------- Identificação e valores ---------------- */
@@ -51,9 +51,14 @@
     const partes = [];
     if (num(ev.omsPerdidas)) partes.push(`${fmtN(ev.omsPerdidas)} OM${num(ev.omsPerdidas) > 1 ? 's' : ''} perdida${num(ev.omsPerdidas) > 1 ? 's' : ''}`);
     if (num(ev.impactoValor)) partes.push(`${fmtN(ev.impactoValor, 1)} ${ev.impactoUnidade === 'd' ? (num(ev.impactoValor) === 1 ? 'dia' : 'dias') : 'h'} de impacto`);
+    if (partes.length && diaImpacto(ev) !== String(ev.inicio || '').slice(0, 10)) partes.push(`impacto em ${U.fmtData(diaImpacto(ev))}`);
     return partes;
   };
   const visiveis = () => lista.filter((e) => !e.excluidoEm);
+  /** Dia em que o impacto aconteceu (ex.: OMs programadas para o dia 19 por um evento dos dias 15 e 16). */
+  const diaImpacto = (ev) => (U.ehData(String(ev.dataImpacto || '').slice(0, 10)) ? String(ev.dataImpacto).slice(0, 10) : String(ev.inicio || '').slice(0, 10));
+  /** Rótulo do tipo nos gráficos: em "Outro", a descrição do evento. */
+  const rotuloTipo = (ev) => (categoriaDe(ev) === 'Outro' && ev.descricao ? ev.descricao : categoriaDe(ev));
 
   /* ---------------- Montagem ---------------- */
 
@@ -150,14 +155,19 @@
         h('div', { class: 'grade-2' },
           dataHora('inicio', 'Início'),
           dataHora('fim', 'Fim')),
-        h('div', { class: 'grade-3' },
+        h('div', { class: 'grade-4 ev-impacto-campos' },
           ui.campo('OMs perdidas', numero('omsPerdidas')),
           ui.campo('Impacto no tempo', numero('impactoValor', { step: 0.5 })),
           ui.campo('Unidade', h('select', {
             name: 'impactoUnidade',
             value: f.impactoUnidade,
             onchange: (e) => { f.impactoUnidade = e.target.value; }
-          }, Object.entries(UNIDADES).map(([v, t]) => h('option', { value: v, text: t }))))),
+          }, Object.entries(UNIDADES).map(([v, t]) => h('option', { value: v, text: t })))),
+          ui.campo('Data do impacto', h('input', {
+            type: 'date', name: 'dataImpacto', value: f.dataImpacto,
+            title: 'Dia em que as OMs foram perdidas. Em branco: o dia do início do evento.',
+            onchange: (e) => { f.dataImpacto = e.target.value; }
+          }))),
         ui.campo('Observação', h('textarea', {
           name: 'observacao',
           rows: 3,
@@ -192,6 +202,7 @@
       omsPerdidas: ev.omsPerdidas === undefined || ev.omsPerdidas === null ? '' : String(ev.omsPerdidas),
       impactoValor: ev.impactoValor === undefined || ev.impactoValor === null ? '' : String(ev.impactoValor),
       impactoUnidade: ev.impactoUnidade === 'd' ? 'd' : 'h',
+      dataImpacto: U.ehData(String(ev.dataImpacto || '').slice(0, 10)) ? String(ev.dataImpacto).slice(0, 10) : '',
       observacao: ev.observacao || ''
     };
   }
@@ -235,6 +246,7 @@
       impactoValor: imp,
       impactoUnidade: f.impactoUnidade,
       impactoHoras: imp === '' ? '' : imp * (f.impactoUnidade === 'd' ? 24 : 1),
+      dataImpacto: U.ehData(f.dataImpacto) ? f.dataImpacto : '',
       observacao: f.observacao.trim()
     };
   }
@@ -273,7 +285,7 @@
   function duplicarUltimo() {
     const ultimo = visiveis()[0];
     if (!ultimo) return;
-    f = { ...paraForm(ultimo), inicio: '', fim: '', omsPerdidas: '', impactoValor: '' };
+    f = { ...paraForm(ultimo), inicio: '', fim: '', omsPerdidas: '', impactoValor: '', dataImpacto: '' };
     renderForm();
     ui.toast('Dados do último evento copiados. Ajuste os horários e o impacto.', 'info');
   }
@@ -344,13 +356,13 @@
     if (periodo === '7d') return [U.somarDias(hoje, -6), hoje];
     if (periodo === '30d') return [U.somarDias(hoje, -29), hoje];
     if (periodo === 'mes') return [U.inicioMes(hoje), hoje];
-    const datas = visiveis().map((e) => String(e.inicio).slice(0, 10)).filter(U.ehData).sort();
-    return [datas[0] || hoje, hoje];
+    const datas = visiveis().flatMap((e) => [String(e.inicio).slice(0, 10), diaImpacto(e)]).filter(U.ehData).sort();
+    return [datas[0] || hoje, datas[datas.length - 1] > hoje ? datas[datas.length - 1] : hoje];
   }
 
   function doPeriodo() {
     const [de, ate] = intervalo();
-    return visiveis().filter((e) => { const d = String(e.inicio).slice(0, 10); return d >= de && d <= ate; })
+    return visiveis().filter((e) => [String(e.inicio).slice(0, 10), diaImpacto(e)].some((d) => d >= de && d <= ate))
       .sort((a, b) => String(a.inicio).localeCompare(String(b.inicio)));
   }
 
@@ -374,7 +386,8 @@
     else { for (let d = de; d <= ate; d = U.somarDias(d, 1)) chaves.push(d); }
     const mapa = new Map(chaves.map((k) => [k, { oms: 0, horas: 0, qtd: 0 }]));
     evs.forEach((e) => {
-      const k = porMes ? String(e.inicio).slice(0, 7) : String(e.inicio).slice(0, 10);
+      const dia = diaImpacto(e); // OMs e tempo contam no dia do impacto
+      const k = porMes ? dia.slice(0, 7) : dia;
       const x = mapa.get(k); if (!x) return;
       x.oms += num(e.omsPerdidas); x.horas += horasDe(e); x.qtd++;
     });
@@ -399,8 +412,8 @@
 
   function graficos(evs) {
     const { charts } = App;
-    const porTipoOms = porGrupo(evs, categoriaDe, (e) => num(e.omsPerdidas));
-    const porTipoHoras = porGrupo(evs, categoriaDe, horasDe);
+    const porTipoOms = porGrupo(evs, rotuloTipo, (e) => num(e.omsPerdidas));
+    const porTipoHoras = porGrupo(evs, rotuloTipo, horasDe);
     const falhas = porGrupo(evs.filter(ehFalha), (e) => e.equipamento, () => 1);
     const bloco = (t, g) => h('div', { class: 'laudo-grafico' }, h('h3', { text: t }), g);
     return [
@@ -424,13 +437,13 @@
         h('h2', { text: 'Painel de eventos' }),
         h('button', { class: 'btn btn-secundario btn-pequeno', onclick: exportarPdf, disabled: !evs.length }, ui.icone('documento'), 'Exportar PDF')),
       h('div', { class: 'ev-periodo' },
-        h('div', { class: 'seg', role: 'group', 'aria-label': 'Período' },
+        h('div', { class: 'seg seg-compacto', role: 'group', 'aria-label': 'Período' },
           PERIODOS.map(([v, t]) => h('button', {
             type: 'button', class: `seg-opcao${periodo === v ? ' ativo' : ''}`, 'aria-pressed': periodo === v ? 'true' : 'false',
             onclick: () => { periodo = v; U.pref.set('eventos:periodo', v); renderPainel(); }
           }, t))),
         h('span', { class: 'sub', text: `${U.fmtData(de)} a ${U.fmtData(ate)}` })),
-      h('div', { class: 'kpis kpis-auto' },
+      h('div', { class: 'kpis ev-kpis' },
         kpi('Eventos', fmtN(r.qtd), `${evs.filter(ehFalha).length} falha(s) de equipamento`),
         kpi('OMs perdidas', fmtN(r.oms), 'informadas nos eventos'),
         kpi('Impacto no tempo', fmtHoras(r.horas), 'informado nos eventos'),
@@ -464,10 +477,11 @@
           ].map(([t, v, sub]) => h('div', { class: 'laudo-kpi' }, h('span', { text: t }), h('strong', { text: v }), h('small', { text: sub }))))),
       h('section', { class: 'laudo-secao' }, h('h2', { text: 'Gráficos' }), graficos(evs)),
       h('section', { class: 'laudo-secao' }, h('h2', { text: 'Eventos do período' }),
-        tabela(['Código', 'Tipo', 'Equipamento / descrição', 'Início', 'Fim', 'Duração', 'OMs perdidas', 'Impacto', 'Observação'],
+        tabela(['Código', 'Tipo', 'Equipamento / descrição', 'Início', 'Fim', 'Duração', 'OMs perdidas', 'Impacto', 'Dia do impacto', 'Observação'],
           evs.map((e) => [codigoDe(e), categoriaDe(e), ehFalha(e) ? [e.equipamento, e.parte].filter(Boolean).join(' · ') : e.descricao,
             U.fmtDataHora(e.inicio), e.fim ? U.fmtDataHora(e.fim) : 'em aberto', U.fmtDuracao(U.minutosEntre(e.inicio, e.fim || U.agora())),
             num(e.omsPerdidas) ? fmtN(e.omsPerdidas) : '', num(e.impactoValor) ? `${fmtN(e.impactoValor, 1)} ${e.impactoUnidade === 'd' ? 'dia(s)' : 'h'}` : '',
+            num(e.omsPerdidas) || num(e.impactoValor) ? U.fmtData(diaImpacto(e)) : '',
             e.observacao || '']))),
       h('footer', { class: 'laudo-rodape', text: `Gerado pelo App Carro Controle EM80 · ${U.fmtDataHora(U.agora())}` }));
     imprimir(el, `Eventos EM80 ${U.fmtData(de).replace(/\//g, '-')} a ${U.fmtData(ate).replace(/\//g, '-')}`);

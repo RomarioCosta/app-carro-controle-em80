@@ -239,6 +239,8 @@ async function main() {
       await page.fill('input[name="omsPerdidas"]', '83');
       await page.fill('input[name="impactoValor"]', '1');
       await page.selectOption('select[name="impactoUnidade"]', 'd');
+      const ontem = isoLocal(new Date(hoje.getTime() - 86400000));
+      await page.fill('input[name="dataImpacto"]', ontem);
       await page.getByRole('button', { name: 'Salvar evento' }).click();
       await page.getByText(/Evento EV-\d{6}-\w{4} salvo\./).waitFor();
       const item = page.locator('.item', { hasText: 'Manutenção liberou o carro com atraso' });
@@ -265,6 +267,8 @@ async function main() {
       assert.equal(atraso['Impacto (h)'], 24);
       assert.equal(atraso['Descrição'], 'Manutenção liberou o carro com atraso');
       assert.match(atraso['Código do evento'], /^EV-\d{6}-\w{4}$/);
+      assert.ok(String(atraso['Data do impacto']).startsWith(isoLocal(new Date(hoje.getTime() - 86400000))), `data do impacto ${atraso['Data do impacto']}`);
+      await item.getByText(/impacto em \d{2}\/\d{2}\/\d{4}/).waitFor();
       // PDF (impressão simulada)
       await page.evaluate(() => { window.__impressoes = 0; window.print = () => { window.__impressoes++; }; });
       await painel.getByRole('button', { name: 'Exportar PDF' }).click();

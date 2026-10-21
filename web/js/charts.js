@@ -435,8 +435,8 @@
    * serie: [{ rotulo, barra, linha, dica }]; op: { nomeBarra, nomeLinha, fmtBarra, fmtLinha, titulo }
    */
   function barrasLinha(serie, op = {}) {
-    const W = 680; const H = 240;
-    const m = { t: 18, r: 46, b: 40, l: 40 };
+    const W = 560; const H = 200;
+    const m = { t: 16, r: 40, b: 34, l: 36 };
     const iw = W - m.l - m.r; const ih = H - m.t - m.b;
     const fmtB = op.fmtBarra || ((v) => String(v));
     const fmtL = op.fmtLinha || ((v) => String(v));
@@ -468,11 +468,11 @@
         if (n <= 16) svg.appendChild(s('text', { x: cx, y: topo - 4, class: 'graf-eixo graf-valor', 'text-anchor': 'middle' }, fmtB(d.barra)));
       }
       pontos.push([cx, yL(d.linha || 0)]);
-      if (i % cada === 0) svg.appendChild(s('text', { x: cx, y: H - 22, class: 'graf-eixo', 'text-anchor': 'middle' }, d.rotulo));
+      if (i % cada === 0) svg.appendChild(s('text', { x: cx, y: H - 16, class: 'graf-eixo', 'text-anchor': 'middle' }, d.rotulo));
     });
     if (pontos.length) {
       svg.appendChild(s('path', { class: 'graf-linha-2', d: pontos.map(([x, y], k) => `${k ? 'L' : 'M'}${x},${y}`).join(' ') }));
-      pontos.forEach(([x, y]) => svg.appendChild(s('circle', { class: 'graf-ponto-2', cx: x, cy: y, r: 3 })));
+      pontos.forEach(([x, y]) => svg.appendChild(s('circle', { class: 'graf-ponto-2', cx: x, cy: y, r: 1.8 })));
     }
     serie.forEach((d, i) => {
       const alvo = s('rect', { x: m.l + banda * i, y: m.t, width: banda, height: ih + m.b, class: 'graf-alvo' });
@@ -495,8 +495,8 @@
 
   /** Barras horizontais: itens [{ rotulo, valor, texto }] (maior primeiro). */
   function barrasH(itens, op = {}) {
-    const linhaH = 26; const W = 680;
-    const m = { t: 6, r: 70, b: 6, l: 190 };
+    const linhaH = 22; const W = 560;
+    const m = { t: 4, r: 80, b: 4, l: 170 };
     const H = m.t + m.b + Math.max(1, itens.length) * linhaH;
     const max = Math.max(1, ...itens.map((d) => d.valor || 0));
     const iw = W - m.l - m.r;
@@ -505,7 +505,7 @@
       const y = m.t + i * linhaH;
       const w = ((d.valor || 0) / max) * iw;
       svg.appendChild(s('text', { x: m.l - 8, y: y + linhaH / 2 + 4, class: 'graf-eixo graf-eixo-forte', 'text-anchor': 'end' }, d.rotulo.length > 28 ? `${d.rotulo.slice(0, 27)}…` : d.rotulo));
-      svg.appendChild(s('rect', { class: op.classe || 'graf-barra', x: m.l, y: y + 5, width: Math.max(w, d.valor ? 2 : 0), height: linhaH - 10, rx: 3 }));
+      svg.appendChild(s('rect', { class: op.classe || 'graf-barra', x: m.l, y: y + 5, width: Math.max(w, d.valor ? 2 : 0), height: linhaH - 9, rx: 3 }));
       svg.appendChild(s('text', { x: m.l + w + 6, y: y + linhaH / 2 + 4, class: 'graf-eixo', 'text-anchor': 'start' }, d.texto ?? String(d.valor || 0)));
     });
     return ui.h('div', { class: 'graf-bloco' }, ui.h('div', { class: 'graf-caixa' }, svg));

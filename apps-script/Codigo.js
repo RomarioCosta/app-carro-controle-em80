@@ -14,7 +14,7 @@
  * Primeira instalação: execute a função setup() uma vez pelo editor.
  */
 
-var APP_VERSAO = '1.5.0';
+var APP_VERSAO = '1.5.1';
 var TZ = 'America/Sao_Paulo';
 
 /* ------------------------------------------------------------------ */
@@ -84,7 +84,8 @@ var SCHEMA = {
       ['impactoValor', 'Impacto no tempo', 'number'],
       ['impactoUnidade', 'Unidade do impacto', 'text'],
       ['impactoHoras', 'Impacto (h)', 'number'],
-      ['excluidoEm', 'Excluído em', 'datetime']
+      ['excluidoEm', 'Excluído em', 'datetime'],
+      ['dataImpacto', 'Data do impacto', 'date']
     ]
   },
   Anomalias: {
@@ -432,7 +433,8 @@ function gravarEvento_(d, tabela) {
     if (d.fim < d.inicio) throw erro_('VALIDACAO', 'O fim não pode ser antes do início.');
   }
   var obj = copiar_(d, ['id', 'inicio', 'fim', 'equipamento', 'parte', 'observacao', 'criadoEm', 'atualizadoEm',
-    'codigo', 'categoria', 'descricao', 'omsPerdidas', 'impactoValor', 'impactoUnidade', 'impactoHoras', 'excluidoEm']);
+    'codigo', 'categoria', 'descricao', 'omsPerdidas', 'impactoValor', 'impactoUnidade', 'impactoHoras', 'excluidoEm', 'dataImpacto']);
+  if (obj.dataImpacto) validarData_(obj.dataImpacto, 'data do impacto');
   obj.duracaoMin = d.fim ? minutosEntre_(d.inicio, d.fim) : '';
   tabela('Eventos').upsert(obj);
 }

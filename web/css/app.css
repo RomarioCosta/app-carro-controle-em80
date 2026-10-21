@@ -172,7 +172,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .campo > label { font-size: .85rem; font-weight: 600; color: var(--texto2); }
 .obrig { color: var(--erro); }
 .ajuda { color: var(--texto3); font-size: .8rem; }
-input[type="text"], input[type="date"], input[type="datetime-local"], input[type="url"], input[type="search"], input[type="file"], select, textarea {
+input[type="text"], input[type="number"], input[type="date"], input[type="datetime-local"], input[type="url"], input[type="search"], input[type="file"], select, textarea {
   width: 100%; min-height: 46px; padding: 10px 12px;
   background: var(--sup); border: 1px solid var(--borda); border-radius: 10px;
   font-size: 16px;
@@ -698,3 +698,15 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .ev-pdf { page: eventos; }
 .ev-pdf .laudo-tabela td { font-size: 9.5px; }
 .ev-tabela td:first-child { white-space: nowrap; font-family: ui-monospace, Menlo, monospace; }
+.graf-linha-2 { stroke-width: 1.6; }
+.ev-graficos { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: start; }
+.ev-graficos .graf-largo { max-height: 230px; }
+.ev-kpis { grid-template-columns: repeat(2, 1fr); }
+@media (min-width: 640px) { .ev-kpis { grid-template-columns: repeat(4, 1fr); } }
+.ev-kpis .kpi { padding: 10px 12px; }
+.ev-kpis .kpi-valor { font-size: 1.35rem; }
+.ev-kpis .kpi-sub { font-size: .78rem; }
+.seg-compacto .seg-opcao { min-height: 34px; min-width: 0; padding: 0 12px; font-size: .85rem; }
+.grade-4 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (min-width: 900px) { .grade-4 { grid-template-columns: repeat(4, 1fr); } }
+.ev-pdf .ev-graficos { grid-template-columns: 1fr 1fr; }
