@@ -597,7 +597,7 @@
     ui.trocar(secoes.elementos,
       planta && r.porEh.length ? h('section', { class: 'cartao' },
         h('h2', { text: 'Resumo por trecho (EH e RH)' }),
-        tabelaTela(colunasEh(false), porPerda(r.porEh), (g) => (g.pior ? aproximar(g.pior.ini, g.pior.fim) : aproximar(g.ini, g.fim)))) : null,
+        tabelaTela(colunasEh(false), porPerda(r.porEh), (g) => aproximar(g.ini, g.fim, 0.02))) : null,
       h('section', { class: 'cartao' },
         h('div', { class: 'cartao-cab' },
           h('h2', { text: r.modo === 'curvatura' ? 'Elementos: tangentes e curvas' : `Elementos da ${nomeFonte()}: tangentes e curvas` }),

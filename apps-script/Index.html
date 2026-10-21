@@ -917,10 +917,10 @@ window.App = window.App || {};
 
 (function (App) {
   App.config = {
-    versao: '1.0.0',
+    versao: '2026.10.21',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-11f70609b0', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-8387e1ab43', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -4925,7 +4925,7 @@ window.App = window.App || {};
     ui.trocar(secoes.elementos,
       planta && r.porEh.length ? h('section', { class: 'cartao' },
         h('h2', { text: 'Resumo por trecho (EH e RH)' }),
-        tabelaTela(colunasEh(false), porPerda(r.porEh), (g) => (g.pior ? aproximar(g.pior.ini, g.pior.fim) : aproximar(g.ini, g.fim)))) : null,
+        tabelaTela(colunasEh(false), porPerda(r.porEh), (g) => aproximar(g.ini, g.fim, 0.02))) : null,
       h('section', { class: 'cartao' },
         h('div', { class: 'cartao-cab' },
           h('h2', { text: r.modo === 'curvatura' ? 'Elementos: tangentes e curvas' : `Elementos da ${nomeFonte()}: tangentes e curvas` }),
@@ -7571,18 +7571,18 @@ window.App = window.App || {};
       conexaoEl, syncEl, temaEl,
       h('section', { class: 'cartao' },
         h('h2', { text: 'Sobre' }),
-        h('p', { class: 'sub', text: `App Carro Controle EM80 · versão ${config.versao} (${config.build}) · modo ${api.modo() === 'appsscript' ? 'Apps Script' : 'site (PWA)'}` }),
-        h('div', { class: 'linha-acoes' },
+        h('p', { class: 'sub', text: `App Carro Controle EM80 · versão ${config.versao} · código ${config.build} · modo ${api.modo() === 'appsscript' ? 'Apps Script' : 'site (PWA)'}` }),
+        h('div', { class: 'linha-acoes', style: { marginTop: '10px' } },
           h('button', {
-            class: 'btn btn-secundario',
+            class: 'btn btn-secundario btn-pequeno',
             onclick: async () => {
               const publicada = await App.versao.verificar();
               if (publicada === null) ui.toast('Não foi possível conferir agora (sem internet?).', 'erro');
               else if (publicada === config.build) ui.toast('Você já está na versão mais recente.', 'ok');
             }
           }, ui.icone('sync'), 'Procurar atualização'),
-          api.modo() === 'web' ? h('button', { class: 'btn btn-secundario', onclick: () => App.versao.atualizar() }, 'Recarregar app') : null),
-        h('button', { class: 'btn btn-perigo', onclick: apagarDados }, ui.icone('lixo'), 'Apagar dados deste aparelho')));
+          api.modo() === 'web' ? h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => App.versao.atualizar() }, 'Recarregar app') : null,
+          h('button', { class: 'btn btn-perigo btn-pequeno', onclick: apagarDados }, ui.icone('lixo'), 'Apagar dados deste aparelho'))));
     renderConexao();
     renderTema();
     document.addEventListener('em80:sync', () => renderSync());
