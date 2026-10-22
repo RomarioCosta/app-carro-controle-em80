@@ -114,8 +114,8 @@
     // saltos/voltas pequenos do km: compensados só quando o usuário pede (botão "Compensar")
     const compensaveis = b.saltosCompensaveis(pos, opcoes.compensacao || {});
     const pedidos = new Set(opcoes.compensar || []);
-    compensaveis.forEach((c) => { c.tratado = c.cabe && pedidos.has(c.chave); });
-    const aplicar = compensaveis.filter((c) => c.tratado);
+    const aplicar = b.compensacoesPedidas(compensaveis, [...pedidos]);
+    compensaveis.forEach((c) => { c.tratado = aplicar.some((x) => x.chave === c.chave); });
     const posC = aplicar.length ? b.compensarPos(pos, aplicar) : pos;
     // correção do km pela geometria (ponto a ponto), sobre o km já compensado
     const els = ramal ? b.elementosDaPlanta(planta, ramal, linhaRef) : [];

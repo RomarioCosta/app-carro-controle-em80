@@ -465,7 +465,7 @@ k = 1 no primeiro ponto da compensação … até o último ponto antes do pulo
 ```
 
 5. **O km depois do pulo não muda**, porque é o da placa. Com isso o km fica contínuo: sem buraco e sem sobreposição.
-6. **Precisa caber.** Se não houver pontos suficientes antes do pulo (início do arquivo ou outro pulo no caminho), o app mostra "Não cabe" e quanto % por ponto seria preciso. Nada é feito.
+6. **E quando não cabe?** Se não houver pontos suficientes antes do pulo (início do arquivo ou outro pulo no caminho), o app avisa e mostra quanto cada ponto teria que mudar. O botão vira **"Compensar mesmo assim (x% por ponto)"**: usa todos os pontos que existem antes do pulo, e cada ponto muda mais que 1%. A decisão é sua.
 7. **Pulos maiores que 300 m** não são acerto de km: é passada repetida ou falta de arquivo. Use o recorte.
 8. **Nada é automático.** Cada pulo tem o botão **Compensar** e, depois, **Desfazer**. O CSV nunca é alterado.
 
@@ -513,7 +513,17 @@ Os três valores (2 m, 1% e 300 m) podem ser mudados em **"Regras da compensaç�
 | Pontos que existem antes da volta | 12.000 (3 km) |
 | % por ponto que seria preciso | 55 ÷ 3.000 m ≈ 1,8% |
 
-Resultado: **"Não cabe"**. Para compensar mesmo assim, aumente o máximo por ponto para 2% em "Regras da compensação do km", sabendo que cada ponto vai mudar mais.
+Resultado: com 1% não cabe. O botão mostra **"Compensar mesmo assim (1,8% por ponto)"**.
+
+- Se usar o botão, os 12.000 pontos anteriores perdem cada um 55 ÷ 12.000 = **0,0046 m** a mais que o anterior.
+- A distância entre vizinhos passa de 0,25 m para 0,2454 m.
+
+**Seu caso real (RFA_CS, volta de 47+055 para 47+000).** O arquivo começa em 45+429, então há cerca de 1.626 m (6.500 pontos) antes da volta.
+
+| Conta | Resultado |
+|---|---|
+| Quanto cada ponto perde | 55 ÷ 6.500 ≈ **0,0085 m** (3,4% do espaçamento) |
+| Distância entre vizinhos | passa de 0,25 m para cerca de 0,2415 m |
 
 ### 16.6 Onde a compensação vale
 
