@@ -310,7 +310,7 @@
   /* ---------------- Planta (base da malha) ---------------- */
 
   function cartaoPlanta() {
-    const input = h('input', { type: 'file', accept: '.xls,.xlsx', onchange: (e) => { const f = e.target.files[0]; if (f) importarPlanta(f); } });
+    const input = h('input', { type: 'file', name: 'arquivo-planta-rota', onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importarPlanta(f); } });
     return h('section', { class: 'cartao' },
       h('h2', { text: 'Planta da linha' }),
       h('p', { class: 'sub', text: 'A rota é desenhada sobre a planta da linha (EH, RH e linhas de cada ramal). Importe a planilha "Planta da linha" uma vez neste aparelho: ela fica guardada aqui e é a mesma usada na análise do arquivo.' }),

@@ -55,15 +55,51 @@
     } catch (e) { /* sem arquivo salvo */ }
   }
 
-  async function lerArquivo(f) {
-    const buf = await f.arrayBuffer();
-    let texto;
-    try {
-      texto = new TextDecoder('utf-8', { fatal: true }).decode(buf);
-    } catch (e) {
-      texto = new TextDecoder('windows-1252').decode(buf); // arquivos do carro costumam vir em ANSI
+  /** Extrai o primeiro .csv/.txt de um .zip (sem bibliotecas: lê o diretório do zip e descompacta com o navegador). */
+  async function csvDoZip(buf) {
+    const dv = new DataView(buf);
+    let fimDir = -1;
+    for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 66000); i--) if (dv.getUint32(i, true) === 0x06054b50) { fimDir = i; break; }
+    if (fimDir < 0) throw new Error('Arquivo .zip inválido.');
+    const qtd = dv.getUint16(fimDir + 10, true);
+    let p = dv.getUint32(fimDir + 16, true);
+    const nomes = new TextDecoder();
+    for (let k = 0; k < qtd; k++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      const metodo = dv.getUint16(p + 10, true);
+      const tam = dv.getUint32(p + 20, true);
+      const nLen = dv.getUint16(p + 28, true); const xLen = dv.getUint16(p + 30, true); const cLen = dv.getUint16(p + 32, true);
+      const local = dv.getUint32(p + 42, true);
+      const nome = nomes.decode(new Uint8Array(buf, p + 46, nLen));
+      p += 46 + nLen + xLen + cLen;
+      if (!/\.(csv|txt)$/i.test(nome)) continue;
+      const ini = local + 30 + dv.getUint16(local + 26, true) + dv.getUint16(local + 28, true);
+      const dados = new Uint8Array(buf, ini, tam);
+      if (metodo === 0) return { nome: nome.split('/').pop(), buf: dados.slice().buffer };
+      if (metodo !== 8 || typeof DecompressionStream === 'undefined') throw new Error('Este celular não consegue abrir este .zip. Descompacte o arquivo e envie o .csv.');
+      const saida = await new Response(new Blob([dados]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+      return { nome: nome.split('/').pop(), buf: saida };
     }
-    processar(texto, f.name, { salvar: true });
+    throw new Error('Nenhum arquivo .csv dentro do .zip.');
+  }
+
+  async function lerArquivo(f) {
+    ui.toast(`Lendo ${f.name}…`, 'info', 3000);
+    try {
+      let buf = await f.arrayBuffer();
+      let nome = f.name;
+      // .zip (como o arquivo é enviado pelo WhatsApp/e-mail): abre o .csv de dentro
+      if (buf.byteLength > 4 && new DataView(buf).getUint32(0, true) === 0x04034b50) ({ nome, buf } = await csvDoZip(buf));
+      let texto;
+      try {
+        texto = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+      } catch (e) {
+        texto = new TextDecoder('windows-1252').decode(buf); // arquivos do carro costumam vir em ANSI
+      }
+      processar(texto, nome, { salvar: true });
+    } catch (e) {
+      ui.toast(`Não foi possível abrir o arquivo: ${e.message}`, 'erro', 8000);
+    }
   }
 
   /** Trecho analisado (km inicial e final, em metros): descarta o resto do arquivo sem editar o CSV. */
@@ -239,7 +275,7 @@
   const nomeFonte = () => (planta && planta.fonte === 'geometria' ? 'geometria' : 'planta');
 
   function renderPlanta() {
-    const input = h('input', { type: 'file', accept: '.xls,.xlsx', onchange: (e) => { const f = e.target.files[0]; if (f) importarPlanta(f); } });
+    const input = h('input', { type: 'file', name: 'arquivo-planta', onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importarPlanta(f); } });
     const resumo = planta
       ? `${planta.nome} · ${planta.elementos.length.toLocaleString('pt-BR')} elementos · ramais ${Object.keys(planta.ramais).join(', ')} · importada em ${U.fmtData(planta.importadoEm)}`
       : 'Importe a "Geometria da EFVM – Carro Controle" (ou a planilha "Planta da linha") para separar os elementos por EH e linha. Sem ela, os elementos são identificados pelo raio.';
@@ -273,8 +309,9 @@
   function renderArquivo() {
     const input = h('input', {
       type: 'file',
-      accept: '.csv,.txt',
-      onchange: (e) => { const f = e.target.files[0]; if (f) lerArquivo(f); }
+      name: 'arquivo-carro',
+      // sem filtro de tipo: no celular, o filtro ".csv" às vezes deixa o arquivo cinza (sem poder tocar)
+      onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) lerArquivo(f); }
     });
     const meta = arquivo && arquivo.meta;
     ui.trocar(secoes.arquivo, h('section', { class: 'cartao' },

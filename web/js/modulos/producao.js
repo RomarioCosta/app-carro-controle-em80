@@ -689,8 +689,7 @@
       oninput: () => desenharResumo()
     });
     const arquivoInput = h('input', {
-      type: 'file',
-      accept: '.xlsx,.xls,.csv',
+      type: 'file', // sem filtro de tipo: no celular o filtro às vezes deixa o arquivo cinza
       onchange: async (e) => {
         const arq = e.target.files[0];
         resultado = null;
