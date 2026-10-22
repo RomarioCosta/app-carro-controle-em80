@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 const ctx = { console, Intl, localStorage: { getItem: () => null, setItem() {}, removeItem() {} } };
 ctx.window = ctx; ctx.window.App = {};
 vm.createContext(ctx);
-['util.js', 'bitola.js', 'cobertura.js'].forEach((f) => vm.runInContext(readFileSync(new URL(`../web/js/${f}`, import.meta.url), 'utf8'), ctx));
+['util.js', 'bitola.js', 'limites.js', 'cobertura.js'].forEach((f) => vm.runInContext(readFileSync(new URL(`../web/js/${f}`, import.meta.url), 'utf8'), ctx));
 const C = ctx.App.cobertura;
 const j = (x) => JSON.parse(JSON.stringify(x));
 
@@ -140,4 +140,26 @@ test('validação por EH completo: parou no meio do EH, vale até o fim da RH an
   assert.ok(e.sugestao.ate >= 3298 && e.sugestao.ate < 3300);
   // arquivo só com EH inteiros: nada a cortar
   assert.ok(C.validacaoDoArquivo(planta, arq('w', 0, 9800).resumo).sugestao.inteiro);
+});
+
+test('limites centralizados: tabela EFVM 2026, RH com limite da tangente e maior valor por parâmetro', () => {
+  const Lm = ctx.App.limites;
+  assert.deepEqual(j(Lm.GEOMETRIA), ['emp2', 'nl5', 'emp10', 'sup']);
+  assert.equal(Lm.niveis('emp2', 'C', 68)[0].sup, 10);
+  assert.equal(Lm.niveis('emp2', 'T', 68)[0].sup, 19);
+  assert.equal(Lm.niveis('sup', 'C', 68).length, 0); // superelevação: só na tangente
+  assert.equal(Lm.niveis('emp2', 'C', 15)[0].sup, 18);
+  const r = resumo('a', 0, 3000);
+  const n = r.amostras.pos.length;
+  const emp2 = new Float32Array(n).fill(2);
+  for (let k = 1040; k <= 1050; k++) emp2[k] = 25; // RH entre 1000 e 1100: vale o limite da tangente (19)
+  r.geometria = { emp2 };
+  const estat = {};
+  const al = C.alertasGeometria(planta, 'LT', [{ id: 'a', nome: 'a', resumo: r, recorte: null }], Lm.funcaoLimites(68), estat);
+  assert.equal(al.length, 1);
+  assert.equal(al[0].tipo, 'RH');
+  assert.equal(al[0].limite, 19);
+  assert.match(al[0].eh, /RH antes do EH 1/);
+  assert.equal(estat.emp2.maior.valor, 25);
+  assert.ok(Math.abs(estat.emp2.maior.razao - 25 / 19) < 1e-6);
 });
