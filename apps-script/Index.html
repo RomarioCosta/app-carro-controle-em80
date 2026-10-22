@@ -843,6 +843,15 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .tc-ev text, .tc-ev-faixa text, .tc-ev-trav text, .tc-ev-tunel text { fill: #000 !important; font-weight: 600; }
 .tc-ev-ex rect { fill: #111; }
 
+/* Tela do carro: cabeçalho compacto (nomes na horizontal, em duas linhas) */
+.tc-cab-linha { height: auto; min-height: 38px; }
+.tc-cab-cel { flex-direction: column; justify-content: flex-end; align-items: center; padding: 3px 2px 4px; }
+.tc-cab-gira span { writing-mode: horizontal-tb; transform: none; flex-direction: column; gap: 0; font-size: 11px; line-height: 1.15; text-align: center; max-width: 100%; }
+.tc-cab-gira strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: block; }
+.tc-cab-gira small { font-size: 10px; }
+.tc-zoom { position: static; transform: none; margin-bottom: 2px; }
+.tc-seta-escala { position: static; }
+
 </style>
 </head>
 <body>
@@ -1061,10 +1070,10 @@ window.App = window.App || {};
 
 (function (App) {
   App.config = {
-    versao: '2026.10.21',
+    versao: '2026.10.22',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-166336a85f', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-aa397495ed', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
