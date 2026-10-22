@@ -193,4 +193,5 @@ Correção digitada em Critérios (um número) vale para o arquivo todo.
 - Os limites podem ser editados em **Limites** (por velocidade; em branco = sem limite) e voltam à tabela com "Restaurar tabela EFVM 2026".
 - **Excesso**: valor acima do superior ou abaixo do inferior. Fica marcado com uma caixa vermelha na coluna, e a coluna EX fica vermelha onde algum parâmetro passa do limite.
 - Coluna **T/E**: tangente (linha preta), curva (barra azul), RH (barra cinza) e eventos do arquivo (TRAV em roxo).
-- **Reproduzir**: a tela rola na velocidade escolhida, como o carro andando.
+- **Reproduzir**: ao abrir, a tela fica vazia; com o play, o traçado vai sendo desenhado como o carro andando, e a tela rola quando ele chega perto do fim. Velocidade 1×, 2×, 3×, 5×, 10× ou 20× (1× = 10 m de arquivo por segundo). "Ir para o km" mostra o traçado até aquele km; "Reiniciar" volta ao início com a tela vazia.
+- Sem grade, sem linhas de divisão e sem km na lateral: só os limites (pontilhado), os traçados e as marcas.
