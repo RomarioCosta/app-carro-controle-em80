@@ -875,3 +875,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .kpi-ruim .kpi-valor { color: var(--erro); }
 .kpi-atencao .kpi-valor { color: var(--alerta); }
 .lista-placa { margin: 0; padding-left: 18px; font-size: .85rem; }
+.placa-lista { border: 1px solid var(--borda); border-radius: 10px; padding: 10px 12px; background: var(--sup); }
+.placa-item { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-top: 1px solid var(--grade); font-size: .88rem; }
+.placa-item.placa-tratado { opacity: .85; }
+.mt-selo.mt-pend-forte { background: var(--alerta-fundo); color: var(--alerta); }
+.mt-tabela tr.mt-rh td { color: var(--texto2); }

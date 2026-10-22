@@ -92,3 +92,26 @@ test('resumo guardado como lista volta a ser array tipado', () => {
   assert.ok(n.amostras.pos.constructor.name === 'Float64Array');
   assert.equal(n.amostras.pos.length, 11);
 });
+
+test('contagem por EH/RH: casada, não detectada, a mais e RH da geometria', () => {
+  const p2 = { ...planta, rhs: [{ ramal: 'LT', linha: '1', nome: 'RH-05', ini: 5400, fim: 5500, sede: 'GV II', raio: 900 }] };
+  const a = arq('gv', 0, 9800);
+  // curvas medidas (km da geometria): casa C de 1100–2100 (EH 1); EH 3 sem medida; uma a mais na tangente do EH 4; a do RH
+  a.resumo.curvas = [
+    { ini: 1110, fim: 2090, lado: 'D', linha: '1', kmArq: 1110 },
+    { ini: 4500, fim: 4700, lado: 'D', linha: '1', kmArq: 4500 },
+    { ini: 5410, fim: 5490, lado: 'E', linha: '1', kmArq: 5410 }
+  ];
+  const [l] = C.montar(p2, 'LT', [a]);
+  const g = (nome) => l.contagem.find((x) => x.nome === nome);
+  assert.equal(g('EH 1').situacao, 'ok');
+  assert.equal(g('EH 1').casadas, 1);
+  assert.equal(g('EH 3').situacao, 'divergente');
+  assert.equal(g('EH 3').naoDetectadas.length, 1);
+  assert.equal(g('EH 4').aMais.length, 1);
+  assert.equal(g('RH-05').curvas, 1);
+  assert.equal(g('RH-05').casadas, 1);
+  // recorte tira a curva do arquivo
+  const [l2] = C.montar(p2, 'LT', [{ ...a, recorte: { de: 1500, ate: null } }]);
+  assert.equal(l2.contagem.find((x) => x.nome === 'EH 1').situacao, 'incompleto');
+});

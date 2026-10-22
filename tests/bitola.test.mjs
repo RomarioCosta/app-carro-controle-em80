@@ -443,21 +443,35 @@ test('acerto do km na placa: volta de 15 m tratada; buraco de verdade não', () 
   for (let r = 0; r < 12000; r += 0.25) { pos.push(r < 6000 ? r * 1.0025 : r); real.push(r); curv.push(curvDe(r)); }
   const P = Float64Array.from(pos);
   assert.deepEqual(j(B.acertosDePlaca(P).map((a) => Math.round(a.delta))), [-15]);
-  const v = B.ajusteVariavel(P, Float64Array.from(curv), els);
-  assert.equal(v.placa.length, 1);
-  assert.ok(v.placa[0].confirmado);
-  // km da geometria contínuo no ponto do acerto (sem repetir 15 m) e perto do real
+  // sem pedir, só identifica (não muda a correção)
+  const v0 = B.ajusteVariavel(P, Float64Array.from(curv), els);
+  assert.equal(v0.placa.length, 1);
+  assert.ok(v0.placa[0].confirmado);
+  assert.equal(v0.aplicados, 0);
+  assert.equal(v0.placa[0].chave, B.chaveAcerto(P[v0.placa[0].i - 1], P[v0.placa[0].i]));
+  assert.ok(Math.abs(v0.placa[0].L - 6015) < 1);
+  // tratado pelo botão: a diferença é distribuída no trecho anterior (encolhe 15 m em 6.015 m)
+  const v = B.ajusteVariavel(P, Float64Array.from(curv), els, { acertosPlaca: [v0.placa[0].chave] });
+  assert.equal(v.aplicados, 1);
   const i = v.placa[0].i;
   assert.ok(Math.abs((P[i] + v.ajustes[i]) - (P[i - 1] + v.ajustes[i - 1])) < 1);
   for (let k = 0; k < P.length; k += 400) assert.ok(Math.abs(P[k] + v.ajustes[k] - real[k]) <= 10, `${real[k]}: ${P[k] + v.ajustes[k]}`);
+  // distribuição pura (sem geometria): km'(j) = km(ref) + (km(j) − km(ref)) · (L + Δ) / L
+  const pc = B.posComAcertos(P, [{ i, delta: v.placa[0].delta }]);
+  assert.ok(Math.abs(pc[i - 1] + 0.25 - P[i]) < 0.01);
+  assert.ok(Math.abs(pc[Math.round(i / 2)] - real[Math.round(i / 2)]) < 0.05);
+  // faltou km (salto +130 na placa 6+000): o trecho anterior estica
+  const p3 = Float64Array.from({ length: 48000 }, (_, k) => { const r = k * 0.25; return r < 6000 ? r * (5870 / 6000) : r; });
+  const a3 = B.acertosDePlaca(p3);
+  assert.equal(Math.round(a3[0].delta), 130);
+  const pc3 = B.posComAcertos(p3, a3);
+  assert.ok(Math.abs(pc3[12000] - 3000) < 0.1); // meio do trecho volta ao km real
   // 2) faltou medição de verdade (150 m) e o km continua certo: cai no 6+000, mas a geometria não confirma
   const p2 = []; const c2 = [];
   for (let r = 0; r < 12000; r += 0.25) { if (r >= 5850 && r < 6000) continue; p2.push(r); c2.push(curvDe(r)); }
   const v2 = B.ajusteVariavel(Float64Array.from(p2), Float64Array.from(c2), els);
   assert.equal(v2.placa.length, 1);
   assert.equal(v2.placa[0].confirmado, false);
-  // 3) desligado pela opção
-  assert.equal(B.ajusteVariavel(P, Float64Array.from(curv), els, { acertoPlaca: false }).placa.length, 0);
 });
 
 test('trecho analisado: recorta pelo km sem editar o CSV e a conferência acompanha', () => {

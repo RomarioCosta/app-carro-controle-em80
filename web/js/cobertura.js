@@ -63,15 +63,23 @@
    */
   C.necessario = (planta, ramal, linha, { rhMax = 1000, incluirRH = true } = {}) => {
     const els = B().elementosDaPlanta(planta, ramal, linha);
-    const out = [];
-    els.forEach((e, k) => {
-      const ant = els[k - 1];
-      if (incluirRH && ant && e.ini - ant.fim > 0.5 && e.ini - ant.fim <= rhMax) {
-        out.push({ ini: ant.fim, fim: e.ini, sede: e.sede || ant.sede || '', eh: e.nomeEh || `EH ${e.eh}`, tipo: 'RH' });
-      }
-      out.push({ ini: e.ini, fim: e.fim, sede: e.sede || '', eh: e.nomeEh || `EH ${e.eh}`, tipo: e.tipo });
-    });
-    return out;
+    const nomeEh = (e) => e.nomeEh || `EH ${e.eh}`;
+    const out = els.map((e) => ({ ini: e.ini, fim: e.fim, sede: e.sede || '', eh: nomeEh(e), tipo: e.tipo, lado: e.lado || '', num: e.num || '', raio: e.raio || null }));
+    if (incluirRH) {
+      // circuitos da geometria (linhas RH, com o km); sem elas, o vão de até rhMax entre dois elementos
+      const rhs = (planta.rhs || []).filter((r) => r.ramal === ramal && String(r.linha) === String(linha));
+      rhs.forEach((r) => {
+        const depois = els.find((e) => e.ini >= r.fim - 1) || els[els.length - 1];
+        out.push({ ini: r.ini, fim: r.fim, sede: r.sede || (depois && depois.sede) || '', eh: r.nome, tipo: 'RH', lado: '', num: '', curva: !!r.raio, raio: r.raio || null });
+      });
+      els.forEach((e, k) => {
+        const ant = els[k - 1];
+        if (!ant || e.ini - ant.fim <= 0.5 || e.ini - ant.fim > rhMax) return;
+        if (rhs.some((r) => r.fim > ant.fim && r.ini < e.ini)) return;
+        out.push({ ini: ant.fim, fim: e.ini, sede: e.sede || ant.sede || '', eh: `RH antes do ${nomeEh(e)}`, tipo: 'RH', lado: '', num: '' });
+      });
+    }
+    return out.sort((x, y) => x.ini - y.ini);
   };
 
   /** Sedes (corretivas) de um ramal e linha, em ordem de km: [{ sede, ini, fim, trechos }]. */
@@ -119,19 +127,17 @@
     const voltas = []; const saltos = []; let parados = 0;
     const sinal = n > 1 && pos[n - 1] < pos[0] ? -1 : 1; // arquivo em km decrescente
     const placa = aj.placa || [];
-    const acertoEm = new Set(placa.filter((x) => x.confirmado).map((x) => x.i));
+    const candidatoEm = new Set(placa.map((x) => x.i));
     for (let i = 1; i < n; i++) {
-      if (acertoEm.has(i)) continue;
+      if (candidatoEm.has(i)) continue; // possíveis acertos de placa: listados à parte, com botão para tratar
       const d = (pos[i] - pos[i - 1]) * sinal;
       if (d === 0) parados++;
       else if (d < -1) voltas.push({ de: pos[i - 1], para: pos[i] });
       else if (d > Math.max(5, 20 * esp)) saltos.push({ de: pos[i - 1], para: pos[i] });
     }
     const fmt = b.fmtKm;
-    placa.filter((x) => x.confirmado).forEach((x) => avisar('info', `Acerto do km na placa ${fmt(x.km)}: o sistema marcava ${fmt(x.de)} (${x.delta > 0 ? '+' : '−'}${Math.round(Math.abs(x.delta))} m). Tratado: a diferença foi distribuída no trecho anterior, sem repetir nem pular medição.`, x.km));
-    const naoConfirmado = (de) => (placa.some((x) => !x.confirmado && x.de === de) ? ' Cai num km inteiro, mas a geometria não confirma acerto de placa.' : '');
-    voltas.forEach((v) => avisar('alerta', `Km volta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(Math.abs(v.de - v.para))} m medidos de novo).${naoConfirmado(v.de)}`, v.de));
-    saltos.forEach((v) => avisar('alerta', `Km salta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(Math.abs(v.para - v.de))} m sem medição no arquivo).${naoConfirmado(v.de)}`, v.de));
+    voltas.forEach((v) => avisar('alerta', `Km volta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(Math.abs(v.de - v.para))} m medidos de novo).`, v.de));
+    saltos.forEach((v) => avisar('alerta', `Km salta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(Math.abs(v.para - v.de))} m sem medição no arquivo).`, v.de));
     if (parados > 40) avisar('info', `${parados.toLocaleString('pt-BR')} pontos com o km parado (carro parado).`);
     (arquivo.avisos || []).forEach((t) => avisar('alerta', t));
     if (!(arquivo.eventos || []).some((e) => !e.ex)) avisar('info', 'Arquivo sem eventos (linhas "E").');
@@ -148,6 +154,11 @@
     };
     for (let i = 0; i < n; i += passo) amostrar(i);
     if (n && (n - 1) % passo) amostrar(n - 1);
+    // curvas medidas pelo raio (para a contagem por EH), já no km da geometria
+    const curvas = n > 10 ? b.segmentar(pos, arquivo.dados.curv, opcoes).filter((e) => e.tipo === 'C').map((e) => {
+      const g0 = pos[e.i0] + aj.ajustes[e.i0]; const g1 = pos[e.i1] + aj.ajustes[e.i1];
+      return { ini: Math.min(g0, g1), fim: Math.max(g0, g1), lado: e.lado, linha: validas[arquivo.linhaIdx ? arquivo.linhaIdx[Math.round((e.i0 + e.i1) / 2)] : 0] || linhaRef, kmArq: pos[e.i0] };
+    }) : [];
     return {
       nome,
       meta: { ...meta },
@@ -156,7 +167,9 @@
       corretiva: C.normSede(meta.corretiva || ''),
       pontos: n,
       kmIni: pos[0], kmFim: pos[n - 1],
-      correcao: { min: aj.min, max: aj.max, casadas: aj.casadas, curvas: aj.curvas, acertos: placa.filter((x) => x.confirmado).length },
+      correcao: { min: aj.min, max: aj.max, casadas: aj.casadas, curvas: aj.curvas },
+      placa: placa.map(({ i, km, de, delta, chave, pulo, confirmado, tratado, kmRef, L }) => ({ i, km, de, delta, chave, pulo, confirmado, tratado, kmRef, L })),
+      curvas,
       amostras,
       inconsistencias
     };
@@ -247,7 +260,72 @@
         return { km, de: ant.sede, para: s.sede, coberta, situacao, arquivos: arqs };
       }).filter(Boolean);
       const necT = C.extensao(necU); const cobT = C.extensao(C.interseccao(necU, cobertos));
-      return { linha, necessario: necT, coberto: cobT, pct: necT ? (cobT / necT) * 100 : 0, sedes, buracos, sobreposicoes, fronteiras };
+      const medidas = cob.flatMap((c) => C.curvasDoArquivo(c.a, linha));
+      const contagem = C.contagem(nec, cobertos, medidas);
+      return { linha, necessario: necT, coberto: cobT, pct: necT ? (cobT / necT) * 100 : 0, sedes, buracos, sobreposicoes, fronteiras, contagem };
+    });
+  };
+
+  /** Curvas medidas (pelo raio) de um arquivo numa linha, respeitando o recorte do arquivo. */
+  C.curvasDoArquivo = (a, linha) => {
+    const rc = a.recorte;
+    return (a.resumo.curvas || []).filter((c) => String(c.linha) === String(linha)
+      && !(rc && ((rc.de !== null && rc.de !== undefined && c.kmArq < rc.de) || (rc.ate !== null && rc.ate !== undefined && c.kmArq > rc.ate))))
+      .map((c) => ({ ini: c.ini, fim: c.fim, lado: c.lado, arquivo: a.nome }));
+  };
+
+  /**
+   * Contagem e conferência por EH e RH: elementos da geometria × o que os arquivos mediram.
+   * Curva da geometria "casada" = alguma curva medida pelo raio cobre ≥ 50% dela (ou ela cobre ≥ 50% da medida).
+   * Retorna [{ nome, tipo: 'EH'|'RH', sede, ini, fim, tangentes, curvas, necessario, coberto, pct,
+   *   medidas, casadas, naoDetectadas: [curva], aMais: [medida], semLeitura, situacao, itens }].
+   */
+  C.contagem = (nec, cobertos, medidas) => {
+    // medidas de arquivos que se sobrepõem viram uma só
+    const unicas = C.uniao(medidas.map((m) => [m.ini, m.fim]), 0).map(([ini, fim]) => ({ ini, fim }));
+    const grupos = [];
+    nec.forEach((t) => {
+      const tipo = t.tipo === 'RH' ? 'RH' : 'EH';
+      const u = grupos[grupos.length - 1];
+      if (u && tipo === 'EH' && u.tipo === 'EH' && u.nome === t.eh) { u.trechos.push(t); u.fim = Math.max(u.fim, t.fim); } else grupos.push({ nome: t.eh, tipo, sede: t.sede, ini: t.ini, fim: t.fim, trechos: [t] });
+    });
+    const sobre = (a, b) => Math.max(0, Math.min(a.fim, b.fim) - Math.max(a.ini, b.ini));
+    return grupos.map((g) => {
+      const faixa = C.uniao(g.trechos.map((t) => [t.ini, t.fim]), 0.5);
+      const necessario = C.extensao(faixa);
+      const coberto = C.extensao(C.interseccao(faixa, cobertos));
+      const pct = necessario ? (coberto / necessario) * 100 : 0;
+      // curvas esperadas: as da geometria; numa RH, uma curva quando a geometria dá o raio dela
+      const curvasGeo = g.trechos.filter((t) => t.tipo === 'C' || (t.tipo === 'RH' && t.curva));
+      const meio = (m) => (m.ini + m.fim) / 2;
+      const medidasG = unicas.filter((m) => meio(m) >= g.ini && meio(m) < g.fim);
+      const casa = (c, m) => { const o = sobre(c, m); return o >= 0.5 * (c.fim - c.ini) || o >= 0.5 * (m.fim - m.ini); };
+      // um para um: cada curva medida casa com uma curva da geometria (a de maior sobreposição)
+      const usadas = new Set();
+      const pares = [];
+      curvasGeo.forEach((c, k) => medidasG.forEach((m, q) => { if (casa(c, m)) pares.push({ k, q, o: sobre(c, m) }); }));
+      pares.sort((x, y) => y.o - x.o);
+      const parDe = new Map();
+      pares.forEach(({ k, q }) => { if (!parDe.has(k) && !usadas.has(q)) { parDe.set(k, q); usadas.add(q); } });
+      const itens = curvasGeo.map((c, k) => {
+        const ext = c.fim - c.ini;
+        const lido = C.extensao(C.interseccao([[c.ini, c.fim]], cobertos));
+        const par = parDe.has(k) ? medidasG[parDe.get(k)] : null;
+        const tocada = !par && medidasG.some((m) => sobre(c, m) > 0);
+        const situacao = par ? 'casada' : lido < 0.9 * ext ? 'sem leitura' : tocada ? 'unida' : 'nao detectada';
+        return { ini: c.ini, fim: c.fim, lado: c.lado, num: c.num, raio: c.raio, rh: c.tipo === 'RH', medida: par || null, situacao };
+      });
+      const aMais = medidasG.filter((m, q) => !usadas.has(q) && !curvasGeo.some((c) => sobre(c, m) > 0));
+      const naoDetectadas = itens.filter((x) => x.situacao === 'nao detectada' || x.situacao === 'unida');
+      const casadas = itens.filter((x) => x.situacao === 'casada').length;
+      const situacao = coberto === 0 ? 'sem arquivo' : pct < 99.5 ? 'incompleto' : naoDetectadas.length || aMais.length || medidasG.length !== curvasGeo.length ? 'divergente' : 'ok';
+      return {
+        nome: g.nome, tipo: g.tipo, sede: g.sede, ini: g.ini, fim: g.fim,
+        tangentes: g.trechos.filter((t) => t.tipo === 'T').length, curvas: curvasGeo.length,
+        unidas: itens.filter((x) => x.situacao === 'unida').length,
+        necessario, coberto, pct, medidas: medidasG.length, casadas, naoDetectadas, aMais,
+        semLeitura: itens.filter((x) => x.situacao === 'sem leitura').length, situacao, itens
+      };
     });
   };
 
