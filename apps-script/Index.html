@@ -1015,7 +1015,7 @@ window.App = window.App || {};
     versao: '2026.10.21',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-3a2a84c722', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-718f9a79dd', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -3986,7 +3986,7 @@ window.App = window.App || {};
 
   /**
    * Dupla checagem (conferência independente): relê o texto original do CSV linha a linha, sem usar
-   * a leitura nem os cálculos da análise, e recalcula com números inteiros (centésimos de mm):
+   * a leitura nem os cálculos da análise, e recalcula com números inteiros (0,0001 mm, a resolução do arquivo):
    * pontos e pontos acima da regra de cada elemento (pela faixa de km dele) e do geral.
    * Compara com a análise e devolve as divergências.
    */
@@ -4022,7 +4022,10 @@ window.App = window.App || {};
     };
   };
 
-  B.conferir = (texto, resultado, limite, faixa = null) => {
+  B.conferir = (texto, resultado, limite, faixa = null, offset = null) => {
+    // Offset aplicado na análise: a conferência soma o mesmo valor na mesma bitola.
+    const offF = offset && offset.aplicar && offset.bitola === 'bitF' ? Math.round((Number(offset.valor) || 0) * 10000) : 0;
+    const offT = offset && offset.aplicar && offset.bitola === 'bitT' ? Math.round((Number(offset.valor) || 0) * 10000) : 0;
     const linhas = String(texto || '').split(/\r?\n/);
     let iF = -1; let iT = -1; let iKm = -1; let iLoc = -1;
     const norm = (x) => String(x || '').trim().toUpperCase().replace(/\s+/g, ' ');
@@ -4030,7 +4033,7 @@ window.App = window.App || {};
       const t = String(v || '').trim();
       if (!t || t.includes('*')) return null;
       const n = parseFloat(t.replace(',', '.'));
-      return Number.isFinite(n) ? Math.round(n * 100) : null; // centésimos de mm (inteiro)
+      return Number.isFinite(n) ? Math.round(n * 10000) : null; // décimos de milésimo de mm (inteiro, o arquivo tem 4 casas)
     };
     const pontos = [];
     for (const ln of linhas) {
@@ -4047,9 +4050,13 @@ window.App = window.App || {};
       if (!Number.isFinite(km) || !Number.isFinite(loc)) continue;
       const metros = km * 1000 + loc;
       if (faixa && ((faixa.de !== null && faixa.de !== undefined && metros < faixa.de) || (faixa.ate !== null && faixa.ate !== undefined && metros > faixa.ate))) continue;
-      pontos.push({ m: Math.round((km * 1000 + loc) * 100), f: ler(c[iF]), t: ler(c[iT]) });
+      const f = ler(c[iF]); const t = ler(c[iT]);
+      pontos.push({ m: Math.round((km * 1000 + loc) * 100), f: f === null ? null : f + offF, t: t === null ? null : t + offT });
     }
-    const lim100 = Math.round(limite * 100);
+    // Mesma regra da análise, em inteiros: |F − T| arredondada a 0,01 mm > limite.
+    // Arredondar a 0,01 mm e passar do limite ⇔ F − T ≥ limite + 0,005 (ou ≤ −(limite + 0,005), excluindo o meio exato).
+    const limInt = Math.round(limite * 10000) + 50;
+    const acimaDe = (d) => d >= limInt || d < -limInt;
     // Os elementos são conferidos pela posição de cada ponto no arquivo (ordem das linhas "D"),
     // e não pela faixa de km: o mesmo km pode aparecer mais de uma vez no arquivo (km corrigido
     // durante a inspeção, passagem pela outra linha…), e aí a faixa de km pegaria pontos de outro trecho.
@@ -4059,7 +4066,7 @@ window.App = window.App || {};
         const p = pontos[i];
         if (p.f === null || p.t === null) continue;
         n++;
-        if (Math.abs(p.f - p.t) > lim100) acima++;
+        if (acimaDe(p.f - p.t)) acima++;
       }
       return { pontos: n, perdas: acima };
     };
@@ -5256,7 +5263,7 @@ window.App = window.App || {};
 
   /** Selo da conferência independente (relê o CSV original e recalcula) e botão da planilha de conferência. */
   function cartaoConferencia() {
-    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda, recorte) : null;
+    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda, recorte, opcoes.offset) : null;
     const selo = !c ? null : c.ok
       ? h('span', { class: 'conf-ok', title: `Recontagem independente a partir do CSV original: ${c.linhas.toLocaleString('pt-BR')} linhas de medição; pontos e pontos acima de cada elemento iguais aos da análise.${c.voltas.length ? ` O km volta ${c.voltas.length} vez(es) no arquivo.` : ''}` }, ui.icone('check'), 'Conferido')
       : h('button', { class: 'conf-erro', onclick: () => mostrarDivergencias(c) }, `⚠ ${c.divergencias.length} divergência(s)`);
@@ -5281,12 +5288,15 @@ window.App = window.App || {};
   /** Planilha (CSV para o Excel) com todos os pontos e o cálculo de cada um, para conferir na mão. */
   function baixarConferencia() {
     const r = resultado;
-    const { pos, dados } = arquivo;
+    const { pos } = arquivo;
+    const dados = r.dados; // com o offset, se aplicado (mesmos valores do cartão e das tabelas)
     const lim = opcoes.limitePerda;
+    const off = opcoes.offset;
+    const comOffset = (b) => (off.aplicar && off.valor && off.bitola === b ? ` (com offset ${off.valor > 0 ? '+' : ''}${fmt(off.valor, 1)})` : '');
     const doPonto = new Array(pos.length);
     r.elementos.forEach((e) => { for (let i = e.i0; i <= e.i1; i++) doPonto[i] = e; });
     const num = (v, casas = 2) => (Number.isNaN(v) ? '' : v.toFixed(casas).replace('.', ','));
-    const linhas = ['KM;LOCALIZACAO;Linha;Bitola F;Bitola T;F - T;|F - T| (módulo);Acima do limite (1 = sim);Elemento;Tipo;EH / RH;Na estatística (1 = sim)'];
+    const linhas = [`KM;LOCALIZACAO;Linha;Bitola F${comOffset('bitF')};Bitola T${comOffset('bitT')};F - T;|F - T| (módulo);Acima do limite (1 = sim);Elemento;Tipo;EH / RH;Na estatística (1 = sim)`];
     for (let i = 0; i < pos.length; i++) {
       const e = doPonto[i] || {};
       const dif = B.difBitola(dados.bitF[i], dados.bitT[i]);
