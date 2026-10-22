@@ -118,15 +118,20 @@
     // inconsistências de km no arquivo
     const voltas = []; const saltos = []; let parados = 0;
     const sinal = n > 1 && pos[n - 1] < pos[0] ? -1 : 1; // arquivo em km decrescente
+    const placa = aj.placa || [];
+    const acertoEm = new Set(placa.filter((x) => x.confirmado).map((x) => x.i));
     for (let i = 1; i < n; i++) {
+      if (acertoEm.has(i)) continue;
       const d = (pos[i] - pos[i - 1]) * sinal;
       if (d === 0) parados++;
       else if (d < -1) voltas.push({ de: pos[i - 1], para: pos[i] });
       else if (d > Math.max(5, 20 * esp)) saltos.push({ de: pos[i - 1], para: pos[i] });
     }
     const fmt = b.fmtKm;
-    voltas.forEach((v) => avisar('alerta', `Km volta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(v.de - v.para)} m medidos de novo).`, v.de));
-    saltos.forEach((v) => avisar('alerta', `Km salta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(v.para - v.de)} m sem medição no arquivo).`, v.de));
+    placa.filter((x) => x.confirmado).forEach((x) => avisar('info', `Acerto do km na placa ${fmt(x.km)}: o sistema marcava ${fmt(x.de)} (${x.delta > 0 ? '+' : '−'}${Math.round(Math.abs(x.delta))} m). Tratado: a diferença foi distribuída no trecho anterior, sem repetir nem pular medição.`, x.km));
+    const naoConfirmado = (de) => (placa.some((x) => !x.confirmado && x.de === de) ? ' Cai num km inteiro, mas a geometria não confirma acerto de placa.' : '');
+    voltas.forEach((v) => avisar('alerta', `Km volta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(Math.abs(v.de - v.para))} m medidos de novo).${naoConfirmado(v.de)}`, v.de));
+    saltos.forEach((v) => avisar('alerta', `Km salta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(Math.abs(v.para - v.de))} m sem medição no arquivo).${naoConfirmado(v.de)}`, v.de));
     if (parados > 40) avisar('info', `${parados.toLocaleString('pt-BR')} pontos com o km parado (carro parado).`);
     (arquivo.avisos || []).forEach((t) => avisar('alerta', t));
     if (!(arquivo.eventos || []).some((e) => !e.ex)) avisar('info', 'Arquivo sem eventos (linhas "E").');
@@ -151,7 +156,7 @@
       corretiva: C.normSede(meta.corretiva || ''),
       pontos: n,
       kmIni: pos[0], kmFim: pos[n - 1],
-      correcao: { min: aj.min, max: aj.max, casadas: aj.casadas, curvas: aj.curvas },
+      correcao: { min: aj.min, max: aj.max, casadas: aj.casadas, curvas: aj.curvas, acertos: placa.filter((x) => x.confirmado).length },
       amostras,
       inconsistencias
     };

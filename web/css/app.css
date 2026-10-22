@@ -874,3 +874,4 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-km { max-width: 140px; }
 .kpi-ruim .kpi-valor { color: var(--erro); }
 .kpi-atencao .kpi-valor { color: var(--alerta); }
+.lista-placa { margin: 0; padding-left: 18px; font-size: .85rem; }

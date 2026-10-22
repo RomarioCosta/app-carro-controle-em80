@@ -181,7 +181,7 @@
     const linha = valida ? valida.valida : (linhasPlanta.includes('1') ? '1' : linhasPlanta[0]);
     const localizar = B.localizador(planta, ramal, arquivo, linha);
     const els = B.elementosDaPlanta(planta, ramal, linha);
-    let ajuste = 0; let acerto = null; let faixa = [0, 0]; const automatico = opcoes.ajusteKm === 'auto';
+    let ajuste = 0; let acerto = null; let faixa = [0, 0]; let placa = []; const automatico = opcoes.ajusteKm === 'auto';
     if (automatico) {
       const k = `${nomeArquivo}|${arquivo.pos.length}|${ramal}|${linha}|${opcoes.raioCurva}|${opcoes.suavizacao}`;
       // Correção ponto a ponto: o odômetro escorrega ao longo do arquivo e o km é acertado em campo.
@@ -190,12 +190,13 @@
       ajuste = v.ajustes;
       acerto = v.curvas ? (v.casadas / v.curvas) * 100 : null;
       faixa = [v.min, v.max];
+      placa = v.placa || [];
     } else {
       ajuste = Number(opcoes.ajusteKm) || 0;
       faixa = [ajuste, ajuste];
     }
     const ajusteTxt = Math.abs(faixa[1] - faixa[0]) < 1 ? `${fmt(faixa[0], 0)} m` : `${fmt(faixa[0], 0)} a ${fmt(faixa[1], 0)} m`;
-    infoPlanta = { ramal, linha, ajuste, ajusteTxt, acerto, automatico, qtd: els.length, linhasArquivo: resumoLinhas, conferencia: conferirRamal(ramal, linha, els) };
+    infoPlanta = { ramal, linha, ajuste, ajusteTxt, acerto, automatico, placa, qtd: els.length, linhasArquivo: resumoLinhas, conferencia: conferirRamal(ramal, linha, els) };
     return { els, ajuste, localizar };
   }
 
@@ -399,6 +400,11 @@
             mudar('ajusteKm', e.target.value.trim() === '' || v === null ? 'auto' : v);
           }
         }))) : null,
+      usandoPlanta && infoPlanta && infoPlanta.placa.length ? h('ul', { class: 'lista-placa sub' }, infoPlanta.placa.map((x) => h('li', {
+        text: x.confirmado
+          ? `Acerto do km na placa ${B.fmtKm(x.km)} (sistema marcava ${B.fmtKm(x.de)}, ${x.delta > 0 ? '+' : '−'}${int(Math.abs(x.delta))} m): diferença distribuída no trecho anterior.`
+          : `Km ${B.fmtKm(x.de)} → ${B.fmtKm(x.km)}: cai num km inteiro, mas a geometria não confirma acerto de placa. Mantido como ${x.delta < 0 ? 'volta' : 'salto'} do km.`
+      }))) : null,
       !infoPlanta && problemaPlanta ? h('p', { class: 'aviso', text: problemaPlanta }) : null) : null;
 
     ui.trocar(secoes.parametros, h('details', { class: 'cartao detalhes' },

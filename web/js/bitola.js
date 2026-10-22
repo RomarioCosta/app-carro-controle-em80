@@ -93,7 +93,8 @@
     limitePerda: 2, // mm: |Bitola F − Bitola T| acima disso = perda de bitola
     limiteVariacao: 1.5, // mm: desvio padrão da bitola em 1 m acima disso = variação rápida (provável erro)
     janelaVariacao: 1, // metros
-    limiteElemento: 10 // %: curva ou tangente com perda acima disso "perdeu a bitola"
+    limiteElemento: 10, // %: curva ou tangente com perda acima disso "perdeu a bitola"
+    ajustePlacaMax: 300 // m: salto/volta do km que cai num km inteiro (placa) até isso = acerto do km em campo
   };
 
   /** A bitola nominal é 1000 mm; o arquivo traz só a diferença. */
@@ -819,7 +820,7 @@
    * 4. Entre duas curvas casadas, a correção é interpolada; antes da primeira e depois da última, fica constante.
    * Retorna { ajustes: Float64Array, ancoras: [{ i, ajuste }], casadas, curvas, min, max }.
    */
-  B.ajusteVariavel = (pos, curv, els, opcoes = {}) => {
+  function ajusteVariavelBase(pos, curv, els, opcoes = {}) {
     const o = { ...B.PADRAO, ...opcoes };
     const n = pos.length;
     const ajustes = new Float64Array(n);
@@ -875,6 +876,84 @@
     let min = Infinity; let max = -Infinity;
     ajustes.forEach((v) => { if (v < min) min = v; if (v > max) max = v; });
     return { ajustes, ancoras, casadas, curvas: total, min, max };
+  }
+
+  /**
+   * Acertos do km na placa: o operador passa pela placa (ex.: 366+000) com o sistema marcando outro km
+   * (366+015) e acerta o km. No arquivo aparece um salto ou volta de um ponto para o outro, caindo num km inteiro.
+   * Candidato: um único passo fora do normal, de até ajustePlacaMax m, que cai num km inteiro (±0,5 m),
+   * com o km andando normal logo depois. Retorna [{ i, delta }] (delta = quanto o km pulou além do passo normal).
+   */
+  B.acertosDePlaca = (pos, opcoes = {}) => {
+    const max = opcoes.ajustePlacaMax ?? B.PADRAO.ajustePlacaMax;
+    const n = pos.length;
+    if (n < 10 || !max) return [];
+    const esp = B.espacamento(pos) || 0.25;
+    const sinal = pos[n - 1] < pos[0] ? -1 : 1;
+    const normal = (i) => i > 0 && i < n && Math.abs(pos[i] - pos[i - 1] - sinal * esp) <= 0.6 * esp + 0.01;
+    const out = [];
+    for (let i = 1; i < n; i++) {
+      if (normal(i)) continue;
+      const delta = pos[i] - (pos[i - 1] + sinal * esp);
+      if (Math.abs(delta) < 1 || Math.abs(delta) > max) continue;
+      const resto = ((pos[i] % 1000) + 1000) % 1000;
+      if (Math.min(resto, 1000 - resto) > 0.5) continue;
+      let segue = true;
+      for (let k = i + 1; k <= Math.min(n - 1, i + 8); k++) if (!normal(k)) segue = false;
+      if (segue) out.push({ i, delta });
+    }
+    return out;
+  };
+
+  /** Km com os acertos de placa distribuídos para trás (até o acerto anterior ou o início do arquivo). */
+  function posComPlaca(pos, acertos) {
+    const p = Float64Array.from(pos);
+    const n = pos.length;
+    const esp = B.espacamento(pos) || 0.25;
+    const sinal = pos[n - 1] < pos[0] ? -1 : 1;
+    // outras quebras do km (volta/salto que não é acerto): a distribuição não passa por elas
+    const quebras = [];
+    for (let i = 1; i < n; i++) if (Math.abs(pos[i] - pos[i - 1] - sinal * esp) > 5 * esp && !acertos.some((a) => a.i === i)) quebras.push(i);
+    let ref = 0;
+    acertos.forEach(({ i, delta }) => {
+      quebras.forEach((q) => { if (q < i && q > ref) ref = q; });
+      // o km depois do acerto é o da placa; antes dele o odômetro foi escorregando desde a referência anterior
+      for (let j = ref; j < i; j++) p[j] = pos[j] + (delta * (j - ref)) / Math.max(1, i - ref);
+      ref = i;
+    });
+    return p;
+  }
+
+  /**
+   * Correção do km ponto a ponto pela geometria (ver ajusteVariavelBase), tratando antes os acertos de km na placa.
+   * Um acerto só é aceito se a geometria confirma: corrigindo só pelas curvas, o km da geometria pula
+   * menos que metade do acerto (mín. 5 m) naquele ponto. Senão continua como salto/volta (faltou medição).
+   * Retorna também placa: [{ i, km, de, delta, confirmado }].
+   */
+  B.ajusteVariavel = (pos, curv, els, opcoes = {}) => {
+    const candidatos = opcoes.acertoPlaca === false ? [] : B.acertosDePlaca(pos, opcoes);
+    if (!candidatos.length || !els.length) return { ...ajusteVariavelBase(pos, curv, els, opcoes), placa: [] };
+    // Confirmação pela geometria (sem tratar o acerto): o km da geometria antes e depois do ponto
+    // quase não pula (o salto era só do km do sistema). Se pular o mesmo que o km do arquivo, faltou medição de verdade.
+    const r0 = ajusteVariavelBase(pos, curv, els, opcoes);
+    const esp = B.espacamento(pos) || 0.25;
+    const sinal = pos[pos.length - 1] < pos[0] ? -1 : 1;
+    const confirmados = candidatos.filter(({ i, delta }) => {
+      const pulo = (pos[i] + r0.ajustes[i]) - (pos[i - 1] + r0.ajustes[i - 1]) - sinal * esp;
+      return Math.abs(pulo) <= Math.max(5, Math.abs(delta) / 2);
+    });
+    const placa = candidatos.map(({ i, delta }) => ({ i, km: pos[i], de: pos[i - 1], delta, confirmado: confirmados.some((c) => c.i === i) }));
+    if (!confirmados.length) return { ...r0, placa };
+    const pc = posComPlaca(pos, confirmados);
+    const r = ajusteVariavelBase(pc, curv, els, opcoes);
+    // correção final em relação ao km do arquivo = acerto da placa + correção pela geometria
+    let min = Infinity; let max = -Infinity;
+    for (let i = 0; i < pos.length; i++) {
+      r.ajustes[i] += pc[i] - pos[i];
+      if (r.ajustes[i] < min) min = r.ajustes[i];
+      if (r.ajustes[i] > max) max = r.ajustes[i];
+    }
+    return { ...r, min, max, placa };
   };
   /**
    * Quanto as curvas do arquivo combinam com as curvas de um ramal/linha da planta (0 a 100),

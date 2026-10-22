@@ -431,6 +431,35 @@ test('correção do km ponto a ponto: odômetro que escorrega e km acertado em c
   assert.ok(v.max - v.min > 100);
 });
 
+test('acerto do km na placa: volta de 15 m tratada; buraco de verdade não', () => {
+  const els = [];
+  for (let k = 0; k < 12; k++) {
+    els.push({ ramal: 'X', linha: '1', eh: '1', tipo: 'T', lado: '', num: String(k + 1), ini: k * 1000, fim: k * 1000 + 700 });
+    els.push({ ramal: 'X', linha: '1', eh: '1', tipo: 'C', lado: k % 2 ? 'E' : 'D', num: String(k + 1), ini: k * 1000 + 700, fim: k * 1000 + 1000 });
+  }
+  const curvDe = (r) => { const e = els.find((x) => r >= x.ini && r < x.fim); return e.tipo === 'C' ? (e.lado === 'D' ? 20 : -20) : 0; };
+  // 1) odômetro 0,25% adiantado: na placa 6+000 o sistema marca 6+015 e o km é acertado (volta 15 m)
+  const pos = []; const curv = []; const real = [];
+  for (let r = 0; r < 12000; r += 0.25) { pos.push(r < 6000 ? r * 1.0025 : r); real.push(r); curv.push(curvDe(r)); }
+  const P = Float64Array.from(pos);
+  assert.deepEqual(j(B.acertosDePlaca(P).map((a) => Math.round(a.delta))), [-15]);
+  const v = B.ajusteVariavel(P, Float64Array.from(curv), els);
+  assert.equal(v.placa.length, 1);
+  assert.ok(v.placa[0].confirmado);
+  // km da geometria contínuo no ponto do acerto (sem repetir 15 m) e perto do real
+  const i = v.placa[0].i;
+  assert.ok(Math.abs((P[i] + v.ajustes[i]) - (P[i - 1] + v.ajustes[i - 1])) < 1);
+  for (let k = 0; k < P.length; k += 400) assert.ok(Math.abs(P[k] + v.ajustes[k] - real[k]) <= 10, `${real[k]}: ${P[k] + v.ajustes[k]}`);
+  // 2) faltou medição de verdade (150 m) e o km continua certo: cai no 6+000, mas a geometria não confirma
+  const p2 = []; const c2 = [];
+  for (let r = 0; r < 12000; r += 0.25) { if (r >= 5850 && r < 6000) continue; p2.push(r); c2.push(curvDe(r)); }
+  const v2 = B.ajusteVariavel(Float64Array.from(p2), Float64Array.from(c2), els);
+  assert.equal(v2.placa.length, 1);
+  assert.equal(v2.placa[0].confirmado, false);
+  // 3) desligado pela opção
+  assert.equal(B.ajusteVariavel(P, Float64Array.from(curv), els, { acertoPlaca: false }).placa.length, 0);
+});
+
 test('trecho analisado: recorta pelo km sem editar o CSV e a conferência acompanha', () => {
   assert.equal(B.kmParaMetros('290'), 290000);
   assert.equal(B.kmParaMetros('290+500'), 290500);
