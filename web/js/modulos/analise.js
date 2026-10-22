@@ -134,7 +134,7 @@
       arquivoCompleto = B.lerCSV(texto);
       if (compensar.length) {
         // mesmo km compensado da Montagem: os pontos antes do salto/volta recebem a diferença aos poucos
-        const lista = B.saltosCompensaveis(arquivoCompleto.pos).filter((c) => c.cabe && compensar.includes(c.chave));
+        const lista = B.compensacoesPedidas(B.saltosCompensaveis(arquivoCompleto.pos), compensar);
         if (lista.length) arquivoCompleto = { ...arquivoCompleto, pos: B.compensarPos(arquivoCompleto.pos, lista), compensados: lista.length };
       }
       recorte = trecho ? { de: trecho.de ?? null, ate: trecho.ate ?? null } : { de: null, ate: null };

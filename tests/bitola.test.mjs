@@ -526,3 +526,18 @@ test('compensação de salto/volta do km por pontos (botão da Montagem)', () =>
   // até 2 m: dentro da margem, não entra
   assert.equal(B.saltosCompensaveis(Float64Array.from({ length: 2000 }, (_, i) => i * 0.25 + (i >= 1000 ? 1.5 : 0))).length, 0);
 });
+
+test('compensar mesmo assim: usa todos os pontos antes do pulo', () => {
+  // volta de 55 m a 1.625 m do início (6.500 pontos): com 1% precisaria de 22.000
+  const pos = Float64Array.from({ length: 20000 }, (_, i) => 45429 + i * 0.25 - (i >= 6500 ? 55.25 : 0));
+  const [c] = B.saltosCompensaveis(pos);
+  assert.equal(c.cabe, false);
+  assert.equal(c.disponiveis, 6500);
+  const [f] = B.compensacoesPedidas([c], [c.chave]);
+  assert.ok(f.forcado);
+  assert.equal(f.N, 6500);
+  const p = B.compensarPos(pos, [f]);
+  assert.ok(Math.abs(p[6500] - p[6499] - 0.25) < 1e-9); // sem sobreposição
+  assert.equal(p[0] + 0, pos[0] + f.porPonto); // 1º ponto já recebe a 1ª parcela
+  assert.equal(B.compensacoesPedidas([c], []).length, 0); // sem pedido, nada muda
+});

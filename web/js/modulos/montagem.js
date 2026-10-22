@@ -37,6 +37,8 @@
         try {
           const salvos = (await store.get(CHAVE)) || [];
           arquivos = salvos.map((a) => ({ ...a, compensar: a.compensar || [], resumo: C().normalizarResumo(a.resumo) }));
+          // arquivos adicionados antes desta versão não têm o CSV guardado nem o cálculo dos saltos/voltas
+          for (const a of arquivos) a.antigo = !a.resumo.espacamento || !(await store.get(CHAVE_CSV(a.id)).catch(() => null));
         } catch (e) { arquivos = []; }
       })();
     }
@@ -60,7 +62,7 @@
     if (g.texto) return g.texto;
     return new Response(g.gz.stream().pipeThrough(new DecompressionStream('gzip'))).text();
   }
-  const semCsv = () => ui.toast('O CSV deste arquivo não está guardado (foi adicionado numa versão anterior): adicione o arquivo de novo.', 'erro', 8000);
+  const semCsv = () => ui.toast('Este arquivo foi adicionado numa versão anterior: na Montagem, clique em "Adicionar de novo" e escolha o mesmo arquivo (o recorte é mantido).', 'erro', 9000);
   const gravar = () => store.set(CHAVE, arquivos).catch((e) => ui.toast(`Não foi possível guardar: ${e.message}`, 'erro', 6000));
 
   /* ---------------- Arquivos ---------------- */
@@ -79,7 +81,11 @@
         const arq = B().lerCSV(texto);
         const resumo = C().resumirArquivo(arq, planta, nome, { compensacao: regras() });
         const existente = arquivos.findIndex((a) => a.nome === nome && (a.ciclo || '') === ciclo());
-        const item = { id: existente >= 0 ? arquivos[existente].id : `${Date.now()}-${k}`, nome, ciclo: ciclo(), adicionadoEm: U.agora(), recorte: null, compensar: [], resumo };
+        const anterior = existente >= 0 ? arquivos[existente] : null;
+        // o mesmo arquivo adicionado de novo mantém o recorte e as compensações que ainda existem nele
+        const compensar = anterior ? (anterior.compensar || []).filter((ch) => resumo.compensaveis.some((c) => c.chave === ch)) : [];
+        const final = compensar.length ? C().resumirArquivo(arq, planta, nome, { compensar, compensacao: regras() }) : resumo;
+        const item = { id: anterior ? anterior.id : `${Date.now()}-${k}`, nome, ciclo: ciclo(), adicionadoEm: U.agora(), recorte: anterior ? anterior.recorte : null, compensar, resumo: final };
         await guardarCsv(item.id, texto);
         if (existente >= 0) arquivos[existente] = item; else arquivos.push(item);
         ok++;
@@ -99,6 +105,20 @@
     await store.del(CHAVE_CSV(a.id)).catch(() => {});
     await gravar();
     render();
+  }
+
+  /** Escolher de novo o arquivo (versão anterior): guarda o CSV e recalcula, mantendo o recorte. */
+  function reAdicionar(a) {
+    const input = h('input', { type: 'file', hidden: true, onchange: async (e) => {
+      const f = e.target.files[0];
+      input.remove();
+      if (!f) return;
+      const base = (n) => String(n || '').replace(/\.(zip|csv|txt)$/i, '').toLowerCase();
+      if (base(f.name) !== base(a.nome) && !(await ui.confirmar('Arquivo diferente', `Você escolheu ${f.name}, mas este é ${a.nome}. Usar mesmo assim?`, { ok: 'Usar' }))) return;
+      await adicionar([f]);
+    } });
+    document.body.appendChild(input);
+    input.click();
   }
 
   /** Compensar (ou desfazer) um salto/volta do km: recalcula o arquivo a partir do CSV guardado. */
@@ -273,8 +293,13 @@
       return h('section', { class: 'cartao' }, h('h2', { text: 'Arquivos' }), h('p', { class: 'vazio', text: 'Nenhum arquivo neste ciclo. Adicione os arquivos do carro (.csv ou .zip).' }));
     }
     const ordem = [...lista].sort((a, b) => (a.resumo.ramal + a.resumo.linhaRef).localeCompare(b.resumo.ramal + b.resumo.linhaRef) || Math.min(a.resumo.kmIni, a.resumo.kmFim) - Math.min(b.resumo.kmIni, b.resumo.kmFim));
+    const antigos = lista.filter((a) => a.antigo);
+    const input = h('input', { type: 'file', multiple: true, hidden: true, onchange: (e) => { const l = [...e.target.files]; e.target.value = ''; if (l.length) adicionar(l); } });
     return h('section', { class: 'cartao pilha' },
       h('h2', { text: `Arquivos (${lista.length})` }),
+      antigos.length ? h('div', { class: 'aviso pilha' },
+        h('span', { text: `${antigos.length} arquivo(s) foram adicionados numa versão anterior do app. Para ter o ajuste do km (Compensar), os alertas de geometria e a Tela do carro, adicione de novo os mesmos arquivos (pode selecionar todos de uma vez). O recorte de cada um é mantido.` }),
+        h('div', null, h('button', { class: 'btn btn-primario btn-pequeno', disabled: processando || null, onclick: () => input.click() }, ui.icone('upload'), 'Adicionar de novo'), input)) : null,
       ordem.map((a) => {
         const r = a.resumo;
         const conf = conferencia.find((c) => c.id === a.id) || { trechos: [], avisos: [] };
@@ -291,11 +316,13 @@
             h('span', { class: `mt-ponto ${erros ? 'mt-erro' : alertas ? 'mt-alerta' : 'mt-ok'}` }),
             h('strong', { text: a.nome }),
             h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}` }),
-            r.compensaveis.some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${r.compensaveis.filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
+            a.antigo ? h('span', { class: 'mt-cont', text: 'adicionar de novo' }) : r.compensaveis.some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${r.compensaveis.filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
               : avisos.length ? h('span', { class: 'mt-cont', text: `${avisos.length} aviso(s)` }) : null),
           h('div', { class: 'pilha mt-arquivo-corpo' },
             h('p', { class: 'mt-sub', text: `Caiu em: ${ondeCaiu || '—'} · correção do km pela geometria ${Math.round(r.correcao.min)} a ${Math.round(r.correcao.max)} m · ${r.correcao.casadas}/${r.correcao.curvas} curvas casadas` }),
             avisos.length ? h('ul', { class: 'mt-lista' }, avisos.map((x) => h('li', { class: x.tipo === 'erro' ? 'mt-erro-txt' : x.tipo === 'alerta' ? 'mt-atencao-txt' : 'mt-sub', text: x.texto }))) : h('p', { class: 'mt-sub', text: 'Sem inconsistências.' }),
+            a.antigo ? h('div', { class: 'aviso' }, 'Adicionado numa versão anterior: sem o ajuste do km (Compensar) e sem a Tela do carro. ',
+              h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => reAdicionar(a) }, ui.icone('upload'), 'Adicionar de novo')) : null,
             r.compensaveis.length ? listaCompensaveis(a) : null,
             h('div', { class: 'linha-acoes' },
               h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
@@ -324,10 +351,11 @@
             h('span', { class: 'mt-sub', text: c.tipo === 'salto' ? ` · buraco de ${n2(Math.abs(c.delta))} m (${n0(c.pontosFaltando)} pontos)` : ` · sobreposição de ${n2(Math.abs(c.delta))} m (${n0(c.pontosFaltando)} pontos)` })),
           c.cabe
             ? h('div', { class: 'mt-sub', text: `Compensar: os ${n0(c.N)} pontos antes (${n0(c.N * esp)} m) ${c.tipo === 'salto' ? 'ganham' : 'perdem'} ${n2(Math.abs(c.porPonto), 4)} m cada um, acumulando até ${n2(Math.abs(c.delta))} m no último ponto. O km depois não muda.` })
-            : h('div', { class: 'mt-atencao-txt', text: `Não cabe: seriam ${n0(c.N)} pontos, mas só há ${n0(c.disponiveis)} antes (desde o início do arquivo ou a quebra anterior). Precisaria de ${n2(precisaria, 1)}% por ponto (limite ${n2(rg.passoMax * 100, 1)}%).` }),
+            : h('div', { class: 'mt-atencao-txt', text: `Dentro de ${n2(rg.passoMax * 100, 1)}% por ponto não cabe: seriam ${n0(c.N)} pontos, mas só há ${n0(c.disponiveis)} antes (${n0(c.disponiveis * esp)} m, desde o início do arquivo ou o pulo anterior). Compensando nesses ${n0(c.disponiveis)} pontos, cada um ${c.tipo === 'salto' ? 'ganha' : 'perde'} ${n2(Math.abs(c.delta) / c.disponiveis, 4)} m (${n2(precisaria, 1)}% do espaçamento).` }),
           h('div', { class: 'linha-acoes' },
-            c.tratado ? h('span', { class: 'mt-selo mt-ok', text: '✓ Compensado' }) : null,
-            c.cabe || c.tratado ? h('button', { class: `btn ${c.tratado ? 'btn-fantasma' : 'btn-primario'} btn-pequeno`, onclick: () => mudarCompensacao(a, c.chave, !c.tratado) }, c.tratado ? 'Desfazer' : 'Compensar') : null));
+            c.tratado ? h('span', { class: 'mt-selo mt-ok', text: c.cabe ? '✓ Compensado' : `✓ Compensado (${n2(precisaria, 1)}% por ponto)` }) : null,
+            h('button', { class: `btn ${c.tratado ? 'btn-fantasma' : c.cabe ? 'btn-primario' : 'btn-secundario'} btn-pequeno`, onclick: () => mudarCompensacao(a, c.chave, !c.tratado) },
+              c.tratado ? 'Desfazer' : c.cabe ? 'Compensar' : `Compensar mesmo assim (${n2(precisaria, 1)}% por ponto)`)));
       }));
   }
 

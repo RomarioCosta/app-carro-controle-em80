@@ -857,6 +857,13 @@
   };
 
   /**
+   * Compensações pedidas pelo usuário (chaves). Quando não cabe dentro do máximo por ponto,
+   * o usuário pode compensar mesmo assim: usa todos os pontos disponíveis antes do pulo (mais de 1% por ponto).
+   */
+  B.compensacoesPedidas = (lista, chaves) => lista.filter((c) => chaves.includes(c.chave) && c.disponiveis > 0)
+    .map((c) => (c.cabe ? c : { ...c, N: c.disponiveis, porPonto: c.delta / c.disponiveis, forcado: true }));
+
+  /**
    * Aplica as compensações: os N pontos antes do salto ganham Δ/N cada um, acumulado.
    *  x'[j] = x[j] + Δ · k / N,  com k = 1 … N  (j = i − N … i − 1)
    * O último ponto antes do salto recebe Δ inteiro e o km fica contínuo; o km depois do salto não muda.
