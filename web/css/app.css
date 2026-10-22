@@ -801,3 +801,24 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .tc-zoom button:hover { background: #fff; }
 .tc-cab-cel { position: relative; }
 .tc-ev text { font-size: 8.5px; }
+/* Seções da análise que abrem e fecham pela setinha */
+.recolhivel > summary { display: flex; align-items: center; gap: 8px; list-style: none; }
+.recolhivel > summary::-webkit-details-marker { display: none; }
+.recolhivel > summary::before { content: '▸'; font-size: 1rem; color: var(--texto2); transition: transform .15s; }
+.recolhivel[open] > summary::before { transform: rotate(90deg); }
+.recolhivel-titulo { margin: 0; }
+.recolhivel-corpo { margin-top: 12px; }
+.tc-sinal { stroke-width: 1.1 !important; }
+.tc-sinal-excesso { stroke-width: 1.4 !important; }
+.tc-exc-interdicao { stroke-width: 1.7 !important; }
+.tc-seta-escala { border: 1px solid #8a8a8a; background: #e5e5e5; color: #111; font: 600 10px/1.2 system-ui, sans-serif; padding: 2px 4px; border-radius: 3px; cursor: pointer; position: absolute; top: 4px; left: 2px; white-space: nowrap; }
+.tc-ev-faixa rect { fill: #475569; }
+.tc-ev-faixa text { fill: #334155; font-weight: 700; }
+.tc-ev-tunel rect { fill: #000; }
+.tc-ev-tunel text { fill: #000; }
+.tc-ev-trav rect { fill: #8e44ad; }
+.tc-ev-amv rect { fill: #b45309; }
+.tc-ev-rh rect { fill: #9ca3af; }
+.tc-ordem { display: flex; flex-direction: column; gap: 6px; }
+.tc-ordem-item { display: flex; align-items: center; gap: 8px; }
+.tc-ordem-nome { flex: 1; display: flex; align-items: center; gap: 8px; font-weight: 650; }

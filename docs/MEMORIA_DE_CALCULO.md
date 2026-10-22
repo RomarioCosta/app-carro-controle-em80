@@ -203,5 +203,6 @@ Correção digitada em Critérios (um número) vale para o arquivo todo.
 - **Valor positivo à esquerda** da linha zero (bitola maior que 1000 mm fica à esquerda).
 - **Escala automática** por coluna: 98% dos valores do arquivo cabem com folga de 30%; botões + e − no cabeçalho aproximam ou afastam. Limites fora da escala não aparecem (o excesso continua marcado).
 - **Três níveis de limite**: Alerta (laranja), Restrição (cinza; padrão = tabela EFVM 2026) e Interdição (vermelho tracejado). Alerta e Interdição começam em branco e são preenchidos em Limites. O traçado e a coluna EX ficam laranja, vermelhos ou vinho conforme o maior nível ultrapassado.
-- **Eventos** escritos na vertical, à esquerda da coluna T/E, lidos de baixo para cima.
+- **Eventos** escritos na vertical, à esquerda da coluna T/E, lidos de baixo para cima. "INICIO X" + "FIM X" (túnel, AMV, RH, travador, lastro alto…) viram uma barra na lateral durante toda a extensão (túnel em preto, travador em roxo, AMV em laranja). Eventos de um ponto (JIC, PSUP, lubrificador…) têm uma marca e o texto.
+- **Ordem** das colunas: botão "Ordem" (▲ ▼ e esconder coluna). Os botões de escala (+ / −) ficam escondidos; a seta "escala ▸" no canto mostra.
 - **Tamanho**: arraste a borda de baixo (altura) ou a da direita (largura das colunas); dois cliques na borda voltam ao tamanho padrão.

@@ -81,6 +81,7 @@
 
   /** Escala de cada coluna (meia largura, em mm): automática pelo arquivo, com zoom − / +. */
   let zoom = U.pref.get('telaCarro:zoom', {}) || {};
+  let mostrarEscala = !!U.pref.get('telaCarro:mostrarEscala', false); // botões + / − escondidos por padrão
   const escalaNice = (v) => { const p = [1, 2, 3, 5, 8, 10, 15, 20, 25, 30, 40, 50, 60, 80, 100, 150, 200]; return p.find((x) => x >= v) || Math.ceil(v); };
 
   /* ---------------- Estado ---------------- */
@@ -189,12 +190,50 @@
   }
 
   /** Colunas da tela; com "F e T juntas", as duas bitolas ficam na mesma coluna. */
+  /** Ordem das colunas e colunas escondidas (escolhidas em "Ordem"). */
+  let ordem = U.pref.get('telaCarro:ordem', null) || PARAMETROS.map((p) => p.id);
+  let ocultos = U.pref.get('telaCarro:ocultos', []) || [];
+  const parametrosEmOrdem = () => {
+    const ids = [...ordem.filter((id) => PARAMETROS.some((p) => p.id === id)), ...PARAMETROS.map((p) => p.id).filter((id) => !ordem.includes(id))];
+    return ids.map((id) => PARAMETROS.find((p) => p.id === id));
+  };
+
   function colunas() {
-    const esc = (ids) => { const auto = Math.max(...ids.map((id) => (prep && prep.escala ? prep.escala[id] : PARAMETROS.find((p) => p.id === id).escala))); return Math.max(0.5, auto / (zoom[ids[0]] || 1)); };
-    const lista = PARAMETROS.map((p) => ({ ...p, escala: esc([p.id]), series: [p] }));
-    if (!juntas) return lista;
-    const f = lista[0]; const t = lista[1];
-    return [{ ...f, id: 'bitFT', nome: 'Bitola F+T', escala: Math.max(0.5, Math.max(prep && prep.escala ? prep.escala.bitF : 40, prep && prep.escala ? prep.escala.bitT : 40) / (zoom.bitFT || 1)), series: [PARAMETROS[0], PARAMETROS[1]] }, ...lista.slice(2).filter((c) => c.id !== t.id)];
+    const esc = (ids, chave) => { const auto = Math.max(...ids.map((id) => (prep && prep.escala ? prep.escala[id] : PARAMETROS.find((p) => p.id === id).escala))); return Math.max(0.5, auto / (zoom[chave || ids[0]] || 1)); };
+    const visiveis = parametrosEmOrdem().filter((p) => !ocultos.includes(p.id));
+    const lista = [];
+    visiveis.forEach((p) => {
+      if (juntas && (p.id === 'bitF' || p.id === 'bitT')) {
+        if (lista.some((c) => c.id === 'bitFT')) return; // F e T juntas: uma coluna, na posição da primeira
+        const f = PARAMETROS.find((x) => x.id === 'bitF'); const t = PARAMETROS.find((x) => x.id === 'bitT');
+        lista.push({ ...f, id: 'bitFT', nome: 'Bitola F+T', escala: esc(['bitF', 'bitT'], 'bitFT'), series: [f, t] });
+        return;
+      }
+      lista.push({ ...p, escala: esc([p.id]), series: [p] });
+    });
+    return lista;
+  }
+
+  function editarOrdem() {
+    let lista = parametrosEmOrdem().map((p) => p.id);
+    let esc = [...ocultos];
+    const caixa = h('div', { class: 'tc-ordem' });
+    const render = () => ui.trocar(caixa, lista.map((id, k) => {
+      const p = PARAMETROS.find((x) => x.id === id);
+      return h('div', { class: 'tc-ordem-item' },
+        h('label', { class: 'tc-ordem-nome' }, h('input', { type: 'checkbox', checked: !esc.includes(id), onchange: (e) => { esc = e.target.checked ? esc.filter((x) => x !== id) : [...esc, id]; } }), p.nome),
+        h('button', { type: 'button', class: 'btn btn-secundario btn-pequeno', 'aria-label': `Subir ${p.nome}`, disabled: k === 0, onclick: () => { [lista[k - 1], lista[k]] = [lista[k], lista[k - 1]]; render(); } }, '▲'),
+        h('button', { type: 'button', class: 'btn btn-secundario btn-pequeno', 'aria-label': `Descer ${p.nome}`, disabled: k === lista.length - 1, onclick: () => { [lista[k + 1], lista[k]] = [lista[k], lista[k + 1]]; render(); } }, '▼'));
+    }));
+    render();
+    ui.modal({
+      titulo: 'Ordem dos parâmetros',
+      conteudo: h('div', { class: 'pilha' }, h('p', { class: 'sub', text: 'Use ▲ ▼ para mudar a ordem (de cima = coluna da esquerda). Desmarque para esconder a coluna.' }), caixa),
+      acoes: [
+        { texto: 'Ordem padrão', classe: 'btn-secundario', onClick: (fechar) => { ordem = PARAMETROS.map((p) => p.id); ocultos = []; U.pref.set('telaCarro:ordem', ordem); U.pref.set('telaCarro:ocultos', ocultos); fechar(); if (prep) desenhar(); } },
+        { texto: 'Salvar', classe: 'btn-primario', onClick: (fechar) => { ordem = lista; ocultos = esc; U.pref.set('telaCarro:ordem', ordem); U.pref.set('telaCarro:ocultos', ocultos); fechar(); if (prep) desenhar(); } }
+      ]
+    });
   }
 
   /** Lê o arquivo da Análise e prepara as séries. */
@@ -231,6 +270,20 @@
       for (let i = 0; i < n; i += 4) { const x = Math.abs(pos[i] - ev.pos); if (x < d) { d = x; melhor = i; } }
       return { ...ev, i: melhor, trav: /\bTRA?V(ADOR)?\b/i.test(`${ev.texto} ${ev.codigo}`) };
     });
+    // "INICIO X" + "FIM X" viram uma faixa com a extensão (túnel, AMV, RH, travador, lastro alto…)
+    const faixas = []; const soltos = [];
+    const nomeEv = (t) => String(t || '').replace(/^\s*(INICIO|INÍCIO|FIM)\s+/i, '').trim().toUpperCase();
+    const usados = new Set();
+    eventos.forEach((ev, k) => {
+      if (usados.has(k)) return;
+      if (/^\s*(INICIO|INÍCIO)\s+/i.test(ev.texto)) {
+        const nome = nomeEv(ev.texto);
+        const j = eventos.findIndex((x, m) => m > k && !usados.has(m) && /^\s*FIM\s+/i.test(x.texto) && nomeEv(x.texto) === nome);
+        if (j >= 0) { usados.add(k); usados.add(j); faixas.push({ nome, i0: Math.min(ev.i, eventos[j].i), i1: Math.max(ev.i, eventos[j].i), trav: ev.trav, ini: ev, fim: eventos[j] }); return; }
+      }
+      soltos.push(ev);
+    });
+    eventos.faixas = faixas; eventos.soltos = soltos;
     prep = { n, esp, dist, tipo, elementoDo, eventos, total: dist[n - 1] || 0 };
     revelado = 0; // ao abrir, a tela começa vazia: o traçado aparece com o play, de baixo para cima
     topo = -janela;
@@ -314,7 +367,8 @@
           h('button', { class: `btn ${tocando ? 'btn-primario' : 'btn-secundario'} btn-pequeno`, type: 'button', disabled: !prep, onclick: tocar }, ui.icone(tocando ? 'parar' : 'play'), tocando ? 'Pausar' : 'Reproduzir'),
           h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', title: 'Avançar um trecho', disabled: !prep, onclick: () => (topo + janela >= revelado ? avancar(janela * 0.8) : mover(janela * 0.8)) }, '▼'),
           h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', title: 'Voltar ao início do arquivo, com a tela vazia', disabled: !prep, onclick: reiniciar }, 'Reiniciar'),
-          h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', onclick: editarLimites }, ui.icone('ajustes'), 'Limites')),
+          h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', onclick: editarLimites }, ui.icone('ajustes'), 'Limites'),
+          h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', onclick: editarOrdem }, '⇅ Ordem')),
         h('label', { class: 'chip-sel tc-juntas' }, h('input', {
           type: 'checkbox', checked: juntas,
           onchange: (e) => { juntas = e.target.checked; U.pref.set('telaCarro:juntas', juntas); if (prep) desenhar(); }
@@ -365,11 +419,16 @@
 
     // cabeçalho (nomes girados, como na tela do carro)
     ui.trocar(cabecalhoEl, h('div', { class: 'tc-cab-linha', style: { width: `${W}px` } },
-      h('div', { class: 'tc-cab-cel', style: { width: `${COL_KM}px` } }),
+      h('div', { class: 'tc-cab-cel', style: { width: `${COL_KM}px` } },
+        h('button', {
+          type: 'button', class: 'tc-seta-escala', title: mostrarEscala ? 'Esconder os botões de escala' : 'Mostrar os botões de escala (+ / −)',
+          'aria-label': mostrarEscala ? 'Esconder escala' : 'Mostrar escala', 'aria-expanded': mostrarEscala ? 'true' : 'false',
+          onclick: () => { mostrarEscala = !mostrarEscala; U.pref.set('telaCarro:mostrarEscala', mostrarEscala); desenhar(); }
+        }, mostrarEscala ? '◂ escala' : 'escala ▸')),
       h('div', { class: 'tc-cab-cel tc-cab-gira', style: { width: `${COL_EX}px` } }, h('span', { text: 'EX' })),
       h('div', { class: 'tc-cab-cel tc-cab-gira', style: { width: `${COL_EL}px` } }, h('span', { text: 'T/E' })),
       colunas().map((p) => h('div', { class: 'tc-cab-cel tc-cab-gira', style: { width: `${lp}px` }, title: p.nome },
-        h('div', { class: 'tc-zoom' },
+        mostrarEscala && h('div', { class: 'tc-zoom' },
           h('button', { type: 'button', title: 'Diminuir a escala (mais detalhe)', 'aria-label': `Aproximar ${p.nome}`, onclick: () => mudarZoom(p.id, 1.5) }, '+'),
           h('button', { type: 'button', title: 'Aumentar a escala', 'aria-label': `Afastar ${p.nome}`, onclick: () => mudarZoom(p.id, 1 / 1.5) }, '−')),
         h('span', null, h('strong', { text: p.nome }), h('small', { text: `±${String(Math.round(p.escala * 10) / 10).replace('.', ',')}` }))))));
@@ -397,13 +456,24 @@
       else svg.appendChild(s('rect', { x: xEl + 28, y: ya, width: 9, height: Math.max(1, yb - ya), class: `tc-el-${t}` }));
       if (yb - ya > 26) svg.appendChild(s('text', { x: xEl + 40, y: (ya + yb) / 2 + 3, class: 'tc-el-rotulo' }, t === 'rh' ? (e.trecho || 'RH').split(' · ')[0].replace('RH-', 'R') : e.sigla));
     }
-    prep.eventos.forEach((ev) => {
+    // eventos com extensão (INICIO/FIM): barra na lateral esquerda durante todo o trecho, com o nome na vertical
+    const classeEv = (nome) => (/TUNEL|TÚNEL/.test(nome) ? 'tunel' : /TRA?V/.test(nome) ? 'trav' : /AMV/.test(nome) ? 'amv' : /^RH/.test(nome) ? 'rh' : 'outro');
+    (prep.eventos.faixas || []).forEach((fx) => {
+      if (fx.i1 < i0 || fx.i0 > i1) return;
+      const a = Math.max(0, yDe(Math.max(fx.i0, i0))); const b = Math.min(H, yDe(Math.min(fx.i1, i1)));
+      const ya = Math.min(a, b); const yb = Math.max(a, b);
+      const g = s('g', { class: `tc-ev tc-ev-faixa tc-ev-${classeEv(fx.nome)}` }, s('title', {}, `${fx.nome}: ${App.bitola.fmtKm(fx.ini.pos)} → ${App.bitola.fmtKm(fx.fim.pos)}`));
+      g.appendChild(s('rect', { x: xEl + 2, y: ya, width: 5, height: Math.max(2, yb - ya) }));
+      g.appendChild(s('text', { x: xEl + 17, y: yb - 2, transform: `rotate(-90 ${xEl + 17} ${yb - 2})`, 'text-anchor': 'start' }, fx.nome.slice(0, 16)));
+      svg.appendChild(g);
+    });
+    // eventos de um ponto (JIC, PSUP, lubrificador…): marca e texto na vertical (lido de baixo para cima)
+    (prep.eventos.soltos || prep.eventos).forEach((ev) => {
       if (ev.i < i0 || ev.i > i1) return;
       const y = yDe(ev.i);
       const g = s('g', { class: ev.trav ? 'tc-ev tc-ev-trav' : 'tc-ev' }, s('title', {}, `${ev.texto} (${App.bitola.fmtKm(ev.pos)})`));
-      g.appendChild(s('line', { x1: xEl + 16, x2: xEl + 40, y1: y, y2: y }));
-      // texto do evento à esquerda, virado para cima (lido de baixo para cima)
-      g.appendChild(s('text', { x: xEl + 11, y: y - 2, transform: `rotate(-90 ${xEl + 11} ${y - 2})`, 'text-anchor': 'start' }, ev.trav ? 'TRAV' : ev.texto.slice(0, 14)));
+      g.appendChild(s('line', { x1: xEl + 1, x2: xEl + 26, y1: y, y2: y }));
+      g.appendChild(s('text', { x: xEl + 17, y: y - 2, transform: `rotate(-90 ${xEl + 17} ${y - 2})`, 'text-anchor': 'start' }, ev.trav ? 'TRAV' : ev.texto.slice(0, 16)));
       svg.appendChild(g);
     });
 
@@ -496,7 +566,7 @@
     const fmt = (v) => (Number.isNaN(v) || v === undefined ? '—' : v.toFixed(2).replace('.', ','));
     if (cursorI === null) {
       const i = indicePorDist(topo);
-      ui.trocar(leituraEl, h('span', { class: 'tc-leitura-km', text: App.bitola.fmtKm(arquivo.pos[i]) }), h('span', { text: 'Passe o mouse (ou o dedo) sobre a tela para ler os valores.' }));
+      ui.trocar(leituraEl, h('span', { class: 'tc-leitura-km', text: revelado > 0 ? App.bitola.fmtKm(arquivo.pos[i]) : '' }));
       renderRodape();
       return;
     }
