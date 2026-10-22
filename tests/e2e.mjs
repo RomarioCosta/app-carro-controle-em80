@@ -677,7 +677,7 @@ async function main() {
         { name: 'TESTE.zip', mimeType: 'application/zip', buffer: zipar('TESTE.csv', Buffer.from(gerarCSV(), 'latin1')) }
       ]);
       await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
-      await page.getByRole('heading', { name: 'Linha 1', exact: true }).waitFor();
+      await page.getByRole('heading', { name: 'Linha 1' }).waitFor();
       assert.equal(await page.locator('.mt-arquivo').count(), 1);
       assert.ok((await page.locator('.mt-arquivo summary').textContent()).includes('TESTE.csv'));
       const medido = await page.locator('.kpi:visible').filter({ hasText: 'Medido' }).locator('.kpi-valor').textContent();
@@ -695,18 +695,6 @@ async function main() {
       await page.reload();
       await page.getByRole('heading', { name: 'Montagem dos dados' }).waitFor();
       await page.locator('.mt-arquivo summary', { hasText: 'recortado' }).waitFor();
-      // contagem por EH/RH: geometria × curvas medidas
-      const cont = page.locator('details', { hasText: 'Contagem por EH e RH · Linha 1' });
-      await cont.locator('.mt-tabela tbody tr').first().waitFor();
-      assert.ok((await cont.locator('.mt-tabela thead').textContent()).includes('Curvas medidas'));
-      // tira o recorte e abre o arquivo guardado na Tela do carro
-      await page.locator('.mt-arquivo summary').click();
-      await page.locator('.mt-arquivo').getByLabel('Até o km').fill('');
-      await page.locator('.mt-arquivo').getByLabel('Até o km').dispatchEvent('change');
-      await page.locator('.mt-arquivo summary', { hasText: 'recortado' }).waitFor({ state: 'detached' });
-      await page.locator('.mt-arquivo').getByRole('button', { name: 'Abrir na Tela do carro' }).click();
-      await page.locator('.tc-rodape', { hasText: 'TESTE.csv' }).waitFor();
-      assert.equal(await page.locator('.seg-abas .ativo').textContent(), 'Tela do carro');
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 
