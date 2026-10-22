@@ -48,13 +48,10 @@
 
   /* ---------------- Arquivo ---------------- */
 
-  let versaoArquivo = 0; // muda a cada arquivo aberto: o carregamento do último arquivo não passa por cima
   async function carregarUltimo() {
-    const v = versaoArquivo;
     try {
       const salvo = await store.get(CHAVE);
-      if (v !== versaoArquivo) return;
-      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, acertos: salvo.acertos || [] });
+      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null });
     } catch (e) { /* sem arquivo salvo */ }
   }
 
@@ -114,8 +111,6 @@
   /** Trecho analisado (km inicial e final, em metros): descarta o resto do arquivo sem editar o CSV. */
   let recorte = { de: null, ate: null };
   let arquivoCompleto = null;
-  /** Acertos de km na placa que o usuário mandou tratar (chaves de B.chaveAcerto). */
-  let acertos = [];
 
   function aplicarRecorte() {
     arquivo = B.recortar(arquivoCompleto, recorte.de, recorte.ate);
@@ -126,10 +121,7 @@
     }
   }
 
-  function processar(texto, nome, { salvar, trecho = null, acertos: acertosIniciais = [] }) {
-    acertos = [...acertosIniciais];
-    versaoArquivo++;
-    cacheAjuste.clear(); cacheConferencia.clear();
+  function processar(texto, nome, { salvar, trecho = null }) {
     try {
       arquivoCompleto = B.lerCSV(texto);
       recorte = trecho ? { de: trecho.de ?? null, ate: trecho.ate ?? null } : { de: null, ate: null };
@@ -151,7 +143,7 @@
     }
     zoom = null;
     recalcular();
-    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, acertos }).catch(() => {});
+    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte }).catch(() => {});
   }
 
   async function mudarRecorte(de, ate) {
@@ -162,14 +154,6 @@
     zoom = null;
     recalcular();
     try { const salvo = await store.get(CHAVE); if (salvo) await store.set(CHAVE, { ...salvo, recorte }); } catch (e) { /* ok */ }
-  }
-
-  /** Tratar ou desfazer um acerto de km na placa (só pelo botão; nunca automático). */
-  async function mudarAcerto(chave, tratar) {
-    acertos = tratar ? [...new Set([...acertos, chave])] : acertos.filter((x) => x !== chave);
-    cacheAjuste.clear();
-    recalcular();
-    try { const salvo = await store.get(CHAVE); if (salvo) await store.set(CHAVE, { ...salvo, acertos }); } catch (e) { /* ok */ }
   }
 
   function salvarOpcoes() {
@@ -197,22 +181,21 @@
     const linha = valida ? valida.valida : (linhasPlanta.includes('1') ? '1' : linhasPlanta[0]);
     const localizar = B.localizador(planta, ramal, arquivo, linha);
     const els = B.elementosDaPlanta(planta, ramal, linha);
-    let ajuste = 0; let acerto = null; let faixa = [0, 0]; let placa = []; const automatico = opcoes.ajusteKm === 'auto';
+    let ajuste = 0; let acerto = null; let faixa = [0, 0]; const automatico = opcoes.ajusteKm === 'auto';
     if (automatico) {
-      const k = `${nomeArquivo}|${arquivo.pos.length}|${ramal}|${linha}|${opcoes.raioCurva}|${opcoes.suavizacao}|${acertos.join(',')}`;
+      const k = `${nomeArquivo}|${arquivo.pos.length}|${ramal}|${linha}|${opcoes.raioCurva}|${opcoes.suavizacao}`;
       // Correção ponto a ponto: o odômetro escorrega ao longo do arquivo e o km é acertado em campo.
-      if (!cacheAjuste.has(k)) cacheAjuste.set(k, B.ajusteVariavel(arquivo.pos, arquivo.dados.curv, els, { ...opcoes, acertosPlaca: acertos }));
+      if (!cacheAjuste.has(k)) cacheAjuste.set(k, B.ajusteVariavel(arquivo.pos, arquivo.dados.curv, els, opcoes));
       const v = cacheAjuste.get(k);
       ajuste = v.ajustes;
       acerto = v.curvas ? (v.casadas / v.curvas) * 100 : null;
       faixa = [v.min, v.max];
-      placa = v.placa || [];
     } else {
       ajuste = Number(opcoes.ajusteKm) || 0;
       faixa = [ajuste, ajuste];
     }
     const ajusteTxt = Math.abs(faixa[1] - faixa[0]) < 1 ? `${fmt(faixa[0], 0)} m` : `${fmt(faixa[0], 0)} a ${fmt(faixa[1], 0)} m`;
-    infoPlanta = { ramal, linha, ajuste, ajusteTxt, acerto, automatico, placa, qtd: els.length, linhasArquivo: resumoLinhas, conferencia: conferirRamal(ramal, linha, els) };
+    infoPlanta = { ramal, linha, ajuste, ajusteTxt, acerto, automatico, qtd: els.length, linhasArquivo: resumoLinhas, conferencia: conferirRamal(ramal, linha, els) };
     return { els, ajuste, localizar };
   }
 
@@ -282,7 +265,7 @@
         } catch (e) { ultimoErro = e; }
       }
       if (!lida) throw ultimoErro || new Error('Planta não encontrada no arquivo.');
-      planta = { nome: f.name, importadoEm: U.agora(), elementos: lida.elementos, ramais: lida.ramais, fonte: lida.fonte || 'planta', rhs: lida.rhs || [] };
+      planta = { nome: f.name, importadoEm: U.agora(), elementos: lida.elementos, ramais: lida.ramais, fonte: lida.fonte || 'planta' };
       await store.set(CHAVE_PLANTA, planta);
       cacheAjuste.clear();
       // Geometria do carro controle: os elementos vêm dela (pelo km).
@@ -416,7 +399,6 @@
             mudar('ajusteKm', e.target.value.trim() === '' || v === null ? 'auto' : v);
           }
         }))) : null,
-      usandoPlanta && infoPlanta && infoPlanta.placa.length ? App.acertosPlaca.lista(infoPlanta.placa, (x, tratar) => mudarAcerto(x.chave, tratar)) : null,
       !infoPlanta && problemaPlanta ? h('p', { class: 'aviso', text: problemaPlanta }) : null) : null;
 
     ui.trocar(secoes.parametros, h('details', { class: 'cartao detalhes' },
@@ -1101,8 +1083,6 @@
     /** Estado atual (arquivo carregado e análise), usado pela Tela do carro. */
     estado: () => ({ arquivo, resultado, nomeArquivo, opcoes }),
     textoDoArquivo,
-    /** Abre um arquivo vindo de outra tela (ex.: Montagem), com o trecho e os acertos de placa dela. */
-    abrirTexto: (texto, nome, { recorte: trecho = null, acertos: lista = [] } = {}) => processar(texto, nome, { salvar: true, trecho, acertos: lista }),
     planta: async () => { try { return await store.get(CHAVE_PLANTA); } catch (e) { return null; } }
   };
 })(window.App);
