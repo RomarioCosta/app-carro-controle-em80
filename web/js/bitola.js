@@ -93,7 +93,8 @@
     limitePerda: 2, // mm: |Bitola F − Bitola T| acima disso = perda de bitola
     limiteVariacao: 1.5, // mm: desvio padrão da bitola em 1 m acima disso = variação rápida (provável erro)
     janelaVariacao: 1, // metros
-    limiteElemento: 10 // %: curva ou tangente com perda acima disso "perdeu a bitola"
+    limiteElemento: 10, // %: curva ou tangente com perda acima disso "perdeu a bitola"
+    ajustePlacaMax: 300 // m: salto/volta do km que cai num km inteiro (placa) até isso = acerto do km em campo
   };
 
   /** A bitola nominal é 1000 mm; o arquivo traz só a diferença. */
@@ -660,12 +661,28 @@
     const n = (v) => (typeof v === 'number' ? v : U.numero(v));
     const elementos = [];
     let descartados = 0; let circuitos = 0;
+    const rhs = []; // circuitos com o km (contagem e cobertura); não viram elemento
     linhas.slice(idxCab + 1).forEach((l) => {
       if (!l) return;
       const tipoAtivo = String(l[c.tipo] ?? '').trim().toUpperCase();
       const ramalBruto = String(l[c.ramal] ?? '').trim().toUpperCase();
       if (!ramalBruto || !tipoAtivo) return;
-      if (tipoAtivo === 'RH') { circuitos++; return; }
+      if (tipoAtivo === 'RH') {
+        circuitos++;
+        const ini = n(l[c.ini]); const fim = n(l[c.fim]);
+        const m = /L(\w+)\s*$/i.exec(String(l[c.ehLinha] ?? ''));
+        const nome = c.elemento >= 0 ? String(l[c.elemento] ?? '').trim().toUpperCase() : 'RH';
+        const rm = c.raio >= 0 ? n(l[c.raio]) : null;
+        const ramalRh = ramalBruto.length > 2 && ramalBruto.startsWith('R') ? ramalBruto.slice(1) : ramalBruto;
+        const linhaRh = m ? String(m[1]).replace(/^0+(?=\d)/, '') : '';
+        // a mesma RH vem repetida (uma linha para cada EH vizinho)
+        const repetida = rhs.find((r) => r.ramal === ramalRh && r.linha === linhaRh && r.nome === nome && r.ini === ini && r.fim === fim);
+        if (repetida) { if (rm && !repetida.raio) repetida.raio = rm; return; }
+        if (ini !== null && fim !== null && fim > ini && m) {
+          rhs.push({ raio: rm || null, ramal: ramalBruto.length > 2 && ramalBruto.startsWith('R') ? ramalBruto.slice(1) : ramalBruto, linha: String(m[1]).replace(/^0+(?=\d)/, ''), nome, ini, fim, sede: c.sede >= 0 ? String(l[c.sede] ?? '').trim() : '' });
+        }
+        return;
+      }
       const tipo = tipoAtivo.startsWith('CURVA') ? 'C' : tipoAtivo.startsWith('TANGENTE') ? 'T' : '';
       const ini = n(l[c.ini]); const fim = n(l[c.fim]);
       if (!tipo) return;
@@ -699,7 +716,7 @@
     });
     Object.values(ramais).forEach((l) => l.sort());
     return {
-      elementos, ramais, fonte: 'geometria', circuitos,
+      elementos, ramais, fonte: 'geometria', circuitos, rhs,
       avisos: descartados ? [`${descartados} linha(s) da geometria sem km válido foram ignoradas.`] : []
     };
   };
@@ -819,7 +836,7 @@
    * 4. Entre duas curvas casadas, a correção é interpolada; antes da primeira e depois da última, fica constante.
    * Retorna { ajustes: Float64Array, ancoras: [{ i, ajuste }], casadas, curvas, min, max }.
    */
-  B.ajusteVariavel = (pos, curv, els, opcoes = {}) => {
+  function ajusteVariavelBase(pos, curv, els, opcoes = {}) {
     const o = { ...B.PADRAO, ...opcoes };
     const n = pos.length;
     const ajustes = new Float64Array(n);
@@ -875,6 +892,102 @@
     let min = Infinity; let max = -Infinity;
     ajustes.forEach((v) => { if (v < min) min = v; if (v > max) max = v; });
     return { ajustes, ancoras, casadas, curvas: total, min, max };
+  }
+
+  /**
+   * Acertos do km na placa: o operador passa pela placa (ex.: 366+000) com o sistema marcando outro km
+   * (366+015) e acerta o km. No arquivo aparece um salto ou volta de um ponto para o outro, caindo num km inteiro.
+   * Candidato: um único passo fora do normal, de até ajustePlacaMax m, que cai num km inteiro (±0,5 m),
+   * com o km andando normal logo depois. Retorna [{ i, delta }] (delta = quanto o km pulou além do passo normal).
+   */
+  B.acertosDePlaca = (pos, opcoes = {}) => {
+    const max = opcoes.ajustePlacaMax ?? B.PADRAO.ajustePlacaMax;
+    const n = pos.length;
+    if (n < 10 || !max) return [];
+    const esp = B.espacamento(pos) || 0.25;
+    const sinal = pos[n - 1] < pos[0] ? -1 : 1;
+    const normal = (i) => i > 0 && i < n && Math.abs(pos[i] - pos[i - 1] - sinal * esp) <= 0.6 * esp + 0.01;
+    const out = [];
+    for (let i = 1; i < n; i++) {
+      if (normal(i)) continue;
+      const delta = pos[i] - (pos[i - 1] + sinal * esp);
+      if (Math.abs(delta) < 1 || Math.abs(delta) > max) continue;
+      const resto = ((pos[i] % 1000) + 1000) % 1000;
+      if (Math.min(resto, 1000 - resto) > 0.5) continue;
+      let segue = true;
+      for (let k = i + 1; k <= Math.min(n - 1, i + 8); k++) if (!normal(k)) segue = false;
+      if (segue) out.push({ i, delta });
+    }
+    return out;
+  };
+
+  /** Identificação estável de um acerto (não muda com o recorte do arquivo): "km antes>km da placa". */
+  B.chaveAcerto = (de, km) => `${Math.round(de * 100) / 100}>${Math.round(km * 100) / 100}`;
+
+  /**
+   * Km com os acertos de placa distribuídos no trecho anterior (desde o acerto anterior, a última quebra do km
+   * ou o início do arquivo). Fator de escala do trecho: f = (L + Δ) / L, com L = distância medida pelo sistema
+   * no trecho e Δ = diferença na placa. Faltou km (Δ > 0): o trecho estica; passou (Δ < 0): o trecho encolhe.
+   * km'(j) = km(ref) + (km(j) − km(ref)) · f. O km depois do acerto é o da placa e não muda.
+   */
+  B.posComAcertos = (pos, acertos) => {
+    const p = Float64Array.from(pos);
+    const n = pos.length;
+    if (!acertos.length) return p;
+    const esp = B.espacamento(pos) || 0.25;
+    const sinal = pos[n - 1] < pos[0] ? -1 : 1;
+    const quebras = [];
+    for (let i = 1; i < n; i++) if (Math.abs(pos[i] - pos[i - 1] - sinal * esp) > 5 * esp && !acertos.some((a) => a.i === i)) quebras.push(i);
+    let ref = 0;
+    [...acertos].sort((x, y) => x.i - y.i).forEach(({ i, delta }) => {
+      quebras.forEach((q) => { if (q < i && q > ref) ref = q; });
+      const L = pos[i - 1] + sinal * esp - pos[ref]; // distância (com sinal) que o sistema marcou até a placa
+      if (Math.abs(L) < 1) { ref = i; return; }
+      const f = (L + delta) / L;
+      for (let j = ref; j < i; j++) p[j] = pos[ref] + (pos[j] - pos[ref]) * f;
+      ref = i;
+    });
+    return p;
+  };
+
+  /**
+   * Correção do km ponto a ponto pela geometria (ver ajusteVariavelBase).
+   * Os acertos de km na placa são só identificados (placa: [{ i, km, de, delta, chave, confirmado, ref, L }]);
+   * só entram no cálculo os que o usuário mandou tratar (opcoes.acertosPlaca = [chave, …]).
+   * confirmado: a geometria indica que foi acerto (corrigindo só pelas curvas, o km da geometria quase não
+   * pula naquele ponto: |pulo| ≤ máx(5 m, |Δ|/2)); senão pode ser falta de medição de verdade.
+   */
+  B.ajusteVariavel = (pos, curv, els, opcoes = {}) => {
+    const candidatos = B.acertosDePlaca(pos, opcoes);
+    const r0 = ajusteVariavelBase(pos, curv, els, opcoes);
+    if (!candidatos.length || !els.length) return { ...r0, placa: [], aplicados: 0 };
+    const esp = B.espacamento(pos) || 0.25;
+    const sinal = pos[pos.length - 1] < pos[0] ? -1 : 1;
+    const pedidos = new Set(opcoes.acertosPlaca || []);
+    const placa = candidatos.map(({ i, delta }) => {
+      const pulo = (pos[i] + r0.ajustes[i]) - (pos[i - 1] + r0.ajustes[i - 1]) - sinal * esp;
+      const chave = B.chaveAcerto(pos[i - 1], pos[i]);
+      return { i, km: pos[i], de: pos[i - 1], delta, chave, pulo, confirmado: Math.abs(pulo) <= Math.max(5, Math.abs(delta) / 2), tratado: pedidos.has(chave) };
+    });
+    // trecho onde a diferença seria distribuída (para mostrar antes de tratar)
+    const n = pos.length; let ref = 0;
+    const quebra = (i) => Math.abs(pos[i] - pos[i - 1] - sinal * esp) > 5 * esp;
+    for (let i = 1, k = 0; i < n && k < placa.length; i++) {
+      if (i === placa[k].i) { placa[k].ref = ref; placa[k].kmRef = pos[ref]; placa[k].L = pos[i - 1] + sinal * esp - pos[ref]; ref = i; k++; continue; }
+      if (quebra(i)) ref = i;
+    }
+    const aplicar = placa.filter((x) => x.tratado);
+    if (!aplicar.length) return { ...r0, placa, aplicados: 0 };
+    const pc = B.posComAcertos(pos, aplicar);
+    const r = ajusteVariavelBase(pc, curv, els, opcoes);
+    // correção final em relação ao km do arquivo = acerto da placa + correção pela geometria
+    let min = Infinity; let max = -Infinity;
+    for (let i = 0; i < n; i++) {
+      r.ajustes[i] += pc[i] - pos[i];
+      if (r.ajustes[i] < min) min = r.ajustes[i];
+      if (r.ajustes[i] > max) max = r.ajustes[i];
+    }
+    return { ...r, min, max, placa, aplicados: aplicar.length };
   };
   /**
    * Quanto as curvas do arquivo combinam com as curvas de um ramal/linha da planta (0 a 100),
