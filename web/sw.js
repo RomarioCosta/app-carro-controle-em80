@@ -5,7 +5,7 @@
  */
 'use strict';
 
-const VERSAO = 'em80-aa397495ed';
+const VERSAO = 'em80-48281c7e91';
 const ARQUIVOS = [
   './',
   'index.html',
@@ -24,10 +24,12 @@ const ARQUIVOS = [
   'js/charts.js',
   'js/om.js',
   'js/bitola.js',
+  'js/cobertura.js',
   'js/malha.js',
   'js/esquema.js',
   'js/modulos/analise.js',
   'js/modulos/tela-carro.js',
+  'js/modulos/montagem.js',
   'js/modulos/checklist.js',
   'js/modulos/eventos.js',
   'js/modulos/producao.js',

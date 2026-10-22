@@ -62,8 +62,10 @@
       h('section', { class: 'cartao' }, h('h2', { text: 'Checklists recentes' }), listaEl));
     const parteAnalise = h('div', { class: 'tela tela-larga', hidden: true });
     const parteTela = h('div', { class: 'tela tela-larga', hidden: true });
+    const parteMontagem = h('div', { class: 'tela tela-larga pilha', hidden: true });
     let analiseMontada = false;
     let telaMontada = false;
+    let montagemMontada = false;
 
     // Duas abas: o checklist e a análise do arquivo gerado pelo carro.
     const abas = h('div', { class: 'seg seg-abas', role: 'tablist', 'aria-label': 'Checklist ou análise' });
@@ -72,6 +74,7 @@
       parteChecklist.hidden = qual !== 'checklist';
       parteAnalise.hidden = qual !== 'analise';
       parteTela.hidden = qual !== 'tela';
+      parteMontagem.hidden = qual !== 'montagem';
       // A Tela do carro usa o arquivo da Análise: monta a análise (escondida) se ainda não montou.
       if ((qual === 'analise' || qual === 'tela') && !analiseMontada) {
         App.analise.montar(parteAnalise);
@@ -82,20 +85,25 @@
         telaMontada = true;
       }
       if (qual === 'tela') App.telaCarro.aoMostrar();
+      if (qual === 'montagem') {
+        // a montagem usa a geometria importada na Análise e o leitor de .zip de lá
+        if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; }
+        if (!montagemMontada) { App.montagem.montar(parteMontagem); montagemMontada = true; } else App.montagem.aoMostrar();
+      }
       abas.querySelectorAll('button').forEach((b) => {
         const ativo = b.dataset.aba === qual;
         b.classList.toggle('ativo', ativo);
         b.setAttribute('aria-selected', ativo ? 'true' : 'false');
       });
     };
-    [['checklist', 'Checklist'], ['analise', 'Análise do arquivo'], ['tela', 'Tela do carro']].forEach(([id, rotulo]) => {
+    [['checklist', 'Checklist'], ['analise', 'Análise do arquivo'], ['tela', 'Tela do carro'], ['montagem', 'Montagem']].forEach(([id, rotulo]) => {
       abas.appendChild(h('button', { type: 'button', role: 'tab', class: 'seg-opcao', dataset: { aba: id }, onclick: () => mostrar(id) }, rotulo));
     });
 
-    raiz.append(abas, parteChecklist, parteAnalise, parteTela);
+    raiz.append(abas, parteChecklist, parteAnalise, parteTela, parteMontagem);
     renderForm();
     const salva = U.pref.get('checklist:aba', 'checklist');
-    mostrar(['analise', 'tela'].includes(salva) ? salva : 'checklist');
+    mostrar(['analise', 'tela', 'montagem'].includes(salva) ? salva : 'checklist');
   }
 
   function renderForm() {
