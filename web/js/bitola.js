@@ -819,6 +819,58 @@
    * 4. Entre duas curvas casadas, a correção é interpolada; antes da primeira e depois da última, fica constante.
    * Retorna { ajustes: Float64Array, ancoras: [{ i, ajuste }], casadas, curvas, min, max }.
    */
+  /**
+   * Saltos e voltas do km que podem ser compensados (botão "Compensar" da Montagem).
+   * Um único passo fora do normal, com o km andando normal nos 8 pontos seguintes.
+   *  Δ = x[i] − (x[i−1] + s·e)  (s = sentido do arquivo; e = espaçamento)
+   *  |Δ| ≤ margem (2 m): dentro da margem de erro, não entra.  |Δ| > maxSalto (300 m): não é acerto de km.
+   *  N = ⌈|Δ| / (passoMax · e)⌉ pontos antes do salto recebem a compensação (passoMax = 1% do espaçamento).
+   *  Cabe quando há N pontos antes do salto, depois da quebra anterior (outro salto/volta ou início do arquivo).
+   */
+  B.COMPENSACAO = { margem: 2, passoMax: 0.01, maxSalto: 300 };
+  B.saltosCompensaveis = (pos, opcoes = {}) => {
+    const o = { ...B.COMPENSACAO, ...opcoes };
+    const n = pos.length;
+    if (n < 10) return [];
+    const esp = B.espacamento(pos) || 0.25;
+    const s = pos[n - 1] < pos[0] ? -1 : 1;
+    const normal = (i) => Math.abs(pos[i] - pos[i - 1] - s * esp) <= 0.6 * esp + 0.01;
+    const out = [];
+    let quebra = 0; // ponto depois da última quebra do km
+    for (let i = 1; i < n; i++) {
+      if (normal(i)) continue;
+      const delta = pos[i] - (pos[i - 1] + s * esp);
+      let segue = true;
+      for (let k = i + 1; k <= Math.min(n - 1, i + 8); k++) if (!normal(k)) segue = false;
+      if (segue && Math.abs(delta) > o.margem && Math.abs(delta) <= o.maxSalto) {
+        const N = Math.ceil(Math.abs(delta) / (o.passoMax * esp));
+        const disponiveis = i - quebra;
+        out.push({
+          i, de: pos[i - 1], km: pos[i], delta, tipo: delta * s > 0 ? 'salto' : 'volta',
+          pontosFaltando: Math.round(Math.abs(delta) / esp), N, disponiveis, cabe: N <= disponiveis,
+          porPonto: delta / N, chave: `${Math.round(pos[i - 1] * 100) / 100}>${Math.round(pos[i] * 100) / 100}`
+        });
+      }
+      if (Math.abs(pos[i] - pos[i - 1] - s * esp) > 1) quebra = i;
+    }
+    return out;
+  };
+
+  /**
+   * Aplica as compensações: os N pontos antes do salto ganham Δ/N cada um, acumulado.
+   *  x'[j] = x[j] + Δ · k / N,  com k = 1 … N  (j = i − N … i − 1)
+   * O último ponto antes do salto recebe Δ inteiro e o km fica contínuo; o km depois do salto não muda.
+   */
+  B.compensarPos = (pos, lista) => {
+    const p = Float64Array.from(pos);
+    lista.forEach(({ i, N, delta }) => {
+      const ini = Math.max(0, i - N);
+      const total = i - ini;
+      for (let j = ini; j < i; j++) p[j] += (delta * (j - ini + 1)) / total;
+    });
+    return p;
+  };
+
   B.ajusteVariavel = (pos, curv, els, opcoes = {}) => {
     const o = { ...B.PADRAO, ...opcoes };
     const n = pos.length;

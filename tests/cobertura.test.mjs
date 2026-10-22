@@ -92,3 +92,23 @@ test('resumo guardado como lista volta a ser array tipado', () => {
   assert.ok(n.amostras.pos.constructor.name === 'Float64Array');
   assert.equal(n.amostras.pos.length, 11);
 });
+
+test('alertas de geometria: trechos acima do limite, agrupados, com o maior nível', () => {
+  const r = resumo('a', 0, 3000);
+  const n = r.amostras.pos.length;
+  const emp2 = new Float32Array(n).fill(5);
+  for (let k = 100; k <= 110; k++) emp2[k] = 15; // na tangente (EH 0, 0–1000): limite 12 → restrição
+  emp2[105] = 40; // interdição no meio
+  for (let k = 1500; k <= 1502; k++) emp2[k] = -13; // na curva (EH 1, 1100–2100): limite 10
+  r.geometria = { emp2 };
+  const lim = (id, el) => (id === 'emp2' ? [{ grau: 2, nome: 'Restrição', sup: el === 'C' ? 10 : 12, inf: el === 'C' ? -10 : -12 }, { grau: 3, nome: 'Interdição', sup: 30, inf: -30 }] : []);
+  const al = C.alertasGeometria(planta, 'LT', [{ id: 'a', nome: 'a', resumo: r, recorte: null }], lim);
+  assert.equal(al.length, 2);
+  assert.equal(al[0].nivel, 'Interdição');
+  assert.equal(al[0].valor, 40);
+  assert.equal(Math.round(al[0].fim - al[0].ini), 10);
+  assert.equal(al[1].tipo, 'C');
+  assert.equal(al[1].limite, -10);
+  // recorte tira o primeiro
+  assert.equal(C.alertasGeometria(planta, 'LT', [{ id: 'a', nome: 'a', resumo: r, recorte: { de: 1000, ate: null } }], lim).length, 1);
+});

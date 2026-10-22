@@ -493,3 +493,36 @@ test('formato novo sem linhas de evento: trechos da coluna EX viram eventos INIC
   assert.equal(ex[0].pos, a.pos[99]);
   assert.equal(ex[1].pos, a.pos[138]);
 });
+
+test('compensação de salto/volta do km por pontos (botão da Montagem)', () => {
+  // 20.000 pontos a cada 0,25 m; no ponto 12.000 o km salta 13 m (buraco)
+  const pos = Float64Array.from({ length: 20000 }, (_, i) => 240000 + i * 0.25 + (i >= 12000 ? 13 : 0));
+  const [c] = B.saltosCompensaveis(pos);
+  assert.equal(c.tipo, 'salto');
+  assert.equal(Math.round(c.delta), 13);
+  assert.equal(c.pontosFaltando, 52); // 13 / 0,25
+  assert.equal(c.N, 5200); // 13 / (1% de 0,25) = 13 / 0,0025
+  assert.ok(c.cabe);
+  assert.ok(Math.abs(c.porPonto - 0.0025) < 1e-9);
+  const p = B.compensarPos(pos, [c]);
+  assert.equal(p[12000 - 5201], pos[12000 - 5201]); // antes da janela: não muda
+  assert.ok(Math.abs(p[12000 - 5200] - pos[12000 - 5200] - 0.0025) < 1e-9); // 1º ponto: +0,0025
+  assert.ok(Math.abs(p[11999] - pos[11999] - 13) < 1e-9); // último ponto antes do salto: +13 m
+  assert.equal(p[12000], pos[12000]); // depois do salto: não muda
+  // passo entre vizinhos: 0,25 → 0,2525 (no máximo 1% a mais)
+  assert.ok(Math.abs(p[11000] - p[10999] - 0.2525) < 1e-9);
+  assert.ok(Math.abs(p[12000] - p[11999] - 0.25) < 1e-9); // km contínuo no salto
+  // volta de 55 m (sobreposição): desconta aos poucos; com 1% precisa de 22.000 pontos → não cabe em 12.000
+  const volta = Float64Array.from({ length: 20000 }, (_, i) => 47000 + i * 0.25 - (i >= 12000 ? 55 : 0));
+  const [v] = B.saltosCompensaveis(volta);
+  assert.equal(v.tipo, 'volta');
+  assert.equal(v.N, 22000);
+  assert.equal(v.cabe, false);
+  // com 3% por ponto cabe
+  const [v3] = B.saltosCompensaveis(volta, { passoMax: 0.03 });
+  assert.ok(v3.cabe);
+  const pv = B.compensarPos(volta, [v3]);
+  assert.ok(Math.abs(pv[12000] - pv[11999] - 0.25) < 1e-9);
+  // até 2 m: dentro da margem, não entra
+  assert.equal(B.saltosCompensaveis(Float64Array.from({ length: 2000 }, (_, i) => i * 0.25 + (i >= 1000 ? 1.5 : 0))).length, 0);
+});

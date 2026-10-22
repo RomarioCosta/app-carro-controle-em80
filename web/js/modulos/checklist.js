@@ -101,6 +101,8 @@
     });
 
     raiz.append(abas, parteChecklist, parteAnalise, parteTela, parteMontagem);
+    // outra tela pede para mostrar uma aba (ex.: Montagem roda um arquivo na Tela do carro)
+    window.addEventListener('em80:checklist-aba', (e) => mostrar(e.detail));
     renderForm();
     const salva = U.pref.get('checklist:aba', 'checklist');
     mostrar(['analise', 'tela', 'montagem'].includes(salva) ? salva : 'checklist');

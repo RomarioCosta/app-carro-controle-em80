@@ -13,13 +13,13 @@ export const CABECALHO = ['H', 'RAMAL', 'CORRETIVA', 'INSPETOR', 'LINHA', 'Car',
 
 const f = (v) => (v === null ? ' ******* ' : `${v.toFixed(2).padStart(8)}`);
 
-export function gerarCSV() {
+export function gerarCSV({ salto = 0 } = {}) {
   const linhas = [];
   const inicio = 2500; // metros
   linhas.push(['E', 'TST', 'XX1', 'TESTE', '1', 'EM80', '01/09/2026', '2', 'D', '500.00  ', '0', '1', '1', '211', 'REAR DESK ON', '0', '0', '0'].join(';'));
   linhas.push(CABECALHO.join(';'));
   for (let k = 0; k < 4000; k++) {
-    const p = inicio - k * 0.25;
+    const p = inicio - k * 0.25 - (k >= 2400 ? salto : 0); // salto: o km pula (acerto em campo) no ponto 2400
     const d = k * 0.25; // distância percorrida
     const km = Math.floor(p / 1000);
     const loc = p - km * 1000;

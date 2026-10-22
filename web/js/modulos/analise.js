@@ -48,10 +48,13 @@
 
   /* ---------------- Arquivo ---------------- */
 
+  let versaoArquivo = 0; // muda a cada arquivo aberto: o carregamento do último arquivo não passa por cima
   async function carregarUltimo() {
+    const v = versaoArquivo;
     try {
       const salvo = await store.get(CHAVE);
-      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null });
+      if (v !== versaoArquivo) return;
+      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [] });
     } catch (e) { /* sem arquivo salvo */ }
   }
 
@@ -111,6 +114,8 @@
   /** Trecho analisado (km inicial e final, em metros): descarta o resto do arquivo sem editar o CSV. */
   let recorte = { de: null, ate: null };
   let arquivoCompleto = null;
+  /** Saltos/voltas do km compensados na Montagem (chaves de B.saltosCompensaveis). */
+  let compensar = [];
 
   function aplicarRecorte() {
     arquivo = B.recortar(arquivoCompleto, recorte.de, recorte.ate);
@@ -121,9 +126,17 @@
     }
   }
 
-  function processar(texto, nome, { salvar, trecho = null }) {
+  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [] }) {
+    versaoArquivo++;
+    compensar = [...comp];
+    cacheAjuste.clear(); cacheConferencia.clear();
     try {
       arquivoCompleto = B.lerCSV(texto);
+      if (compensar.length) {
+        // mesmo km compensado da Montagem: os pontos antes do salto/volta recebem a diferença aos poucos
+        const lista = B.saltosCompensaveis(arquivoCompleto.pos).filter((c) => c.cabe && compensar.includes(c.chave));
+        if (lista.length) arquivoCompleto = { ...arquivoCompleto, pos: B.compensarPos(arquivoCompleto.pos, lista), compensados: lista.length };
+      }
       recorte = trecho ? { de: trecho.de ?? null, ate: trecho.ate ?? null } : { de: null, ate: null };
       aplicarRecorte();
     } catch (e) {
@@ -143,7 +156,7 @@
     }
     zoom = null;
     recalcular();
-    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte }).catch(() => {});
+    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar }).catch(() => {});
   }
 
   async function mudarRecorte(de, ate) {
@@ -1083,6 +1096,8 @@
     /** Estado atual (arquivo carregado e análise), usado pela Tela do carro. */
     estado: () => ({ arquivo, resultado, nomeArquivo, opcoes }),
     textoDoArquivo,
+    /** Abre um arquivo vindo de outra tela (Montagem / Tela do carro), com o trecho e as compensações dela. */
+    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [] } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp }),
     planta: async () => { try { return await store.get(CHAVE_PLANTA); } catch (e) { return null; } }
   };
 })(window.App);
