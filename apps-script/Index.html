@@ -759,7 +759,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .tc-rolagem { overflow-x: auto; background: #fff; }
 .tc-grade { display: inline-block; min-width: 100%; }
 .tc-cab { background: #c3c3c3; border-bottom: 2px solid #e040fb; }
-.tc-cab-linha { display: flex; height: 112px; }
+.tc-cab-linha { display: flex; height: 134px; }
 .tc-cab-cel { flex: none; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; overflow: hidden; }
 .tc-cab-gira span { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-size: 12px; display: flex; gap: 6px; align-items: center; }
 .tc-cab-gira strong { font-weight: 700; }
@@ -804,6 +804,21 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .tc-alca-largura { display: flex; align-items: center; } .tc-alca-largura::after { width: 2px; height: 28px; }
 .tc-alca-altura { display: flex; align-items: center; } .tc-alca-altura::after { height: 2px; width: 40px; }
 .tc-juntas { align-self: center; }
+.tc-sinal { stroke-width: 1.6 !important; }
+.tc-limite-alerta { stroke: #d97706; }
+.tc-limite-restricao { stroke: #4b5563; }
+.tc-limite-interdicao { stroke: #b91c1c; stroke-dasharray: 4 3; }
+.tc-exc-alerta { stroke: #f59e0b; }
+.tc-exc-restricao { stroke: #e11d1d; }
+.tc-exc-interdicao { stroke: #7f1d1d; stroke-width: 2.4 !important; }
+.tc-ex-alerta { fill: #f59e0b; }
+.tc-ex-restricao { fill: #ef1c1c; }
+.tc-ex-interdicao { fill: #7f1d1d; }
+.tc-zoom { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; }
+.tc-zoom button { width: 20px; height: 18px; padding: 0; border: 1px solid #8a8a8a; background: #e5e5e5; font: 700 12px/1 system-ui, sans-serif; cursor: pointer; border-radius: 3px; color: #111; }
+.tc-zoom button:hover { background: #fff; }
+.tc-cab-cel { position: relative; }
+.tc-ev text { font-size: 8.5px; }
 
 </style>
 </head>
@@ -1026,7 +1041,7 @@ window.App = window.App || {};
     versao: '2026.10.21',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-b0a6523bb5', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-33a69d500d', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -5693,11 +5708,31 @@ window.App = window.App || {};
     return { C: lim(t.curva), T: lim(t.tangente) };
   }
 
-  let edicoes = U.pref.get('telaCarro:limites', {}) || {}; // { [vel]: { [param]: { C, T } } }
+  /** Níveis de limite. A tabela EFVM 2026 preenche a Restrição; Alerta e Interdição são preenchidos à mão. */
+  const NIVEIS = [
+    { id: 'alerta', nome: 'Alerta', grau: 1 },
+    { id: 'restricao', nome: 'Restrição', grau: 2 },
+    { id: 'interdicao', nome: 'Interdição', grau: 3 }
+  ];
+  let edicoes = U.pref.get('telaCarro:limites', {}) || {}; // { [vel]: { [param]: { alerta, restricao, interdicao } } }
+  /** Limites de um parâmetro: { alerta: { C, T }, restricao: { C, T }, interdicao: { C, T } }. */
   function limitesDe(p, vel) {
     const e = edicoes[vel] && edicoes[vel][p.id];
-    return e || limitesPadrao(p, vel);
+    const padrao = { alerta: { C: null, T: null }, restricao: limitesPadrao(p, vel), interdicao: { C: null, T: null } };
+    if (!e) return padrao;
+    if (e.C !== undefined || e.T !== undefined) return { ...padrao, restricao: { C: e.C, T: e.T } }; // formato antigo
+    return { alerta: e.alerta || padrao.alerta, restricao: e.restricao || padrao.restricao, interdicao: e.interdicao || padrao.interdicao };
   }
+  /** Grau do excesso do valor v (0 = dentro; 1 alerta; 2 restrição; 3 interdição). */
+  function grauExcesso(lims, el, v) {
+    let g = 0;
+    NIVEIS.forEach((n) => { const l = lims[n.id][el]; if (l && (v > l.sup || v < l.inf)) g = Math.max(g, n.grau); });
+    return g;
+  }
+
+  /** Escala de cada coluna (meia largura, em mm): automática pelo arquivo, com zoom − / +. */
+  let zoom = U.pref.get('telaCarro:zoom', {}) || {};
+  const escalaNice = (v) => { const p = [1, 2, 3, 5, 8, 10, 15, 20, 25, 30, 40, 50, 60, 80, 100, 150, 200]; return p.find((x) => x >= v) || Math.ceil(v); };
 
   /* ---------------- Estado ---------------- */
 
@@ -5766,7 +5801,7 @@ window.App = window.App || {};
       const y = ((e.clientY - r.top) / r.height) * ALTURA;
       const x = ((e.clientX - r.left) / r.width) * Number(svg.getAttribute('width'));
       const d = topo + (y / ALTURA) * janela;
-      cursorI = d <= revelado ? indicePorDist(d) : null;
+      cursorI = d <= revelado && d >= 0 ? indicePorDist(d) : null;
       colunaAtiva = colunaEm(x);
       desenharCursor();
     });
@@ -5806,10 +5841,11 @@ window.App = window.App || {};
 
   /** Colunas da tela; com "F e T juntas", as duas bitolas ficam na mesma coluna. */
   function colunas() {
-    const lista = PARAMETROS.map((p) => ({ ...p, series: [p] }));
+    const esc = (ids) => { const auto = Math.max(...ids.map((id) => (prep && prep.escala ? prep.escala[id] : PARAMETROS.find((p) => p.id === id).escala))); return Math.max(0.5, auto / (zoom[ids[0]] || 1)); };
+    const lista = PARAMETROS.map((p) => ({ ...p, escala: esc([p.id]), series: [p] }));
     if (!juntas) return lista;
     const f = lista[0]; const t = lista[1];
-    return [{ ...f, id: 'bitFT', nome: 'Bitola F+T', series: [PARAMETROS[0], PARAMETROS[1]] }, ...lista.slice(2).filter((c) => c.id !== t.id)];
+    return [{ ...f, id: 'bitFT', nome: 'Bitola F+T', escala: Math.max(0.5, Math.max(prep && prep.escala ? prep.escala.bitF : 40, prep && prep.escala ? prep.escala.bitT : 40) / (zoom.bitFT || 1)), series: [PARAMETROS[0], PARAMETROS[1]] }, ...lista.slice(2).filter((c) => c.id !== t.id)];
   }
 
   /** Lê o arquivo da Análise e prepara as séries. */
@@ -5847,22 +5883,34 @@ window.App = window.App || {};
       return { ...ev, i: melhor, trav: /\bTRA?V(ADOR)?\b/i.test(`${ev.texto} ${ev.codigo}`) };
     });
     prep = { n, esp, dist, tipo, elementoDo, eventos, total: dist[n - 1] || 0 };
-    topo = 0;
-    revelado = 0; // ao abrir, a tela começa vazia: o traçado aparece com o play
+    revelado = 0; // ao abrir, a tela começa vazia: o traçado aparece com o play, de baixo para cima
+    topo = -janela;
+    // escala automática: 98% dos valores do arquivo cabem com folga
+    prep.escala = {};
+    PARAMETROS.forEach((p) => {
+      const v = p.campo === 'kld' && resultado && resultado.kldValido ? resultado.kldValido : arquivo.dados[p.campo];
+      if (!v) { prep.escala[p.id] = p.escala; return; }
+      const a = [];
+      for (let i = 0; i < v.length; i += 7) if (!Number.isNaN(v[i])) a.push(Math.abs(v[i]));
+      a.sort((x, y) => x - y);
+      const p98 = a.length ? a[Math.floor(a.length * 0.98)] : p.escala;
+      prep.escala[p.id] = escalaNice(Math.max(1, p98 * 1.3));
+    });
     cursorI = null;
   }
 
   /* ---------------- Navegação ---------------- */
 
-  const limitarTopo = (t) => Math.max(0, Math.min(t, Math.max(0, prep.total - janela * 0.2)));
+  // o topo pode ser negativo: no início o traçado nasce embaixo e sobe (como no Offboard)
+  const limitarTopo = (t) => Math.max(-janela, Math.min(t, Math.max(0, prep.total - janela * 0.2)));
   function mover(dm) { topo = limitarTopo(topo + dm); desenhar(); }
   /** Avança o traçado (como o carro andando); a tela rola quando ele chega perto do fim. */
   function avancar(dm) {
     revelado = Math.min(prep.total, revelado + dm);
-    if (revelado > topo + janela * 0.9) topo = limitarTopo(revelado - janela * 0.9);
+    topo = revelado - janela; // o ponto mais novo fica embaixo; o resto sobe
     desenhar();
   }
-  function reiniciar() { revelado = 0; topo = 0; cursorI = null; desenhar(); }
+  function reiniciar() { revelado = 0; topo = -janela; cursorI = null; desenhar(); }
 
   function indicePorDist(d) {
     const { dist, n } = prep;
@@ -5878,7 +5926,7 @@ window.App = window.App || {};
     arquivo.pos.forEach((p, i) => { const x = Math.abs(p - metros); if (x < d) { d = x; melhor = i; } });
     if (d > 500) ui.toast(`O km mais próximo no arquivo é ${App.bitola.fmtKm(arquivo.pos[melhor])}.`, 'info');
     revelado = prep.dist[melhor];
-    topo = limitarTopo(revelado - janela * 0.9);
+    topo = revelado - janela;
     cursorI = melhor;
     desenhar();
   }
@@ -5909,7 +5957,7 @@ window.App = window.App || {};
       h('div', { class: 'tc-linha' },
         h('div', { class: 'tc-campo' }, h('span', { text: 'Ir para o km' }),
           h('div', { class: 'linha-campo' }, kmInput, h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', onclick: () => irParaKm(kmInput.value) }, 'Ir'))),
-        sel(janela, [[250, '250 m'], [500, '500 m'], [1000, '1.000 m'], [2000, '2.000 m']], (v) => { janela = v; U.pref.set('telaCarro:janela', v); if (prep) { topo = limitarTopo(topo); desenhar(); } }, 'Trecho na tela'),
+        sel(janela, [[250, '250 m'], [500, '500 m'], [1000, '1.000 m'], [2000, '2.000 m']], (v) => { janela = v; U.pref.set('telaCarro:janela', v); if (prep) { topo = revelado - janela; desenhar(); } }, 'Trecho na tela'),
         sel(velocidade, VELOCIDADES.map((v) => [v, `${v} km/h`]), (v) => { velocidade = v; U.pref.set('telaCarro:velocidade', v); desenhar(); }, 'Limites para'),
         sel(fator, [1, 2, 3, 5, 10, 20].map((v) => [v, `${v}×`]), (v) => { fator = v; U.pref.set('telaCarro:fator', v); }, 'Velocidade'),
         h('div', { class: 'tc-botoes' },
@@ -5948,15 +5996,21 @@ window.App = window.App || {};
     return el;
   };
 
+  function mudarZoom(id, f) {
+    zoom[id] = Math.max(0.25, Math.min(16, (zoom[id] || 1) * f));
+    U.pref.set('telaCarro:zoom', zoom);
+    desenhar();
+  }
+
   function desenhar() {
     if (!prep) return;
     const { lp, W, base } = geometria();
     const H = ALTURA;
     const { dist, tipo, n } = prep;
     const dados = (resultado && resultado.dados) || arquivo.dados;
-    const i0 = indicePorDist(topo);
+    const i0 = indicePorDist(Math.max(0, topo));
     // só o que o "carro" já percorreu (play): ao abrir, nada é desenhado
-    const i1 = revelado > topo ? Math.min(indicePorDist(topo + janela), indicePorDist(revelado)) : -1;
+    const i1 = revelado > Math.max(topo, 0) ? Math.min(indicePorDist(topo + janela), indicePorDist(revelado)) : -1;
     const yDe = (i) => ((dist[i] - topo) / janela) * H;
     const tipoLim = (i) => (tipo[i] === 1 ? 'C' : 'T');
 
@@ -5966,12 +6020,15 @@ window.App = window.App || {};
       h('div', { class: 'tc-cab-cel tc-cab-gira', style: { width: `${COL_EX}px` } }, h('span', { text: 'EX' })),
       h('div', { class: 'tc-cab-cel tc-cab-gira', style: { width: `${COL_EL}px` } }, h('span', { text: 'T/E' })),
       colunas().map((p) => h('div', { class: 'tc-cab-cel tc-cab-gira', style: { width: `${lp}px` }, title: p.nome },
-        h('span', null, h('strong', { text: p.nome }), h('small', { text: `±${p.escala}` }))))));
+        h('div', { class: 'tc-zoom' },
+          h('button', { type: 'button', title: 'Diminuir a escala (mais detalhe)', 'aria-label': `Aproximar ${p.nome}`, onclick: () => mudarZoom(p.id, 1.5) }, '+'),
+          h('button', { type: 'button', title: 'Aumentar a escala', 'aria-label': `Afastar ${p.nome}`, onclick: () => mudarZoom(p.id, 1 / 1.5) }, '−')),
+        h('span', null, h('strong', { text: p.nome }), h('small', { text: `±${String(Math.round(p.escala * 10) / 10).replace('.', ',')}` }))))));
 
     const svg = s('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, class: 'tc-svg' });
     // km na lateral (sem linha horizontal)
     const passoKm = janela <= 500 ? 50 : (janela <= 1000 ? 100 : 200);
-    for (let d = Math.ceil(topo / passoKm) * passoKm; d <= topo + janela; d += passoKm) {
+    for (let d = Math.max(0, Math.ceil(topo / passoKm) * passoKm); d <= Math.min(topo + janela, revelado); d += passoKm) {
       const i = indicePorDist(d);
       const y = ((d - topo) / janela) * H;
       if (y < 8 || y > H - 4) continue;
@@ -5987,16 +6044,17 @@ window.App = window.App || {};
       vistos.add(e);
       const ya = Math.max(0, yDe(Math.max(e.i0, i0))); const yb = Math.min(H, yDe(Math.min(e.i1, i1)));
       const t = e.tipo === 'C' ? 'curva' : (e.tipo === 'X' || e.rh ? 'rh' : 'tangente');
-      if (t === 'tangente') svg.appendChild(s('line', { x1: xEl + 10, x2: xEl + 10, y1: ya, y2: yb, class: 'tc-el-tangente' }));
-      else svg.appendChild(s('rect', { x: xEl + 6, y: ya, width: 9, height: Math.max(1, yb - ya), class: `tc-el-${t}` }));
-      if (yb - ya > 26) svg.appendChild(s('text', { x: xEl + 20, y: (ya + yb) / 2 + 3, class: 'tc-el-rotulo' }, t === 'rh' ? (e.trecho || 'RH').split(' · ')[0] : e.sigla));
+      if (t === 'tangente') svg.appendChild(s('line', { x1: xEl + 32, x2: xEl + 32, y1: ya, y2: yb, class: 'tc-el-tangente' }));
+      else svg.appendChild(s('rect', { x: xEl + 28, y: ya, width: 9, height: Math.max(1, yb - ya), class: `tc-el-${t}` }));
+      if (yb - ya > 26) svg.appendChild(s('text', { x: xEl + 40, y: (ya + yb) / 2 + 3, class: 'tc-el-rotulo' }, t === 'rh' ? (e.trecho || 'RH').split(' · ')[0].replace('RH-', 'R') : e.sigla));
     }
     prep.eventos.forEach((ev) => {
       if (ev.i < i0 || ev.i > i1) return;
       const y = yDe(ev.i);
       const g = s('g', { class: ev.trav ? 'tc-ev tc-ev-trav' : 'tc-ev' }, s('title', {}, `${ev.texto} (${App.bitola.fmtKm(ev.pos)})`));
-      g.appendChild(s('line', { x1: xEl + 2, x2: xEl + COL_EL - 2, y1: y, y2: y }));
-      g.appendChild(s('text', { x: xEl + COL_EL - 2, y: y - 2, 'text-anchor': 'end' }, ev.trav ? 'TRAV' : ev.texto.slice(0, 9)));
+      g.appendChild(s('line', { x1: xEl + 16, x2: xEl + 40, y1: y, y2: y }));
+      // texto do evento à esquerda, virado para cima (lido de baixo para cima)
+      g.appendChild(s('text', { x: xEl + 11, y: y - 2, transform: `rotate(-90 ${xEl + 11} ${y - 2})`, 'text-anchor': 'start' }, ev.trav ? 'TRAV' : ev.texto.slice(0, 14)));
       svg.appendChild(g);
     });
 
@@ -6007,27 +6065,29 @@ window.App = window.App || {};
       const x0 = base + k * lp;
       const cx = x0 + lp / 2;
       const meia = lp / 2 - 6;
-      const xv = (v) => cx + (Math.max(-col.escala, Math.min(col.escala, v)) / col.escala) * meia;
+      // valor maior à esquerda da linha zero (como no Offboard)
+      const xv = (v) => cx - (Math.max(-col.escala, Math.min(col.escala, v)) / col.escala) * meia;
+      const dentro = (v) => Math.abs(v) <= col.escala;
       const lims = limitesDe(col.series[0], velocidade);
       // linha zero (bitola: 1000 mm), indispensável
       svg.appendChild(s('line', { x1: cx, x2: cx, y1: 0, y2: H, class: 'tc-zero' }));
-      // limites (pontilhado), por fila (mudam entre curva e tangente)
-      const limF = new Array(filas + 1);
+      // limites (pontilhado) de cada nível, por fila (mudam entre curva e tangente); fora da escala não aparecem
+      const elF = new Array(filas + 1);
       for (let i = i0; i <= i1; i++) {
         const f = Math.max(0, Math.min(filas, Math.round(yDe(i))));
-        if (!limF[f]) limF[f] = lims[tipoLim(i)] || 'nenhum';
+        if (!elF[f]) elF[f] = tipoLim(i);
       }
-      ['sup', 'inf'].forEach((lado) => {
+      NIVEIS.forEach((nv) => ['sup', 'inf'].forEach((lado) => {
         let d = ''; let aberto = false;
         for (let f = 0; f <= filas; f++) {
-          const l = limF[f];
-          if (!l) continue;
-          if (l === 'nenhum') { aberto = false; continue; }
+          if (!elF[f]) continue;
+          const l = lims[nv.id][elF[f]];
+          if (!l || !dentro(l[lado])) { aberto = false; continue; }
           d += `${aberto ? 'L' : 'M'}${xv(l[lado]).toFixed(1)},${f}`;
           aberto = true;
         }
-        if (d) svg.appendChild(s('path', { d, class: 'tc-limite' }));
-      });
+        if (d) svg.appendChild(s('path', { d, class: `tc-limite tc-limite-${nv.id}` }));
+      }));
       let algum = false;
       col.series.forEach((p) => {
         // KLD: só leituras válidas (|valor| < 60 mm), como na análise
@@ -6043,30 +6103,34 @@ window.App = window.App || {};
           const f = Math.max(0, Math.min(filas, Math.round(yDe(i))));
           if (Number.isNaN(minF[f]) || v < minF[f]) minF[f] = v;
           if (Number.isNaN(maxF[f]) || v > maxF[f]) maxF[f] = v;
-          const lim = lims[tipoLim(i)];
-          if (lim && (v > lim.sup || v < lim.inf)) { exc[f] = 1; excessoGeral[f] = 1; }
+          const g = grauExcesso(lims, tipoLim(i), v);
+          if (g > exc[f]) exc[f] = g;
+          if (g > excessoGeral[f]) excessoGeral[f] = g;
         }
         // traçado: em cada fila, do mínimo ao máximo, ligado à fila seguinte;
         // o trecho que passa do limite fica vermelho
-        let d = ''; let dv = ''; let antes = false; let antesV = false;
+        let d = ''; let antes = false;
+        const dv = ['', '', '', '']; let antesV = 0;
         for (let f = 0; f <= filas; f++) {
-          if (Number.isNaN(minF[f])) { antes = false; antesV = false; continue; }
+          if (Number.isNaN(minF[f])) { antes = false; antesV = 0; continue; }
           const seg = `${xv(minF[f]).toFixed(1)},${f}L${xv(maxF[f]).toFixed(1)},${f}`;
           d += `${antes ? 'L' : 'M'}${seg}`;
           antes = true;
-          if (exc[f]) { dv += `${antesV ? 'L' : 'M'}${seg}`; antesV = true; } else antesV = false;
+          const g = exc[f];
+          if (g) { dv[g] += `${antesV === g ? 'L' : 'M'}${seg}`; antesV = g; } else antesV = 0;
         }
         if (d) svg.appendChild(s('path', { d, class: 'tc-sinal', stroke: p.cor }));
-        if (dv) svg.appendChild(s('path', { d: dv, class: 'tc-sinal tc-sinal-excesso' }));
+        NIVEIS.forEach((nv) => { if (dv[nv.grau]) svg.appendChild(s('path', { d: dv[nv.grau], class: `tc-sinal tc-sinal-excesso tc-exc-${nv.id}` })); });
       });
       if (!algum) svg.appendChild(s('text', { x: cx, y: 20, class: 'tc-sem', 'text-anchor': 'middle' }, 'sem dado'));
     });
     // coluna EX: excesso em qualquer parâmetro
     for (let f = 0; f <= filas; f++) {
-      if (!excessoGeral[f]) continue;
-      let g = f; while (g <= filas && excessoGeral[g]) g++;
-      svg.appendChild(s('rect', { x: COL_KM + 6, y: f, width: COL_EX - 10, height: Math.max(2, g - f), class: 'tc-ex' }));
-      f = g;
+      const grau = excessoGeral[f];
+      if (!grau) continue;
+      let g = f; while (g <= filas && excessoGeral[g] === grau) g++;
+      svg.appendChild(s('rect', { x: COL_KM + 6, y: f, width: COL_EX - 10, height: Math.max(2, g - f), class: `tc-ex tc-ex-${NIVEIS[grau - 1].id}` }));
+      f = g - 1;
     }
     svg.appendChild(s('g', { class: 'tc-cursor' }));
     ui.trocar(corpoEl, svg);
@@ -6130,34 +6194,40 @@ window.App = window.App || {};
     const linhas = PARAMETROS.filter((p) => p.grupo);
     const atual = {};
     linhas.forEach((p) => { atual[p.id] = JSON.parse(JSON.stringify(limitesDe(p, velocidade))); });
+    let nivel = 'restricao';
+    const caixa = h('div', { class: 'pilha' });
     const campo = (p, el, lado) => {
-      const lim = atual[p.id][el];
+      const lim = atual[p.id][nivel][el];
       return h('input', {
         type: 'text', inputmode: 'decimal', class: 'tc-lim-input', 'aria-label': `${p.nome} ${el === 'C' ? 'curva' : 'tangente'} ${lado === 'sup' ? 'superior' : 'inferior'}`,
         value: lim ? String(lim[lado]).replace('.', ',') : '',
         onchange: (e) => {
           const v = U.numero(e.target.value);
-          if (e.target.value.trim() === '') { atual[p.id][el] = null; return; }
+          if (e.target.value.trim() === '') { atual[p.id][nivel][el] = null; return; }
           if (v === null) { e.target.value = ''; return; }
-          const l = atual[p.id][el] || { sup: Math.abs(v), inf: -Math.abs(v) };
+          const l = atual[p.id][nivel][el] || { sup: Math.abs(v), inf: -Math.abs(v) };
           l[lado] = v;
-          atual[p.id][el] = l;
+          atual[p.id][nivel][el] = l;
         }
       });
     };
+    const render = () => ui.trocar(caixa,
+      h('div', { class: 'seg seg-compacto', role: 'group', 'aria-label': 'Nível do limite' },
+        NIVEIS.map((n) => h('button', { type: 'button', class: `seg-opcao tc-nivel-${n.id}${nivel === n.id ? ' ativo' : ''}`, onclick: () => { nivel = n.id; render(); } }, n.nome))),
+      h('p', { class: 'sub', text: `${NIVEIS.find((n) => n.id === nivel).nome}: valores em mm em relação à linha zero (bitola: em relação a 1000 mm; fechada 987 = −13). Em branco: sem limite.${nivel === 'restricao' ? ' Padrão: tabela EFVM 2026.' : ''}` }),
+      h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela tabela-centro tc-lim' },
+        h('thead', null,
+          h('tr', null, h('th', { text: 'Parâmetro', rowspan: 2 }), h('th', { text: 'Curva', colspan: 2 }), h('th', { text: 'Tangente', colspan: 2 })),
+          h('tr', null, ['Superior', 'Inferior', 'Superior', 'Inferior'].map((t) => h('th', { text: t })))),
+        h('tbody', null, linhas.map((p) => h('tr', null, h('td', { text: p.nome }),
+          h('td', null, campo(p, 'C', 'sup')), h('td', null, campo(p, 'C', 'inf')),
+          h('td', null, campo(p, 'T', 'sup')), h('td', null, campo(p, 'T', 'inf'))))))));
+    render();
     ui.modal({
       titulo: `Limites para ${velocidade} km/h`,
-      conteudo: h('div', { class: 'pilha' },
-        h('p', { class: 'sub', text: 'Valores em mm em relação ao zero do parâmetro (bitola: em relação a 1000 mm; fechada 987 = −13). Em branco: sem limite.' }),
-        h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela tabela-centro tc-lim' },
-          h('thead', null,
-            h('tr', null, h('th', { text: 'Parâmetro', rowspan: 2 }), h('th', { text: 'Curva', colspan: 2 }), h('th', { text: 'Tangente', colspan: 2 })),
-            h('tr', null, ['Superior', 'Inferior', 'Superior', 'Inferior'].map((t) => h('th', { text: t })))),
-          h('tbody', null, linhas.map((p) => h('tr', null, h('td', { text: p.nome }),
-            h('td', null, campo(p, 'C', 'sup')), h('td', null, campo(p, 'C', 'inf')),
-            h('td', null, campo(p, 'T', 'sup')), h('td', null, campo(p, 'T', 'inf')))))))),
+      conteudo: caixa,
       acoes: [
-        { texto: 'Restaurar tabela EFVM 2026', classe: 'btn-secundario', onClick: (fechar) => { delete edicoes[velocidade]; U.pref.set('telaCarro:limites', edicoes); fechar(); desenhar(); ui.toast('Limites da tabela EFVM 2026 restaurados.', 'ok'); } },
+        { texto: 'Restaurar tabela EFVM 2026', classe: 'btn-secundario', onClick: (fechar) => { delete edicoes[velocidade]; U.pref.set('telaCarro:limites', edicoes); fechar(); desenhar(); ui.toast('Limites da tabela EFVM 2026 restaurados (alerta e interdição em branco).', 'ok'); } },
         { texto: 'Salvar', classe: 'btn-primario', onClick: (fechar) => { edicoes[velocidade] = atual; U.pref.set('telaCarro:limites', edicoes); fechar(); desenhar(); ui.toast(`Limites para ${velocidade} km/h salvos.`, 'ok'); } }
       ]
     });
