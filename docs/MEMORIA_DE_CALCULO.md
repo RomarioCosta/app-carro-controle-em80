@@ -537,31 +537,22 @@ A compensação vale para:
 
 ## 17. Alertas de geometria (Montagem)
 
-**O que é.** A aba **"Alertas de geometria"** da Montagem lista os trechos em que os arquivos do ciclo passam dos limites, **só nos parâmetros de geometria da via**:
+**O que é.** A aba **"Alertas de geometria"** da Montagem lista os trechos em que os arquivos do ciclo passam dos limites da Tela do carro, **só nos parâmetros de geometria da via**:
 
 | Entra | Não entra |
 |---|---|
 | EMP_2 (empeno em 2 m) | Bitola F, Bitola T, KLD |
 | NLmax_5 (nivelamento) | ALv_B2,5 e demais alinhamentos |
 | EMP_10 (empeno em 10 m) | VrBTmax5 (variação de bitola) |
-| SUPerABS (superelevação, limite só na tangente) | 10000/R (raio) |
-
-**De onde vêm os limites.** Do arquivo `web/js/limites.js`, que tem a tabela EFVM 2026, os níveis e todos os textos. É o **mesmo cálculo da Tela do carro**:
-- a velocidade e os limites editados são os escolhidos na Tela do carro, em "Limites";
-- a aba de alertas não tem campo de velocidade próprio.
+| SUPerABS (superelevação, só na tangente) | 10000/R (raio) |
 
 **Como calcula.**
 
 1. Em cada metro do arquivo, o app pega o valor de **maior módulo** dos 4 pontos daquele metro.
-2. Com o km corrigido (itens 7 e 16), descobre onde o metro está na geometria:
-   - **curva** → limite da curva;
-   - **tangente** → limite da tangente;
-   - **RH (pátio, AMV)** → limite da tangente, igual à Tela do carro.
-3. Compara com os três níveis e fica o **maior** que passou: alerta, restrição ou interdição.
+2. Com o km corrigido (itens 7 e 16), descobre se o metro está numa **curva ou tangente** da geometria. No RH não há limite.
+3. Compara com os limites da velocidade escolhida (os mesmos da Tela do carro, item 14.2). Fica o **maior nível** passado: alerta, restrição ou interdição.
 4. Metros seguidos acima do limite (até 3 m de folga) viram **um alerta só**, com o maior valor.
 5. O recorte do arquivo é respeitado.
-
-**Coluna "Maior valor".** Para cada parâmetro, mostra o valor que chegou mais perto do limite de restrição (ou mais passou dele), com o % do limite, o elemento e o km. Serve para entender por que há poucos ou muitos alertas.
 
 **Exemplo (68 km/h, curva).**
 
@@ -574,55 +565,5 @@ A compensação vale para:
 | 320+104 | 9,0 | 10 | dentro |
 
 Vira **1 alerta**: EMP_2, 320+101 – 320+103, 3 m, valor **12,8**, limite 10, nível **Restrição**.
-- Maior valor: 12,8, ou seja, 128% do limite.
-- Se esse mesmo trecho fosse uma tangente, o limite seria 19, e 12,8 ficaria dentro (67% do limite).
-
-**Alerta e Interdição** começam em branco. Enquanto não forem preenchidos em "Limites", na Tela do carro, só aparece o nível Restrição (tabela EFVM 2026).
 
 Clicando no alerta, o arquivo roda na **Tela do carro** naquele km.
-
----
-
-## 18. Validação por EH completo (Montagem)
-
-### 18.1 A regra
-
-**Um arquivo só vale por EH inteiro.**
-
-- **Parou no meio de um EH** (erro do carro, fim do arquivo): o arquivo vale **até o fim da RH anterior**, que é o início desse EH. O EH quebrado fica para a próxima passada, que precisa cobrir o EH inteiro.
-- **Começou no meio de um EH:** o arquivo vale **a partir do fim desse EH**.
-- **As RH** entre os EH completos continuam valendo.
-
-### 18.2 Como o app verifica
-
-1. Com o km já corrigido pela geometria (item 7), o app vê por quais EH o arquivo passou e quanto de cada EH ele cobre.
-2. **EH completo:** o arquivo cobre o EH do início ao fim. Ele tolera:
-   - até **10 m** faltando nas pontas, pela precisão do km;
-   - buracos de até **30 m** no meio (pequenos saltos do km, que continuam aparecendo como buraco).
-3. **EH incompleto:** qualquer outro caso.
-4. **Trecho validado**, na ordem do arquivo: do primeiro EH completo até antes do primeiro EH incompleto que vier depois dele.
-5. **Erro do carro no km** (você digita o km do arquivo onde o carro deu erro): tudo depois desse ponto é descartado. O EH onde está o erro fica incompleto e o arquivo vale até o fim da RH anterior a ele.
-6. **O app não corta sozinho.** Ele mostra a sugestão em km do arquivo, e o botão **"Validar por EH completo"** aplica o recorte. Tem Desfazer.
-
-### 18.3 Na cobertura
-
-- **Pedaço de EH não conta como medido.** Na faixa, ele aparece em amarelo, como **EH incompleto**.
-- O cartão **"EH incompletos"** conta os EH que só têm pedaço de arquivo e nenhum arquivo inteiro.
-- Quando outro arquivo cobre o EH inteiro, o pedaço do primeiro é ignorado e o EH fica completo, sem sobreposição.
-
-### 18.4 Exemplo (RLT_PV de 20/10/2026)
-
-| EH | Coberto pelo arquivo | Situação |
-|---|---|---|
-| EH 01/03 | 42% (o arquivo começa em 12+674) | incompleto |
-| EH 03/06 a EH 10/11 | 99% a 100% | completos |
-| EH 11/12 | 17% (o arquivo termina em 51+243) | incompleto |
-
-**Sugestão do app:**
-- O arquivo começou no meio do EH 01/03: vale a partir do fim dele (14+772 na geometria).
-- Parou no meio do EH 11/12: vale até o fim da RH anterior (50+073 na geometria).
-- **Recorte sugerido** (km do arquivo): **14+768 até 50+058**.
-
-**Com erro do carro no km 40+000:** esse km está no EH 09/10, então o arquivo vale só até o fim da RH anterior a ele (36+936 na geometria). O recorte sugerido passa a ser **14+768 até 36+722**.
-
-A diferença entre o km do arquivo e o km da geometria (ex.: 50+058 × 50+073) é a correção do km do item 7.

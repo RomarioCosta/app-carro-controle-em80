@@ -882,10 +882,3 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-selo.mt-nivel-1 { background: var(--alerta-fundo); color: var(--alerta); }
 .mt-selo.mt-nivel-2 { background: var(--sup2); color: var(--texto); border: 1px solid var(--borda); }
 .mt-selo.mt-nivel-3 { background: var(--erro-fundo); color: var(--erro); }
-.mt-inc { fill: #f2c14e; }
-.mt-legenda i.mt-inc { background: #f2c14e; }
-.mt-inc-txt { color: var(--alerta); }
-.mt-ok-txt { color: var(--ok); }
-.mt-valida-pendente { border-color: var(--alerta); }
-.mt-erro-km { display: flex; flex-direction: column; gap: 4px; font-size: .82rem; color: var(--texto2); margin-left: auto; }
-.mt-texto { font-size: .88rem; }
