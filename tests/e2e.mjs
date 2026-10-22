@@ -600,6 +600,25 @@ async function main() {
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 
+    await passo('tela do carro: colunas por parâmetro, limites editáveis e reprodução', async () => {
+      await page.getByRole('navigation').getByRole('button', { name: 'Checklist' }).click();
+      await page.getByRole('tab', { name: 'Tela do carro' }).click();
+      await page.locator('.tc-svg').waitFor();
+      assert.equal(await page.locator('.tc-cab-cel.tc-cab-gira').count(), 12); // EX, T/E e 10 parâmetros
+      assert.ok(await page.locator('.tc-sinal').count() >= 9);
+      assert.ok((await page.locator('.tc-rodape').textContent()).includes('68 km/h (EFVM 2026)'));
+      await page.locator('.tc-controles').getByRole('button', { name: 'Limites' }).click();
+      await page.locator('.modal input[aria-label="Bitola F curva superior"]').fill('20');
+      await page.locator('.modal input[aria-label="Bitola F curva superior"]').dispatchEvent('change');
+      await page.locator('.modal').getByRole('button', { name: 'Salvar' }).click();
+      await page.getByText('Limites para 68 km/h salvos.').waitFor();
+      assert.ok((await page.locator('.tc-rodape').textContent()).includes('(editados)'));
+      await page.locator('.tc-controles').getByRole('button', { name: 'Reproduzir' }).click();
+      await page.locator('.tc-controles').getByRole('button', { name: 'Pausar' }).click();
+      await page.screenshot({ path: `${SAIDA}15-tela-carro.png`, fullPage: true });
+      await page.getByRole('tab', { name: 'Checklist' }).click();
+    });
+
     await passo('rota: programação dia a dia, ponto de atenção, execução e PDF', async () => {
       await page.getByRole('navigation').getByRole('button', { name: 'Rota' }).click();
       await page.getByRole('heading', { name: 'Rota do carro controle' }).waitFor();

@@ -61,7 +61,9 @@
       formEl,
       h('section', { class: 'cartao' }, h('h2', { text: 'Checklists recentes' }), listaEl));
     const parteAnalise = h('div', { class: 'tela tela-larga', hidden: true });
+    const parteTela = h('div', { class: 'tela tela-larga', hidden: true });
     let analiseMontada = false;
+    let telaMontada = false;
 
     // Duas abas: o checklist e a análise do arquivo gerado pelo carro.
     const abas = h('div', { class: 'seg seg-abas', role: 'tablist', 'aria-label': 'Checklist ou análise' });
@@ -69,23 +71,31 @@
       U.pref.set('checklist:aba', qual);
       parteChecklist.hidden = qual !== 'checklist';
       parteAnalise.hidden = qual !== 'analise';
-      if (qual === 'analise' && !analiseMontada) {
+      parteTela.hidden = qual !== 'tela';
+      // A Tela do carro usa o arquivo da Análise: monta a análise (escondida) se ainda não montou.
+      if ((qual === 'analise' || qual === 'tela') && !analiseMontada) {
         App.analise.montar(parteAnalise);
         analiseMontada = true;
       }
+      if (qual === 'tela' && !telaMontada) {
+        App.telaCarro.montar(parteTela);
+        telaMontada = true;
+      }
+      if (qual === 'tela') App.telaCarro.aoMostrar();
       abas.querySelectorAll('button').forEach((b) => {
         const ativo = b.dataset.aba === qual;
         b.classList.toggle('ativo', ativo);
         b.setAttribute('aria-selected', ativo ? 'true' : 'false');
       });
     };
-    [['checklist', 'Checklist'], ['analise', 'Análise do arquivo']].forEach(([id, rotulo]) => {
+    [['checklist', 'Checklist'], ['analise', 'Análise do arquivo'], ['tela', 'Tela do carro']].forEach(([id, rotulo]) => {
       abas.appendChild(h('button', { type: 'button', role: 'tab', class: 'seg-opcao', dataset: { aba: id }, onclick: () => mostrar(id) }, rotulo));
     });
 
-    raiz.append(abas, parteChecklist, parteAnalise);
+    raiz.append(abas, parteChecklist, parteAnalise, parteTela);
     renderForm();
-    mostrar(U.pref.get('checklist:aba', 'checklist') === 'analise' ? 'analise' : 'checklist');
+    const salva = U.pref.get('checklist:aba', 'checklist');
+    mostrar(['analise', 'tela'].includes(salva) ? salva : 'checklist');
   }
 
   function renderForm() {

@@ -181,3 +181,16 @@ Correção digitada em Critérios (um número) vale para o arquivo todo.
 - **Planilha de conferência (CSV para o Excel):** um ponto por linha, com KM, LOCALIZACAO, Linha, Bitola F, Bitola T, F − T (arredondada), **|F − T| (módulo)**, "Acima do limite" (1 = sim), Elemento, **Tipo** (Tangente, Curva ou Circuito), EH/RH e **"Na estatística"** (1 = sim).
   - Cartões: filtre **Na estatística = 1**. **Pontos** = quantidade de linhas; **pontos acima** = soma de "Acima do limite". Para "Em tangentes" / "Em curvas", filtre também o Tipo.
   - Um elemento (tabela de elementos): filtre a coluna Elemento; pontos = linhas com F − T preenchida (e Na estatística = 1, se ele atravessa um circuito); pontos acima = soma de "Acima do limite".
+
+## 14. Tela do carro
+
+- Mesmo arquivo da Análise do arquivo, com o km na vertical e uma coluna por parâmetro, nesta ordem: Bitola F, Bitola T, Bit_KLD, ALv_B2,5 (alinhamento), VrBTmax5 (variação de bitola em 5 m), EMP_2, NLmax_5, EMP_10, 10000/R (raio, sem limite) e SUPerABS (superelevação).
+- **Limites** da tabela "Parâmetros EFVM 2026 – bitola métrica", pela velocidade escolhida (15 a 68 km/h). Quando a tabela dá uma faixa ("22 a 28"), vale o menor valor.
+  - Bitola (F, T e KLD): superior = bitola estática aberta (ex.: 1031 a 68 km/h → +31); inferior = fechada 987 (−13).
+  - EMP_2: curva e tangente têm limites diferentes; a linha do limite muda quando o elemento muda.
+  - SUPerABS: limite do nivelamento transversal máximo, só nas tangentes.
+  - 10000/R: sem limite.
+- Os limites podem ser editados em **Limites** (por velocidade; em branco = sem limite) e voltam à tabela com "Restaurar tabela EFVM 2026".
+- **Excesso**: valor acima do superior ou abaixo do inferior. Fica marcado com uma caixa vermelha na coluna, e a coluna EX fica vermelha onde algum parâmetro passa do limite.
+- Coluna **T/E**: tangente (linha preta), curva (barra azul), RH (barra cinza) e eventos do arquivo (TRAV em roxo).
+- **Reproduzir**: a tela rola na velocidade escolhida, como o carro andando.
