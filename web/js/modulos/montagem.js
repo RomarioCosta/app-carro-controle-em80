@@ -168,7 +168,7 @@
     linha.sedes.filter(dentro).forEach((s) => s.cobertos.forEach(([a, b]) => { if (b > ini && a < fim) el.appendChild(svg('rect', { x: x(Math.max(a, ini)), y: 2, width: larg(Math.max(a, ini), Math.min(b, fim)), height: 10, class: 'mt-cob' })); }));
     // buraco em vermelho só nas sedes que já têm arquivo; nas outras o trecho todo é "falta medir"
     linha.buracos.filter((b) => b.fim > ini && b.ini < fim && linha.sedes.some((s) => s.sede === b.sede && s.coberto > 0))
-      .forEach((b) => el.appendChild(svg('rect', { x: x(Math.max(b.ini, ini)), y: 2, width: larg(Math.max(b.ini, ini), Math.min(b.fim, fim)), height: 10, class: 'mt-bur' })));
+      .forEach((b) => el.appendChild(svg('rect', { x: x(Math.max(b.ini, ini)), y: 2, width: larg(Math.max(b.ini, ini), Math.min(b.fim, fim)), height: 10, class: b.ehIncompleto ? 'mt-inc' : 'mt-bur' })));
     linha.sobreposicoes.filter((o) => o.fim > ini && o.ini < fim).forEach((o) => el.appendChild(svg('rect', { x: x(Math.max(o.ini, ini)), y: 0, width: larg(Math.max(o.ini, ini), Math.min(o.fim, fim)), height: 3, class: 'mt-sob' })));
     if (!divisas) return el;
     // nomes das sedes em HTML (o SVG é esticado na largura e deformaria o texto)
@@ -179,7 +179,6 @@
       rotulos.appendChild(h('span', { style: `left:${xa / 10}%;width:${(xb - xa) / 10}%`, text: C().normSede(s.sede), title: `${s.sede} ${km(s.ini)} – ${km(s.fim)}` }));
     });
     return h('div', { class: 'mt-faixa-caixa' }, el, rotulos);
-    return el;
   }
 
   /* ---------------- Telas ---------------- */
@@ -215,6 +214,7 @@
     const bur = linhas.reduce((s, l) => s + l.buracos.filter((b) => l.sedes.find((x) => x.sede === b.sede && x.coberto > 0)).length, 0);
     const sob = linhas.reduce((s, l) => s + l.sobreposicoes.length, 0);
     const div = linhas.reduce((s, l) => s + l.fronteiras.filter((f) => f.situacao === 'buraco').length, 0);
+    const inc = linhas.reduce((s, l) => s + (l.incompletos || []).length, 0);
     const kpi = (titulo, valor, sub, classe = '') => h('div', { class: `kpi ${classe}` }, h('div', { class: 'kpi-titulo', text: titulo }), h('div', { class: 'kpi-valor', text: valor }), sub ? h('div', { class: 'kpi-sub', text: sub }) : null);
     const pct = nec ? (cob / nec) * 100 : 0;
     return h('div', { class: 'kpis kpis-auto' },
@@ -222,6 +222,7 @@
         h('div', { class: 'kpi-barra' }, h('span', { style: `width:${Math.min(100, pct)}%` })), h('div', { class: 'kpi-sub', text: `${kmTxt(cob)} de ${kmTxt(nec)}` })),
       kpi('Falta medir', kmTxt(Math.max(0, nec - cob)), 'pela geometria'),
       kpi('Buracos', String(bur), 'entre arquivos', bur ? 'kpi-ruim' : ''),
+      kpi('EH incompletos', String(inc), 'só pedaço de arquivo: precisa de passada', inc ? 'kpi-ruim' : ''),
       kpi('Divisas abertas', String(div), 'sede não encosta na vizinha', div ? 'kpi-ruim' : ''),
       kpi('Sobreposições', String(sob), 'trecho em 2 arquivos', sob ? 'kpi-atencao' : ''));
   }
@@ -260,8 +261,9 @@
       if (aberto) {
         const itens = [];
         s.arquivos.forEach((n) => itens.push(h('li', null, ui.icone('documento'), h('span', { text: n }))));
-        buracos.forEach((b) => itens.push(h('li', { class: 'mt-erro-txt' }, h('span', { text: `Buraco ${km(b.ini)} – ${km(b.fim)} (${mTxt(b.fim - b.ini)}) · ${b.eh}${onde(b)}` }))));
+        buracos.filter((b) => !b.ehIncompleto).forEach((b) => itens.push(h('li', { class: 'mt-erro-txt' }, h('span', { text: `Buraco ${km(b.ini)} – ${km(b.fim)} (${mTxt(b.fim - b.ini)}) · ${b.eh}${onde(b)}` }))));
         s.sobreposicoes.forEach((o) => itens.push(h('li', { class: 'mt-atencao-txt' }, h('span', { text: `Medido 2× ${km(o.ini)} – ${km(o.fim)} (${mTxt(o.fim - o.ini)}): ${o.arquivos.join(' e ')}. Recorte um dos arquivos.` }))));
+        (s.incompletos || []).forEach((e) => itens.push(h('li', { class: 'mt-inc-txt', text: `EH incompleto: ${e.nome} (${km(e.ini)} – ${km(e.fim)}) · só ${Math.round(e.pct)}% em ${e.arquivos.join(', ')}. Não conta como medido: precisa de uma passada no EH inteiro.` })));
         if (!s.arquivos.length) itens.push(h('li', { class: 'mt-sub', text: 'Nenhum arquivo desta sede ainda.' }));
         linhasTabela.push(h('tr', { class: 'mt-detalhe' }, h('td', { colspan: 7 }, h('ul', { class: 'mt-lista' }, itens))));
       }
@@ -269,7 +271,7 @@
     return h('section', { class: 'cartao pilha' },
       h('div', { class: 'mt-linha-cab' }, h('h2', { text: `Linha ${l.linha}` }), h('span', { class: 'mt-sub', text: `${pctTxt(l.pct)} · falta ${kmTxt(Math.max(0, l.necessario - l.coberto))} de ${kmTxt(l.necessario)}` })),
       faixa(l, ini, fim),
-      h('div', { class: 'mt-legenda' }, ['mt-cob:Medido', 'mt-bur:Buraco', 'mt-sob:Medido 2×', 'mt-nec:Falta medir'].map((x) => { const [c, t] = x.split(':'); return h('span', null, h('i', { class: c }), t); })),
+      h('div', { class: 'mt-legenda' }, ['mt-cob:Medido', 'mt-bur:Buraco', 'mt-inc:EH incompleto', 'mt-sob:Medido 2×', 'mt-nec:Falta medir'].map((x) => { const [c, t] = x.split(':'); return h('span', null, h('i', { class: c }), t); })),
       h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela' },
         h('thead', null, h('tr', null, ['Sede', 'Trecho', 'Medido', 'Falta', 'Buracos', 'Arquivos', 'Divisa'].map((t) => h('th', { text: t })))),
         h('tbody', null, linhasTabela))));
@@ -316,13 +318,16 @@
             h('span', { class: `mt-ponto ${erros ? 'mt-erro' : alertas ? 'mt-alerta' : 'mt-ok'}` }),
             h('strong', { text: a.nome }),
             h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}` }),
-            a.antigo ? h('span', { class: 'mt-cont', text: 'adicionar de novo' }) : r.compensaveis.some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${r.compensaveis.filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
+            a.antigo ? h('span', { class: 'mt-cont', text: 'adicionar de novo' })
+              : validacaoPendente(a) ? h('span', { class: 'mt-cont', text: 'EH incompleto: validar' })
+              : r.compensaveis.some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${r.compensaveis.filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
               : avisos.length ? h('span', { class: 'mt-cont', text: `${avisos.length} aviso(s)` }) : null),
           h('div', { class: 'pilha mt-arquivo-corpo' },
             h('p', { class: 'mt-sub', text: `Caiu em: ${ondeCaiu || '—'} · correção do km pela geometria ${Math.round(r.correcao.min)} a ${Math.round(r.correcao.max)} m · ${r.correcao.casadas}/${r.correcao.curvas} curvas casadas` }),
             avisos.length ? h('ul', { class: 'mt-lista' }, avisos.map((x) => h('li', { class: x.tipo === 'erro' ? 'mt-erro-txt' : x.tipo === 'alerta' ? 'mt-atencao-txt' : 'mt-sub', text: x.texto }))) : h('p', { class: 'mt-sub', text: 'Sem inconsistências.' }),
             a.antigo ? h('div', { class: 'aviso' }, 'Adicionado numa versão anterior: sem o ajuste do km (Compensar) e sem a Tela do carro. ',
               h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => reAdicionar(a) }, ui.icone('upload'), 'Adicionar de novo')) : null,
+            blocoValidacao(a),
             r.compensaveis.length ? listaCompensaveis(a) : null,
             h('div', { class: 'linha-acoes' },
               h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
@@ -331,6 +336,64 @@
               ui.campo('Até o km', campoKm(a.recorte && a.recorte.ate, (v) => mudarRecorte('ate', v), 'fim')),
               h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-fantasma', onclick: () => remover(a) }, ui.icone('lixo'), 'Remover')))));
       }));
+  }
+
+  /* ---------------- Validação por EH completo ---------------- */
+
+  const cacheValidacao = new WeakMap(); // resumo → { chave, v }
+  function validacao(a) {
+    const chave = String(a.erroKm ?? '');
+    const c = cacheValidacao.get(a.resumo);
+    if (c && c.chave === chave) return c.v;
+    const v = C().validacaoDoArquivo(planta, a.resumo, a.erroKm ?? null);
+    cacheValidacao.set(a.resumo, { chave, v });
+    return v;
+  }
+  const recorteIgual = (a, s) => a.recorte && s && Math.abs((a.recorte.de ?? -1e12) - s.de) < 1.5 && Math.abs((a.recorte.ate ?? 1e12) - s.ate) < 1.5;
+  /** Arquivo com EH incompleto e o recorte sugerido ainda não aplicado. */
+  function validacaoPendente(a) {
+    if (a.antigo || !planta) return false;
+    const s = validacao(a).sugestao;
+    return !!(s && !s.inteiro && !recorteIgual(a, s));
+  }
+
+  function blocoValidacao(a) {
+    if (a.antigo) return null;
+    const v = validacao(a);
+    const s = v.sugestao;
+    const completos = v.ehs.filter((e) => e.completo);
+    const incompletos = v.ehs.filter((e) => !e.completo);
+    const aplicado = s && !s.inteiro && recorteIgual(a, s);
+    const linhas = [];
+    linhas.push(h('div', { class: 'mt-sub', text: `EH completos: ${completos.length ? completos.map((e) => e.nome).join(', ') : 'nenhum'}${incompletos.length ? ` · incompletos: ${incompletos.map((e) => `${e.nome} (${Math.round(e.pct)}%)`).join(', ')}` : ''}` }));
+    if (!s) {
+      linhas.push(h('div', { class: 'mt-erro-txt', text: 'Nenhum EH completo neste arquivo: nada dele vale para a montagem.' }));
+    } else if (s.inteiro) {
+      linhas.push(h('div', { class: 'mt-ok-txt', text: '✓ O arquivo só tem EH inteiros: vale todo.' }));
+    } else {
+      if (s.cortadoIni) linhas.push(h('div', { class: 'mt-texto', text: `Começou no meio do ${s.cortadoIni.nome}: vale a partir do fim dele (${km(s.geoIni)} na geometria).` }));
+      if (s.cortadoFim) linhas.push(h('div', { class: 'mt-texto', text: `${s.erro ? `Erro do carro no km ${km(a.erroKm)} (km do arquivo), no meio do ${s.cortadoFim.nome}` : `Parou no meio do ${s.cortadoFim.nome}`}: vale até o fim da RH anterior (${km(s.geoFim)} na geometria). O ${s.cortadoFim.nome} fica para a próxima passada.` }));
+      if (s.depois && s.depois.length) linhas.push(h('div', { class: 'mt-atencao-txt', text: `Depois do corte ainda há EH completos (${s.depois.join(', ')}). Com um recorte só eles ficam de fora: use outro arquivo para eles.` }));
+      linhas.push(h('div', { class: 'mt-sub', text: `Recorte sugerido (km do arquivo): ${km(s.de)} até ${km(s.ate)}.` }));
+    }
+    const erroInput = h('input', {
+      type: 'text', inputmode: 'decimal', class: 'mt-km', placeholder: 'ex.: 323+400', 'aria-label': 'Erro do carro no km',
+      value: a.erroKm === null || a.erroKm === undefined ? '' : km(a.erroKm),
+      onchange: async (e) => {
+        const t = e.target.value.trim();
+        const m = t ? B().kmParaMetros(t) : null;
+        if (t && (m === null || Number.isNaN(m))) { ui.toast('Km inválido. Use 323+400.', 'erro'); return; }
+        a.erroKm = m; await gravar(); render();
+      }
+    });
+    return h('div', { class: `pilha mt-comp ${s && !s.inteiro && !aplicado ? 'mt-valida-pendente' : ''}` },
+      h('strong', { text: 'Validação por EH completo' }),
+      linhas,
+      h('div', { class: 'linha-acoes' },
+        s && !s.inteiro ? (aplicado
+          ? h('span', null, h('span', { class: 'mt-selo mt-ok', text: '✓ Validado por EH completo' }), ' ', h('button', { class: 'btn btn-fantasma btn-pequeno', onclick: async () => { a.recorte = null; await gravar(); render(); } }, 'Desfazer'))
+          : h('button', { class: 'btn btn-primario btn-pequeno', onclick: async () => { a.recorte = { de: s.de, ate: s.ate }; await gravar(); ui.toast(`Validado por EH completo: ${km(s.de)} até ${km(s.ate)} (km do arquivo).`, 'ok'); render(); } }, 'Validar por EH completo')) : null,
+        h('label', { class: 'tc-campo mt-erro-km' }, h('span', { text: 'Erro do carro no km (km do arquivo)' }), erroInput)));
   }
 
   /* ---------------- Compensação de saltos e voltas do km ---------------- */
