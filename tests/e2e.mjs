@@ -701,6 +701,7 @@ async function main() {
       const salto = page.locator('.mt-arquivo', { hasText: 'SALTO.csv' });
       await salto.locator('summary').click();
       await salto.locator('.mt-comp-item', { hasText: 'buraco de 3,00 m (12 pontos)' }).waitFor();
+      await salto.locator('strong', { hasText: 'Validação por EH completo' }).waitFor();
       assert.ok((await salto.locator('.mt-comp-item').textContent()).includes('1.200 pontos'));
       await salto.getByRole('button', { name: 'Compensar' }).click();
       await page.getByText('Compensado:').waitFor();

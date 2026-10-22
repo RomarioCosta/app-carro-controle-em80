@@ -567,3 +567,49 @@ A compensação vale para:
 Vira **1 alerta**: EMP_2, 320+101 – 320+103, 3 m, valor **12,8**, limite 10, nível **Restrição**.
 
 Clicando no alerta, o arquivo roda na **Tela do carro** naquele km.
+
+---
+
+## 18. Validação por EH completo (Montagem)
+
+### 18.1 A regra
+
+**Um arquivo só vale por EH inteiro.**
+
+- **Parou no meio de um EH** (erro do carro, fim do arquivo): o arquivo vale **até o fim da RH anterior**, que é o início desse EH. O EH quebrado fica para a próxima passada, que precisa cobrir o EH inteiro.
+- **Começou no meio de um EH:** o arquivo vale **a partir do fim desse EH**.
+- **As RH** entre os EH completos continuam valendo.
+
+### 18.2 Como o app verifica
+
+1. Com o km já corrigido pela geometria (item 7), o app vê por quais EH o arquivo passou e quanto de cada EH ele cobre.
+2. **EH completo:** o arquivo cobre o EH do início ao fim. Ele tolera:
+   - até **10 m** faltando nas pontas, pela precisão do km;
+   - buracos de até **30 m** no meio (pequenos saltos do km, que continuam aparecendo como buraco).
+3. **EH incompleto:** qualquer outro caso.
+4. **Trecho validado**, na ordem do arquivo: do primeiro EH completo até antes do primeiro EH incompleto que vier depois dele.
+5. **Erro do carro no km** (você digita o km do arquivo onde o carro deu erro): tudo depois desse ponto é descartado. O EH onde está o erro fica incompleto e o arquivo vale até o fim da RH anterior a ele.
+6. **O app não corta sozinho.** Ele mostra a sugestão em km do arquivo, e o botão **"Validar por EH completo"** aplica o recorte. Tem Desfazer.
+
+### 18.3 Na cobertura
+
+- **Pedaço de EH não conta como medido.** Na faixa, ele aparece em amarelo, como **EH incompleto**.
+- O cartão **"EH incompletos"** conta os EH que só têm pedaço de arquivo e nenhum arquivo inteiro.
+- Quando outro arquivo cobre o EH inteiro, o pedaço do primeiro é ignorado e o EH fica completo, sem sobreposição.
+
+### 18.4 Exemplo (RLT_PV de 20/10/2026)
+
+| EH | Coberto pelo arquivo | Situação |
+|---|---|---|
+| EH 01/03 | 42% (o arquivo começa em 12+674) | incompleto |
+| EH 03/06 a EH 10/11 | 99% a 100% | completos |
+| EH 11/12 | 17% (o arquivo termina em 51+243) | incompleto |
+
+**Sugestão do app:**
+- O arquivo começou no meio do EH 01/03: vale a partir do fim dele (14+772 na geometria).
+- Parou no meio do EH 11/12: vale até o fim da RH anterior (50+073 na geometria).
+- **Recorte sugerido** (km do arquivo): **14+768 até 50+058**.
+
+**Com erro do carro no km 40+000:** esse km está no EH 09/10, então o arquivo vale só até o fim da RH anterior a ele (36+936 na geometria). O recorte sugerido passa a ser **14+768 até 36+722**.
+
+A diferença entre o km do arquivo e o km da geometria (ex.: 50+058 × 50+073) é a correção do km do item 7.
