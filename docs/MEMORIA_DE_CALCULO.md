@@ -537,22 +537,31 @@ A compensação vale para:
 
 ## 17. Alertas de geometria (Montagem)
 
-**O que é.** A aba **"Alertas de geometria"** da Montagem lista os trechos em que os arquivos do ciclo passam dos limites da Tela do carro, **só nos parâmetros de geometria da via**:
+**O que é.** A aba **"Alertas de geometria"** da Montagem lista os trechos em que os arquivos do ciclo passam dos limites, **só nos parâmetros de geometria da via**:
 
 | Entra | Não entra |
 |---|---|
 | EMP_2 (empeno em 2 m) | Bitola F, Bitola T, KLD |
 | NLmax_5 (nivelamento) | ALv_B2,5 e demais alinhamentos |
 | EMP_10 (empeno em 10 m) | VrBTmax5 (variação de bitola) |
-| SUPerABS (superelevação, só na tangente) | 10000/R (raio) |
+| SUPerABS (superelevação, limite só na tangente) | 10000/R (raio) |
+
+**De onde vêm os limites.** Do arquivo `web/js/limites.js`, que tem a tabela EFVM 2026, os níveis e todos os textos. É o **mesmo cálculo da Tela do carro**:
+- a velocidade e os limites editados são os escolhidos na Tela do carro, em "Limites";
+- a aba de alertas não tem campo de velocidade próprio.
 
 **Como calcula.**
 
 1. Em cada metro do arquivo, o app pega o valor de **maior módulo** dos 4 pontos daquele metro.
-2. Com o km corrigido (itens 7 e 16), descobre se o metro está numa **curva ou tangente** da geometria. No RH não há limite.
-3. Compara com os limites da velocidade escolhida (os mesmos da Tela do carro, item 14.2). Fica o **maior nível** passado: alerta, restrição ou interdição.
+2. Com o km corrigido (itens 7 e 16), descobre onde o metro está na geometria:
+   - **curva** → limite da curva;
+   - **tangente** → limite da tangente;
+   - **RH (pátio, AMV)** → limite da tangente, igual à Tela do carro.
+3. Compara com os três níveis e fica o **maior** que passou: alerta, restrição ou interdição.
 4. Metros seguidos acima do limite (até 3 m de folga) viram **um alerta só**, com o maior valor.
 5. O recorte do arquivo é respeitado.
+
+**Coluna "Maior valor".** Para cada parâmetro, mostra o valor que chegou mais perto do limite de restrição (ou mais passou dele), com o % do limite, o elemento e o km. Serve para entender por que há poucos ou muitos alertas.
 
 **Exemplo (68 km/h, curva).**
 
@@ -565,6 +574,10 @@ A compensação vale para:
 | 320+104 | 9,0 | 10 | dentro |
 
 Vira **1 alerta**: EMP_2, 320+101 – 320+103, 3 m, valor **12,8**, limite 10, nível **Restrição**.
+- Maior valor: 12,8, ou seja, 128% do limite.
+- Se esse mesmo trecho fosse uma tangente, o limite seria 19, e 12,8 ficaria dentro (67% do limite).
+
+**Alerta e Interdição** começam em branco. Enquanto não forem preenchidos em "Limites", na Tela do carro, só aparece o nível Restrição (tabela EFVM 2026).
 
 Clicando no alerta, o arquivo roda na **Tela do carro** naquele km.
 

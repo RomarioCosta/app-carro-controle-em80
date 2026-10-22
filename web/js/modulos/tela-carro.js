@@ -11,73 +11,12 @@
   const { h } = ui;
   const NS = 'http://www.w3.org/2000/svg';
 
-  /* ---------------- Limites (Parâmetros EFVM 2026 – bitola métrica) ---------------- */
+  /* ---------------- Limites: módulo central (js/limites.js) ---------------- */
 
-  /** Velocidades da tabela (km/h). */
-  const VELOCIDADES = [15, 20, 30, 35, 40, 45, 50, 60, 68];
-  /**
-   * Limites em mm por velocidade (mesma ordem de VELOCIDADES), por elemento (curva/tangente).
-   * Faixas da tabela ("22 a 28") usam o menor valor. null = sem limite.
-   * Bitola: superior = aberta (1000 + valor), inferior = fechada (987 → −13).
-   */
-  const TABELA = {
-    bitola: { curva: [35, 33, 32, 32, 32, 32, 32, 32, 31], tangente: [35, 33, 32, 32, 32, 32, 32, 32, 31], inferior: -13 },
-    alinhamento: { curva: [31, 28, 26, 25, 24, 22, 20, 18, 17], tangente: [31, 28, 26, 25, 24, 22, 20, 18, 17] },
-    variacao: { curva: [34, 33, 32, 32, 30, 29, 25, 23, 22], tangente: [34, 33, 32, 32, 30, 29, 25, 23, 22] },
-    empeno2: { curva: [18, 17, 16, 15, 14, 13, 12, 11, 10], tangente: [47, 40, 28, 35, 32, 30, 24, 20, 19] },
-    nivelamento5: { curva: [28, 22, 22, 22, 21, 21, 21, 21, 21], tangente: [28, 22, 22, 22, 21, 21, 21, 21, 21] },
-    empeno10: { curva: [39, 38, 38, 38, 33, 32, 32, 32, 31], tangente: [39, 38, 38, 38, 33, 32, 32, 32, 31] },
-    // superelevação = nivelamento transversal; o limite vale só na tangente
-    superelevacao: { curva: null, tangente: [48, 39, 36, 33, 32, 31, 30, 28, 27] }
-  };
-
-  /** Colunas na ordem pedida. escala = meio da largura da coluna (mm). */
-  const PARAMETROS = [
-    { id: 'bitF', nome: 'Bitola F', campo: 'bitF', grupo: 'bitola', cor: '#16a34a', escala: 40 },
-    { id: 'bitT', nome: 'Bitola T', campo: 'bitT', grupo: 'bitola', cor: '#1d4ed8', escala: 40 },
-    { id: 'kld', nome: 'Bit_KLD', campo: 'kld', grupo: 'bitola', cor: '#c026d3', escala: 40 },
-    { id: 'val25', nome: 'ALv_B2,5', campo: 'val25', grupo: 'alinhamento', cor: '#1d4ed8', escala: 40 },
-    { id: 'vrbt5', nome: 'VrBTmax5', campo: 'vrbt5', grupo: 'variacao', cor: '#1d4ed8', escala: 40 },
-    { id: 'emp2', nome: 'EMP_2', campo: 'emp2', grupo: 'empeno2', cor: '#1d4ed8', escala: 50 },
-    { id: 'nl5', nome: 'NLmax_5', campo: 'nl5', grupo: 'nivelamento5', cor: '#1d4ed8', escala: 40 },
-    { id: 'emp10', nome: 'EMP_10', campo: 'emp10', grupo: 'empeno10', cor: '#1d4ed8', escala: 50 },
-    { id: 'curv', nome: '10000/R', campo: 'curv', grupo: null, cor: '#334155', escala: 45 },
-    { id: 'sup', nome: 'SUPerABS', campo: 'sup', grupo: 'superelevacao', cor: '#16a34a', escala: 110 }
-  ];
-
-  /** Limites padrão de um parâmetro numa velocidade: { C: { sup, inf } | null, T: … }. */
-  function limitesPadrao(p, vel) {
-    const t = p.grupo && TABELA[p.grupo];
-    if (!t) return { C: null, T: null };
-    const k = Math.max(0, VELOCIDADES.indexOf(Number(vel)));
-    const lim = (lista) => {
-      if (!lista || lista[k] === null || lista[k] === undefined) return null;
-      return { sup: lista[k], inf: t.inferior !== undefined ? t.inferior : -lista[k] };
-    };
-    return { C: lim(t.curva), T: lim(t.tangente) };
-  }
-
-  /** Níveis de limite. A tabela EFVM 2026 preenche a Restrição; Alerta e Interdição são preenchidos à mão. */
-  const NIVEIS = [
-    { id: 'alerta', nome: 'Alerta', grau: 1 },
-    { id: 'restricao', nome: 'Restrição', grau: 2 },
-    { id: 'interdicao', nome: 'Interdição', grau: 3 }
-  ];
-  let edicoes = U.pref.get('telaCarro:limites', {}) || {}; // { [vel]: { [param]: { alerta, restricao, interdicao } } }
-  /** Limites de um parâmetro: { alerta: { C, T }, restricao: { C, T }, interdicao: { C, T } }. */
-  function limitesDe(p, vel) {
-    const e = edicoes[vel] && edicoes[vel][p.id];
-    const padrao = { alerta: { C: null, T: null }, restricao: limitesPadrao(p, vel), interdicao: { C: null, T: null } };
-    if (!e) return padrao;
-    if (e.C !== undefined || e.T !== undefined) return { ...padrao, restricao: { C: e.C, T: e.T } }; // formato antigo
-    return { alerta: e.alerta || padrao.alerta, restricao: e.restricao || padrao.restricao, interdicao: e.interdicao || padrao.interdicao };
-  }
-  /** Grau do excesso do valor v (0 = dentro; 1 alerta; 2 restrição; 3 interdição). */
-  function grauExcesso(lims, el, v) {
-    let g = 0;
-    NIVEIS.forEach((n) => { const l = lims[n.id][el]; if (l && (v > l.sup || v < l.inf)) g = Math.max(g, n.grau); });
-    return g;
-  }
+  const Lm = App.limites;
+  const { VELOCIDADES, PARAMETROS, NIVEIS } = Lm;
+  const limitesDe = Lm.de;
+  const grauExcesso = Lm.grau;
 
   /** Escala de cada coluna (meia largura, em mm): automática pelo arquivo, com zoom − / +. */
   let zoom = U.pref.get('telaCarro:zoom', {}) || {};
@@ -96,7 +35,7 @@
   let resultado = null;
   let nomeArquivo = '';
   let prep = null; // dados preparados do arquivo
-  let velocidade = Number(U.pref.get('telaCarro:velocidade', 68));
+  let velocidade = Lm.velocidade();
   let janela = Number(U.pref.get('telaCarro:janela', 500)); // metros visíveis
   let fator = Number(U.pref.get('telaCarro:fator', 1)); // velocidade da reprodução: 1×, 2×, 3×…
   const BASE_MS = 10; // 1× = 10 m/s de arquivo por segundo
@@ -160,7 +99,7 @@
     document.addEventListener('em80:analise', () => { if (raiz && raiz.offsetParent) carregar(); });
   }
 
-  function aoMostrar() { carregar(); atualizarMontagem(); }
+  function aoMostrar() { velocidade = Lm.velocidade(); carregar(); atualizarMontagem(); }
 
   /* ---------------- Arquivos da Montagem ---------------- */
 
@@ -403,7 +342,7 @@
         h('div', { class: 'tc-campo' }, h('span', { text: 'Ir para o km' }),
           h('div', { class: 'linha-campo' }, kmInput, h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', onclick: () => irParaKm(kmInput.value) }, 'Ir'))),
         sel(janela, [[250, '250 m'], [500, '500 m'], [1000, '1.000 m'], [2000, '2.000 m']], (v) => { janela = v; U.pref.set('telaCarro:janela', v); if (prep) { topo = revelado - janela; desenhar(); } }, 'Trecho na tela'),
-        sel(velocidade, VELOCIDADES.map((v) => [v, `${v} km/h`]), (v) => { velocidade = v; U.pref.set('telaCarro:velocidade', v); desenhar(); }, 'Limites para'),
+        sel(velocidade, VELOCIDADES.map((v) => [v, `${v} km/h`]), (v) => { velocidade = v; Lm.mudarVelocidade(v); desenhar(); }, 'Limites para'),
         sel(fator, [1, 2, 3, 5, 10, 20].map((v) => [v, `${v}×`]), (v) => { fator = v; U.pref.set('telaCarro:fator', v); }, 'Velocidade'),
         h('div', { class: 'tc-botoes' },
           h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', title: 'Voltar um trecho', disabled: !prep, onclick: () => mover(-janela * 0.8) }, '▲'),
@@ -647,7 +586,7 @@
         par('FERROVIA', 'EFVM'), par('RAMAL', m.ramal), par('CORRETIVA', m.corretiva),
         par('LINHA', App.bitola.linhaDoTrecho(arquivo, i, i)), par('DATA', m.data), par('INSPETOR', m.inspetor),
         par('ARQUIVO', nomeArquivo), par('ELEMENTO', e ? [e.trecho || e.eh, e.tipo === 'X' ? 'RH' : e.sigla].filter(Boolean).join(' · ') : ''),
-        par('LIMITES', `${velocidade} km/h${edicoes[velocidade] ? ' (editados)' : ' (EFVM 2026)'}`)));
+        par('LIMITES', `${velocidade} km/h (${Lm.editados(velocidade) ? Lm.TEXTOS.editados : Lm.TEXTOS.tabela})`)));
   }
 
   /* ---------------- Edição dos limites ---------------- */
@@ -689,25 +628,15 @@
       titulo: `Limites para ${velocidade} km/h`,
       conteudo: caixa,
       acoes: [
-        { texto: 'Restaurar tabela EFVM 2026', classe: 'btn-secundario', onClick: (fechar) => { delete edicoes[velocidade]; U.pref.set('telaCarro:limites', edicoes); fechar(); desenhar(); ui.toast('Limites da tabela EFVM 2026 restaurados (alerta e interdição em branco).', 'ok'); } },
-        { texto: 'Salvar', classe: 'btn-primario', onClick: (fechar) => { edicoes[velocidade] = atual; U.pref.set('telaCarro:limites', edicoes); fechar(); desenhar(); ui.toast(`Limites para ${velocidade} km/h salvos.`, 'ok'); } }
+        { texto: 'Restaurar tabela EFVM 2026', classe: 'btn-secundario', onClick: (fechar) => { Lm.salvarEdicoes(velocidade, null); fechar(); desenhar(); ui.toast('Limites da tabela EFVM 2026 restaurados (alerta e interdição em branco).', 'ok'); } },
+        { texto: 'Salvar', classe: 'btn-primario', onClick: (fechar) => { Lm.salvarEdicoes(velocidade, atual); fechar(); desenhar(); ui.toast(`Limites para ${velocidade} km/h salvos.`, 'ok'); } }
       ]
     });
   }
 
-  /** Níveis de limite de um parâmetro (id) num elemento ('C' curva / 'T' tangente), na velocidade escolhida na tela. */
-  function niveisLimite(id, el, vel = velocidade) {
-    const p = PARAMETROS.find((x) => x.id === id);
-    if (!p) return [];
-    const lims = limitesDe(p, vel);
-    return NIVEIS.map((n) => (lims[n.id] && lims[n.id][el] ? { grau: n.grau, nome: n.nome, sup: lims[n.id][el].sup, inf: lims[n.id][el].inf } : null)).filter(Boolean);
-  }
-
   App.telaCarro = {
-    montar, aoMostrar, niveisLimite,
-    velocidade: () => velocidade,
-    VELOCIDADES,
+    montar, aoMostrar,
     irParaKm: (t) => { if (prep) irParaKm(t); },
-    _limitesPadrao: limitesPadrao, _PARAMETROS: PARAMETROS, _VELOCIDADES: VELOCIDADES
+    _limitesPadrao: Lm.padrao, _PARAMETROS: PARAMETROS, _VELOCIDADES: VELOCIDADES
   };
 })(window.App);

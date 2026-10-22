@@ -444,17 +444,22 @@
   /* ---------------- Alertas de geometria ---------------- */
 
   function cartaoAlertas(lista) {
+    const Lm = App.limites;
+    const T = Lm.TEXTOS.alertas;
     const ramal = ramalEscolhido();
-    const vel = Number(U.pref.get('telaCarro:velocidade', 68));
+    const vel = Lm.velocidade();
     const filtroParam = U.pref.get('montagem:alertaParam', '');
     const filtroNivel = Number(U.pref.get('montagem:alertaNivel', 0));
-    const todos = C().alertasGeometria(planta, ramal, lista, (id, el) => App.telaCarro.niveisLimite(id, el, vel));
+    const estat = {};
+    const todos = C().alertasGeometria(planta, ramal, lista, Lm.funcaoLimites(vel), estat);
     const vis = todos.filter((x) => (!filtroParam || x.id === filtroParam) && x.grau >= filtroNivel);
     const cont = (id, g) => todos.filter((x) => x.id === id && x.grau === g).length;
-    const NOME_NIVEL = { 1: 'Alerta', 2: 'Restrição', 3: 'Interdição' };
+    const ids = C().PARAMETROS_GEOMETRIA;
+    const semNivel = ids.every((id) => ['C', 'T'].every((el) => Lm.niveis(id, el, vel).every((n) => n.grau === 2)));
+    const limTxt = (id) => ['C', 'T'].map((el) => { const r = Lm.niveis(id, el, vel).find((n) => n.grau === 2); return r ? n2(r.sup, 0) : '—'; }).join(' / ');
     const sel = (rotulo, valor, opcoes, aoMudar) => ui.campo(rotulo, h('select', { onchange: (e) => aoMudar(e.target.value) },
       opcoes.map(([v, t]) => h('option', { value: String(v), selected: String(v) === String(valor) || null, text: t }))));
-    const linhas = vis.slice(0, 500).map((x) => h('tr', { tabindex: 0, title: 'Rodar na Tela do carro neste km', onclick: () => { const a = arquivos.find((y) => y.id === x.idArquivo); if (a) abrirNaTela(a, x.kmArq); } },
+    const linhas = vis.slice(0, 500).map((x) => h('tr', { tabindex: 0, onclick: () => { const a = arquivos.find((y) => y.id === x.idArquivo); if (a) abrirNaTela(a, x.kmArq); } },
       h('td', null, h('span', { class: `mt-selo mt-nivel-${x.grau}`, text: x.nivel })),
       h('td', { text: x.param }),
       h('td', { text: `L${x.linha}` }),
@@ -465,23 +470,28 @@
       h('td', { class: 'num', text: n2(x.valor, 1) }),
       h('td', { class: 'num', text: n2(x.limite, 0) }),
       h('td', { class: 'mt-sub', text: x.arquivo })));
+    const maior = (id) => {
+      const e = estat[id] && estat[id].maior;
+      return e ? `${n2(e.valor, 1)} (${n0(e.razao * 100)}% do limite, ${Lm.TEXTOS.elemento[e.tipo]}, ${km(e.ini)})` : '—';
+    };
     return h('section', { class: 'cartao pilha' },
-      h('div', { class: 'mt-linha-cab' }, h('h2', { text: 'Alertas de geometria' }),
-        h('span', { class: 'mt-sub', text: 'Empeno, nivelamento e superelevação. Sem bitola e sem alinhamento. Limites da Tela do carro.' })),
+      h('div', { class: 'mt-linha-cab' }, h('h2', { text: T.titulo }), h('span', { class: 'mt-sub', text: T.explicacao })),
+      h('p', { class: 'mt-sub', text: `${T.limites(vel, Lm.editados(vel))} ${T.rh}` }),
+      semNivel ? h('p', { class: 'aviso', text: T.semNivel }) : null,
       h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela tabela-centro' },
-        h('thead', null, h('tr', null, ['Parâmetro', 'Alerta', 'Restrição', 'Interdição', 'Total'].map((t) => h('th', { text: t })))),
-        h('tbody', null, C().PARAMETROS_GEOMETRIA.map((id) => h('tr', { onclick: () => { U.pref.set('montagem:alertaParam', filtroParam === id ? '' : id); render(); } },
-          h('td', { text: C().NOMES_GEOMETRIA[id] }), h('td', { text: String(cont(id, 1)) }), h('td', { text: String(cont(id, 2)) }), h('td', { text: String(cont(id, 3)) }),
+        h('thead', null, h('tr', null, T.resumo.map((t) => h('th', { text: t })))),
+        h('tbody', null, ids.map((id) => h('tr', { class: filtroParam === id ? 'mt-aberta' : '', onclick: () => { U.pref.set('montagem:alertaParam', filtroParam === id ? '' : id); render(); } },
+          h('td', { text: Lm.nomeCompleto(id) }), h('td', { text: maior(id) }), h('td', { text: limTxt(id) }),
+          h('td', { text: String(cont(id, 1)) }), h('td', { text: String(cont(id, 2)) }), h('td', { text: String(cont(id, 3)) }),
           h('td', null, h('strong', { text: String(cont(id, 1) + cont(id, 2) + cont(id, 3)) }))))))),
-      h('div', { class: 'grade-3' },
-        sel('Limites para', vel, App.telaCarro.VELOCIDADES.map((v) => [v, `${v} km/h`]), (v) => { U.pref.set('telaCarro:velocidade', Number(v)); render(); }),
-        sel('Parâmetro', filtroParam, [['', 'Todos'], ...C().PARAMETROS_GEOMETRIA.map((id) => [id, C().NOMES_GEOMETRIA[id]])], (v) => { U.pref.set('montagem:alertaParam', v); render(); }),
-        sel('Nível', filtroNivel, [[0, 'Todos'], [1, 'Alerta ou mais'], [2, 'Restrição ou mais'], [3, 'Interdição']], (v) => { U.pref.set('montagem:alertaNivel', Number(v)); render(); })),
+      h('div', { class: 'grade-2' },
+        sel(T.filtroParametro, filtroParam, [['', T.todos], ...ids.map((id) => [id, Lm.nomeCompleto(id)])], (v) => { U.pref.set('montagem:alertaParam', v); render(); }),
+        sel(T.filtroNivel, filtroNivel, [[0, T.todos], ...[1, 2, 3].map((g) => [g, T.nivelMinimo[g]])], (v) => { U.pref.set('montagem:alertaNivel', Number(v)); render(); })),
       vis.length ? h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela' },
-        h('thead', null, h('tr', null, ['Nível', 'Parâmetro', 'Linha', 'Km (geometria)', 'Ext. (m)', 'EH', 'Elemento', 'Valor', 'Limite', 'Arquivo'].map((t) => h('th', { text: t })))),
-        h('tbody', null, linhas))) : h('p', { class: 'vazio', text: todos.length ? 'Nenhum alerta com este filtro.' : 'Nenhum trecho passa dos limites nos arquivos deste ciclo.' }),
-      vis.length > 500 ? h('p', { class: 'mt-sub', text: `Mostrando 500 de ${vis.length}. Use os filtros.` }) : null,
-      h('p', { class: 'mt-sub', text: `Clique num alerta para rodar o arquivo na Tela do carro naquele km. ${NOME_NIVEL[2]} = tabela EFVM 2026; alerta e interdição são preenchidos em Limites, na Tela do carro.` }));
+        h('thead', null, h('tr', null, T.colunas.map((t) => h('th', { text: t })))),
+        h('tbody', null, linhas))) : h('p', { class: 'vazio', text: todos.length ? T.vazioFiltro : T.vazio }),
+      vis.length > 500 ? h('p', { class: 'mt-sub', text: T.limitado(500, vis.length) }) : null,
+      h('p', { class: 'mt-sub', text: T.clique }));
   }
 
   function abas() {

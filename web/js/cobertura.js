@@ -198,28 +198,37 @@
 
   /* ---------------- Alertas de geometria ---------------- */
 
-  /** Parâmetros de geometria com limite (sem bitola, sem alinhamento e sem variação de bitola). */
-  C.PARAMETROS_GEOMETRIA = ['emp2', 'nl5', 'emp10', 'sup'];
-  C.NOMES_GEOMETRIA = { emp2: 'EMP_2 (empeno em 2 m)', nl5: 'NLmax_5 (nivelamento)', emp10: 'EMP_10 (empeno em 10 m)', sup: 'SUPerABS (superelevação)' };
+  /** Parâmetros de geometria (definidos em js/limites.js: sem bitola, sem alinhamento e sem variação de bitola). */
+  Object.defineProperty(C, 'PARAMETROS_GEOMETRIA', { get: () => (App.limites ? App.limites.GEOMETRIA : ['emp2', 'nl5', 'emp10', 'sup']) });
 
   /**
    * Trechos que passam dos limites, por arquivo e parâmetro, no km da geometria.
-   * limites(id, 'C' | 'T') → [{ grau, nome, sup, inf }] (níveis de alerta da Tela do carro), ou [] sem limite.
-   * Amostras seguidas acima do limite (até 3 m de folga) viram um alerta só, com o maior valor e o maior nível.
-   * Retorna [{ arquivo, id, param, linha, ini, fim, kmArq, valor, limite, grau, nivel, eh, elemento, tipo }].
+   * limites(id, 'C' | 'T') → [{ grau, nome, sup, inf }] (níveis da Tela do carro, ver App.limites.funcaoLimites).
+   * Elemento pelo km corrigido na geometria: curva usa o limite da curva; tangente e RH (pátio, AMV) o da tangente,
+   * como na Tela do carro. Amostras seguidas acima do limite (até 3 m de folga) viram um alerta só, com o maior valor
+   * e o maior nível. estatisticas (opcional) recebe, por parâmetro, o valor mais perto (ou acima) do limite.
+   * Retorna [{ arquivo, idArquivo, id, param, linha, ini, fim, kmArq, valor, limite, grau, nivel, eh, elemento, tipo }].
    */
-  C.alertasGeometria = (planta, ramal, arquivos, limites) => {
+  C.alertasGeometria = (planta, ramal, arquivos, limites, estatisticas = null) => {
     const out = [];
+    const nome = (id) => (App.limites ? App.limites.nomeCompleto(id) : id);
     arquivos.filter((a) => a.resumo.ramal === ramal).forEach((a) => {
       const r = a.resumo;
       const { pos, aj, linha, linhas } = r.amostras;
       const rc = a.recorte;
       const porLinha = {};
       const elsDe = (l) => { if (!porLinha[l]) porLinha[l] = B().elementosDaPlanta(planta, ramal, l); return porLinha[l]; };
+      const ehsDe = {};
       const elemento = (els, y) => {
         let lo = 0; let hi = els.length - 1;
         while (lo <= hi) { const m = (lo + hi) >> 1; if (els[m].fim < y) lo = m + 1; else if (els[m].ini > y) hi = m - 1; else return els[m]; }
         return null;
+      };
+      // nome do RH: o EH logo à frente no km
+      const nomeRh = (l, y) => {
+        if (!ehsDe[l]) ehsDe[l] = C.ehs(planta, ramal, l);
+        const prox = ehsDe[l].find((e) => e.ini >= y);
+        return prox ? `RH antes do ${prox.nome}` : 'RH';
       };
       C.PARAMETROS_GEOMETRIA.forEach((id) => {
         const v = r.geometria && r.geometria[id];
@@ -234,15 +243,27 @@
           const y = x + aj[k];
           const l = linhas[linha[k]];
           const el = elemento(elsDe(l), y);
-          if (!el) continue; // fora de tangente/curva (circuito): sem limite
-          const niveis = limites(id, el.tipo === 'C' ? 'C' : 'T') || [];
+          const tipo = el ? el.tipo : 'RH';
+          const niveis = limites(id, tipo === 'C' ? 'C' : 'T') || [];
+          // maior nível ultrapassado
           let g = null;
-          niveis.forEach((n) => { if (n && ((n.sup !== null && n.sup !== undefined && val > n.sup) || (n.inf !== null && n.inf !== undefined && val < n.inf)) && (!g || n.grau > g.grau)) g = n; });
+          niveis.forEach((n) => { if (((n.sup !== null && n.sup !== undefined && val > n.sup) || (n.inf !== null && n.inf !== undefined && val < n.inf)) && (!g || n.grau > g.grau)) g = n; });
+          if (estatisticas) {
+            const ref = niveis.find((n) => n.grau === 2) || niveis[0];
+            const lim = ref ? (val >= 0 ? ref.sup : ref.inf) : null;
+            const razao = lim ? val / lim : null;
+            const e = estatisticas[id] || (estatisticas[id] = { pontos: 0, maior: null });
+            e.pontos++;
+            if (razao !== null && (!e.maior || razao > e.maior.razao)) e.maior = { valor: val, limite: lim, razao, ini: y, arquivo: a.nome, tipo };
+          }
           if (!g) { if (atual && Math.abs(y - atual.ultimo) > 3) fechar(); continue; }
           if (atual && (atual.linha !== l || Math.abs(y - atual.ultimo) > 3)) fechar();
           const limite = val > 0 ? g.sup : g.inf;
           if (!atual) {
-            atual = { arquivo: a.nome, idArquivo: a.id, id, param: C.NOMES_GEOMETRIA[id], linha: l, ini: y, fim: y, kmArq: x, valor: val, limite, grau: g.grau, nivel: g.nome, eh: el.nomeEh || `EH ${el.eh}`, elemento: `${el.tipo === 'C' ? 'C' : 'T'}${String(el.num || '').padStart(2, '0')}`, tipo: el.tipo, ultimo: y };
+            atual = {
+              arquivo: a.nome, idArquivo: a.id, id, param: nome(id), linha: l, ini: y, fim: y, kmArq: x, valor: val, limite, grau: g.grau, nivel: g.nome,
+              eh: el ? (el.nomeEh || `EH ${el.eh}`) : nomeRh(l, y), elemento: el ? `${tipo}${String(el.num || '').padStart(2, '0')}` : 'RH', tipo, ultimo: y
+            };
           } else {
             atual.ini = Math.min(atual.ini, y); atual.fim = Math.max(atual.fim, y); atual.ultimo = y;
             if (Math.abs(val) > Math.abs(atual.valor)) { atual.valor = val; atual.limite = limite; atual.kmArq = x; }

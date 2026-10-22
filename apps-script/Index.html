@@ -1129,7 +1129,7 @@ window.App = window.App || {};
     versao: '2026.10.22',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-61df0885f9', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-cd59d9b56e', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -4336,6 +4336,161 @@ window.App = window.App || {};
 
 </script>
   <script>
+/* js/limites.js */
+/*
+ * Limites de geometria da via: tabela "Parâmetros EFVM 2026 – bitola métrica", níveis (alerta, restrição,
+ * interdição), limites editados pelo usuário e todos os textos dos parâmetros e dos alertas.
+ * Um lugar só para a regra: a Tela do carro e os Alertas de geometria da Montagem usam estas mesmas funções.
+ */
+'use strict';
+
+(function (App) {
+  const { U } = App;
+  const L = {};
+
+  /* ---------------- Textos ---------------- */
+
+  L.TEXTOS = {
+    niveis: { alerta: 'Alerta', restricao: 'Restrição', interdicao: 'Interdição' },
+    elemento: { C: 'curva', T: 'tangente', RH: 'RH / pátio' },
+    tabela: 'EFVM 2026',
+    editados: 'editados',
+    alertas: {
+      titulo: 'Alertas de geometria',
+      explicacao: 'Empeno, nivelamento e superelevação (sem bitola e sem alinhamento), com os mesmos limites da Tela do carro.',
+      limites: (vel, editados) => `Limites: ${vel} km/h (${editados ? 'editados' : 'EFVM 2026'}). A velocidade e os limites são escolhidos na Tela do carro, em "Limites".`,
+      rh: 'Nas RH (pátios, AMV) vale o limite da tangente, como na Tela do carro.',
+      vazio: 'Nenhum trecho passa dos limites nos arquivos deste ciclo.',
+      vazioFiltro: 'Nenhum alerta com este filtro.',
+      limitado: (n, total) => `Mostrando ${n} de ${total}. Use os filtros.`,
+      clique: 'Clique num alerta para rodar o arquivo na Tela do carro naquele km.',
+      semNivel: 'Alerta e interdição estão em branco: preencha em "Limites", na Tela do carro, para ver esses níveis.',
+      colunas: ['Nível', 'Parâmetro', 'Linha', 'Km (geometria)', 'Ext. (m)', 'EH / RH', 'Elemento', 'Valor', 'Limite', 'Arquivo'],
+      resumo: ['Parâmetro', 'Maior valor', 'Limite (curva / tangente)', 'Alerta', 'Restrição', 'Interdição', 'Total'],
+      filtroParametro: 'Parâmetro',
+      filtroNivel: 'Nível',
+      todos: 'Todos',
+      nivelMinimo: { 1: 'Alerta ou mais', 2: 'Restrição ou mais', 3: 'Interdição' }
+    }
+  };
+
+  /* ---------------- Tabela EFVM 2026 ---------------- */
+
+  /** Velocidades da tabela (km/h). */
+  L.VELOCIDADES = [15, 20, 30, 35, 40, 45, 50, 60, 68];
+  /**
+   * Limites em mm por velocidade (mesma ordem de VELOCIDADES), por elemento (curva/tangente).
+   * Faixas da tabela ("22 a 28") usam o menor valor. null = sem limite.
+   * Bitola: superior = aberta (1000 + valor), inferior = fechada (987 → −13).
+   */
+  L.TABELA = {
+    bitola: { curva: [35, 33, 32, 32, 32, 32, 32, 32, 31], tangente: [35, 33, 32, 32, 32, 32, 32, 32, 31], inferior: -13 },
+    alinhamento: { curva: [31, 28, 26, 25, 24, 22, 20, 18, 17], tangente: [31, 28, 26, 25, 24, 22, 20, 18, 17] },
+    variacao: { curva: [34, 33, 32, 32, 30, 29, 25, 23, 22], tangente: [34, 33, 32, 32, 30, 29, 25, 23, 22] },
+    empeno2: { curva: [18, 17, 16, 15, 14, 13, 12, 11, 10], tangente: [47, 40, 28, 35, 32, 30, 24, 20, 19] },
+    nivelamento5: { curva: [28, 22, 22, 22, 21, 21, 21, 21, 21], tangente: [28, 22, 22, 22, 21, 21, 21, 21, 21] },
+    empeno10: { curva: [39, 38, 38, 38, 33, 32, 32, 32, 31], tangente: [39, 38, 38, 38, 33, 32, 32, 32, 31] },
+    // superelevação = nivelamento transversal; o limite vale só na tangente
+    superelevacao: { curva: null, tangente: [48, 39, 36, 33, 32, 31, 30, 28, 27] }
+  };
+
+  /**
+   * Parâmetros da Tela do carro, na ordem das colunas. campo = coluna lida do arquivo; grupo = linha da tabela;
+   * geometria = entra nos Alertas de geometria; escala = meia largura padrão da coluna (mm).
+   */
+  L.PARAMETROS = [
+    { id: 'bitF', nome: 'Bitola F', descricao: 'Bitola F', campo: 'bitF', grupo: 'bitola', cor: '#16a34a', escala: 40 },
+    { id: 'bitT', nome: 'Bitola T', descricao: 'Bitola T', campo: 'bitT', grupo: 'bitola', cor: '#1d4ed8', escala: 40 },
+    { id: 'kld', nome: 'Bit_KLD', descricao: 'Bitola KLD', campo: 'kld', grupo: 'bitola', cor: '#c026d3', escala: 40 },
+    { id: 'val25', nome: 'ALv_B2,5', descricao: 'Alinhamento', campo: 'val25', grupo: 'alinhamento', cor: '#1d4ed8', escala: 40 },
+    { id: 'vrbt5', nome: 'VrBTmax5', descricao: 'Variação de bitola em 5 m', campo: 'vrbt5', grupo: 'variacao', cor: '#1d4ed8', escala: 40 },
+    { id: 'emp2', nome: 'EMP_2', descricao: 'Empeno em 2 m', campo: 'emp2', grupo: 'empeno2', cor: '#1d4ed8', escala: 50, geometria: true },
+    { id: 'nl5', nome: 'NLmax_5', descricao: 'Nivelamento', campo: 'nl5', grupo: 'nivelamento5', cor: '#1d4ed8', escala: 40, geometria: true },
+    { id: 'emp10', nome: 'EMP_10', descricao: 'Empeno em 10 m', campo: 'emp10', grupo: 'empeno10', cor: '#1d4ed8', escala: 50, geometria: true },
+    { id: 'curv', nome: '10000/R', descricao: 'Raio', campo: 'curv', grupo: null, cor: '#334155', escala: 45 },
+    { id: 'sup', nome: 'SUPerABS', descricao: 'Superelevação', campo: 'sup', grupo: 'superelevacao', cor: '#16a34a', escala: 110, geometria: true }
+  ];
+  L.parametro = (id) => L.PARAMETROS.find((p) => p.id === id) || null;
+  /** Parâmetros dos Alertas de geometria (sem bitola, sem alinhamento, sem variação de bitola). */
+  L.GEOMETRIA = L.PARAMETROS.filter((p) => p.geometria).map((p) => p.id);
+  L.nomeCompleto = (id) => { const p = L.parametro(id); return p ? `${p.nome} (${p.descricao.toLowerCase()})` : id; };
+
+  /** Níveis de limite. A tabela EFVM 2026 preenche a Restrição; Alerta e Interdição são preenchidos à mão. */
+  L.NIVEIS = [
+    { id: 'alerta', nome: L.TEXTOS.niveis.alerta, grau: 1 },
+    { id: 'restricao', nome: L.TEXTOS.niveis.restricao, grau: 2 },
+    { id: 'interdicao', nome: L.TEXTOS.niveis.interdicao, grau: 3 }
+  ];
+
+  /* ---------------- Velocidade e limites editados ---------------- */
+
+  L.velocidade = () => Number(U.pref.get('telaCarro:velocidade', 68)) || 68;
+  L.mudarVelocidade = (v) => U.pref.set('telaCarro:velocidade', Number(v));
+  let edicoes = null; // { [vel]: { [param]: { alerta, restricao, interdicao } } }
+  L.edicoes = () => { if (!edicoes) edicoes = U.pref.get('telaCarro:limites', {}) || {}; return edicoes; };
+  L.editados = (vel) => !!L.edicoes()[vel];
+  /** Salva os limites editados de uma velocidade (null = volta à tabela EFVM 2026). */
+  L.salvarEdicoes = (vel, valor) => {
+    const e = { ...L.edicoes() };
+    if (valor) e[vel] = valor; else delete e[vel];
+    edicoes = e;
+    U.pref.set('telaCarro:limites', e);
+  };
+
+  /** Limites padrão de um parâmetro numa velocidade: { C: { sup, inf } | null, T: … }. */
+  L.padrao = (p, vel) => {
+    const t = p && p.grupo && L.TABELA[p.grupo];
+    if (!t) return { C: null, T: null };
+    const k = Math.max(0, L.VELOCIDADES.indexOf(Number(vel)));
+    const lim = (lista) => {
+      if (!lista || lista[k] === null || lista[k] === undefined) return null;
+      return { sup: lista[k], inf: t.inferior !== undefined ? t.inferior : -lista[k] };
+    };
+    return { C: lim(t.curva), T: lim(t.tangente) };
+  };
+
+  /** Limites de um parâmetro: { alerta: { C, T }, restricao: { C, T }, interdicao: { C, T } }. */
+  L.de = (p, vel) => {
+    const e = L.edicoes()[vel] && L.edicoes()[vel][p.id];
+    const padrao = { alerta: { C: null, T: null }, restricao: L.padrao(p, vel), interdicao: { C: null, T: null } };
+    if (!e) return padrao;
+    if (e.C !== undefined || e.T !== undefined) return { ...padrao, restricao: { C: e.C, T: e.T } }; // formato antigo
+    return { alerta: e.alerta || padrao.alerta, restricao: e.restricao || padrao.restricao, interdicao: e.interdicao || padrao.interdicao };
+  };
+
+  /** Grau do excesso do valor v no elemento el ('C' / 'T'): 0 dentro; 1 alerta; 2 restrição; 3 interdição. */
+  L.grau = (lims, el, v) => {
+    let g = 0;
+    L.NIVEIS.forEach((n) => { const l = lims[n.id][el]; if (l && (v > l.sup || v < l.inf)) g = Math.max(g, n.grau); });
+    return g;
+  };
+
+  /** Níveis preenchidos de um parâmetro num elemento: [{ grau, nome, sup, inf }]. */
+  L.niveis = (id, el, vel = L.velocidade()) => {
+    const p = L.parametro(id);
+    if (!p) return [];
+    const lims = L.de(p, vel);
+    return L.NIVEIS.map((n) => (lims[n.id] && lims[n.id][el] ? { grau: n.grau, nome: n.nome, sup: lims[n.id][el].sup, inf: lims[n.id][el].inf } : null)).filter(Boolean);
+  };
+
+  /**
+   * Função de limites para os Alertas de geometria, com os níveis já calculados (uma vez por parâmetro e elemento).
+   * Retorna (id, el) → [{ grau, nome, sup, inf }]; el: 'C' curva, 'T' tangente (RH usa a tangente).
+   */
+  L.funcaoLimites = (vel = L.velocidade()) => {
+    const cache = {};
+    return (id, el) => {
+      const k = `${id}|${el}`;
+      if (!cache[k]) cache[k] = L.niveis(id, el === 'C' ? 'C' : 'T', vel);
+      return cache[k];
+    };
+  };
+
+  App.limites = L;
+})(window.App);
+
+</script>
+  <script>
 /* js/cobertura.js */
 /*
  * Montagem dos dados: cobertura dos arquivos do carro em relação à geometria da linha.
@@ -4537,28 +4692,37 @@ window.App = window.App || {};
 
   /* ---------------- Alertas de geometria ---------------- */
 
-  /** Parâmetros de geometria com limite (sem bitola, sem alinhamento e sem variação de bitola). */
-  C.PARAMETROS_GEOMETRIA = ['emp2', 'nl5', 'emp10', 'sup'];
-  C.NOMES_GEOMETRIA = { emp2: 'EMP_2 (empeno em 2 m)', nl5: 'NLmax_5 (nivelamento)', emp10: 'EMP_10 (empeno em 10 m)', sup: 'SUPerABS (superelevação)' };
+  /** Parâmetros de geometria (definidos em js/limites.js: sem bitola, sem alinhamento e sem variação de bitola). */
+  Object.defineProperty(C, 'PARAMETROS_GEOMETRIA', { get: () => (App.limites ? App.limites.GEOMETRIA : ['emp2', 'nl5', 'emp10', 'sup']) });
 
   /**
    * Trechos que passam dos limites, por arquivo e parâmetro, no km da geometria.
-   * limites(id, 'C' | 'T') → [{ grau, nome, sup, inf }] (níveis de alerta da Tela do carro), ou [] sem limite.
-   * Amostras seguidas acima do limite (até 3 m de folga) viram um alerta só, com o maior valor e o maior nível.
-   * Retorna [{ arquivo, id, param, linha, ini, fim, kmArq, valor, limite, grau, nivel, eh, elemento, tipo }].
+   * limites(id, 'C' | 'T') → [{ grau, nome, sup, inf }] (níveis da Tela do carro, ver App.limites.funcaoLimites).
+   * Elemento pelo km corrigido na geometria: curva usa o limite da curva; tangente e RH (pátio, AMV) o da tangente,
+   * como na Tela do carro. Amostras seguidas acima do limite (até 3 m de folga) viram um alerta só, com o maior valor
+   * e o maior nível. estatisticas (opcional) recebe, por parâmetro, o valor mais perto (ou acima) do limite.
+   * Retorna [{ arquivo, idArquivo, id, param, linha, ini, fim, kmArq, valor, limite, grau, nivel, eh, elemento, tipo }].
    */
-  C.alertasGeometria = (planta, ramal, arquivos, limites) => {
+  C.alertasGeometria = (planta, ramal, arquivos, limites, estatisticas = null) => {
     const out = [];
+    const nome = (id) => (App.limites ? App.limites.nomeCompleto(id) : id);
     arquivos.filter((a) => a.resumo.ramal === ramal).forEach((a) => {
       const r = a.resumo;
       const { pos, aj, linha, linhas } = r.amostras;
       const rc = a.recorte;
       const porLinha = {};
       const elsDe = (l) => { if (!porLinha[l]) porLinha[l] = B().elementosDaPlanta(planta, ramal, l); return porLinha[l]; };
+      const ehsDe = {};
       const elemento = (els, y) => {
         let lo = 0; let hi = els.length - 1;
         while (lo <= hi) { const m = (lo + hi) >> 1; if (els[m].fim < y) lo = m + 1; else if (els[m].ini > y) hi = m - 1; else return els[m]; }
         return null;
+      };
+      // nome do RH: o EH logo à frente no km
+      const nomeRh = (l, y) => {
+        if (!ehsDe[l]) ehsDe[l] = C.ehs(planta, ramal, l);
+        const prox = ehsDe[l].find((e) => e.ini >= y);
+        return prox ? `RH antes do ${prox.nome}` : 'RH';
       };
       C.PARAMETROS_GEOMETRIA.forEach((id) => {
         const v = r.geometria && r.geometria[id];
@@ -4573,15 +4737,27 @@ window.App = window.App || {};
           const y = x + aj[k];
           const l = linhas[linha[k]];
           const el = elemento(elsDe(l), y);
-          if (!el) continue; // fora de tangente/curva (circuito): sem limite
-          const niveis = limites(id, el.tipo === 'C' ? 'C' : 'T') || [];
+          const tipo = el ? el.tipo : 'RH';
+          const niveis = limites(id, tipo === 'C' ? 'C' : 'T') || [];
+          // maior nível ultrapassado
           let g = null;
-          niveis.forEach((n) => { if (n && ((n.sup !== null && n.sup !== undefined && val > n.sup) || (n.inf !== null && n.inf !== undefined && val < n.inf)) && (!g || n.grau > g.grau)) g = n; });
+          niveis.forEach((n) => { if (((n.sup !== null && n.sup !== undefined && val > n.sup) || (n.inf !== null && n.inf !== undefined && val < n.inf)) && (!g || n.grau > g.grau)) g = n; });
+          if (estatisticas) {
+            const ref = niveis.find((n) => n.grau === 2) || niveis[0];
+            const lim = ref ? (val >= 0 ? ref.sup : ref.inf) : null;
+            const razao = lim ? val / lim : null;
+            const e = estatisticas[id] || (estatisticas[id] = { pontos: 0, maior: null });
+            e.pontos++;
+            if (razao !== null && (!e.maior || razao > e.maior.razao)) e.maior = { valor: val, limite: lim, razao, ini: y, arquivo: a.nome, tipo };
+          }
           if (!g) { if (atual && Math.abs(y - atual.ultimo) > 3) fechar(); continue; }
           if (atual && (atual.linha !== l || Math.abs(y - atual.ultimo) > 3)) fechar();
           const limite = val > 0 ? g.sup : g.inf;
           if (!atual) {
-            atual = { arquivo: a.nome, idArquivo: a.id, id, param: C.NOMES_GEOMETRIA[id], linha: l, ini: y, fim: y, kmArq: x, valor: val, limite, grau: g.grau, nivel: g.nome, eh: el.nomeEh || `EH ${el.eh}`, elemento: `${el.tipo === 'C' ? 'C' : 'T'}${String(el.num || '').padStart(2, '0')}`, tipo: el.tipo, ultimo: y };
+            atual = {
+              arquivo: a.nome, idArquivo: a.id, id, param: nome(id), linha: l, ini: y, fim: y, kmArq: x, valor: val, limite, grau: g.grau, nivel: g.nome,
+              eh: el ? (el.nomeEh || `EH ${el.eh}`) : nomeRh(l, y), elemento: el ? `${tipo}${String(el.num || '').padStart(2, '0')}` : 'RH', tipo, ultimo: y
+            };
           } else {
             atual.ini = Math.min(atual.ini, y); atual.fim = Math.max(atual.fim, y); atual.ultimo = y;
             if (Math.abs(val) > Math.abs(atual.valor)) { atual.valor = val; atual.limite = limite; atual.kmArq = x; }
@@ -6389,73 +6565,12 @@ window.App = window.App || {};
   const { h } = ui;
   const NS = 'http://www.w3.org/2000/svg';
 
-  /* ---------------- Limites (Parâmetros EFVM 2026 – bitola métrica) ---------------- */
+  /* ---------------- Limites: módulo central (js/limites.js) ---------------- */
 
-  /** Velocidades da tabela (km/h). */
-  const VELOCIDADES = [15, 20, 30, 35, 40, 45, 50, 60, 68];
-  /**
-   * Limites em mm por velocidade (mesma ordem de VELOCIDADES), por elemento (curva/tangente).
-   * Faixas da tabela ("22 a 28") usam o menor valor. null = sem limite.
-   * Bitola: superior = aberta (1000 + valor), inferior = fechada (987 → −13).
-   */
-  const TABELA = {
-    bitola: { curva: [35, 33, 32, 32, 32, 32, 32, 32, 31], tangente: [35, 33, 32, 32, 32, 32, 32, 32, 31], inferior: -13 },
-    alinhamento: { curva: [31, 28, 26, 25, 24, 22, 20, 18, 17], tangente: [31, 28, 26, 25, 24, 22, 20, 18, 17] },
-    variacao: { curva: [34, 33, 32, 32, 30, 29, 25, 23, 22], tangente: [34, 33, 32, 32, 30, 29, 25, 23, 22] },
-    empeno2: { curva: [18, 17, 16, 15, 14, 13, 12, 11, 10], tangente: [47, 40, 28, 35, 32, 30, 24, 20, 19] },
-    nivelamento5: { curva: [28, 22, 22, 22, 21, 21, 21, 21, 21], tangente: [28, 22, 22, 22, 21, 21, 21, 21, 21] },
-    empeno10: { curva: [39, 38, 38, 38, 33, 32, 32, 32, 31], tangente: [39, 38, 38, 38, 33, 32, 32, 32, 31] },
-    // superelevação = nivelamento transversal; o limite vale só na tangente
-    superelevacao: { curva: null, tangente: [48, 39, 36, 33, 32, 31, 30, 28, 27] }
-  };
-
-  /** Colunas na ordem pedida. escala = meio da largura da coluna (mm). */
-  const PARAMETROS = [
-    { id: 'bitF', nome: 'Bitola F', campo: 'bitF', grupo: 'bitola', cor: '#16a34a', escala: 40 },
-    { id: 'bitT', nome: 'Bitola T', campo: 'bitT', grupo: 'bitola', cor: '#1d4ed8', escala: 40 },
-    { id: 'kld', nome: 'Bit_KLD', campo: 'kld', grupo: 'bitola', cor: '#c026d3', escala: 40 },
-    { id: 'val25', nome: 'ALv_B2,5', campo: 'val25', grupo: 'alinhamento', cor: '#1d4ed8', escala: 40 },
-    { id: 'vrbt5', nome: 'VrBTmax5', campo: 'vrbt5', grupo: 'variacao', cor: '#1d4ed8', escala: 40 },
-    { id: 'emp2', nome: 'EMP_2', campo: 'emp2', grupo: 'empeno2', cor: '#1d4ed8', escala: 50 },
-    { id: 'nl5', nome: 'NLmax_5', campo: 'nl5', grupo: 'nivelamento5', cor: '#1d4ed8', escala: 40 },
-    { id: 'emp10', nome: 'EMP_10', campo: 'emp10', grupo: 'empeno10', cor: '#1d4ed8', escala: 50 },
-    { id: 'curv', nome: '10000/R', campo: 'curv', grupo: null, cor: '#334155', escala: 45 },
-    { id: 'sup', nome: 'SUPerABS', campo: 'sup', grupo: 'superelevacao', cor: '#16a34a', escala: 110 }
-  ];
-
-  /** Limites padrão de um parâmetro numa velocidade: { C: { sup, inf } | null, T: … }. */
-  function limitesPadrao(p, vel) {
-    const t = p.grupo && TABELA[p.grupo];
-    if (!t) return { C: null, T: null };
-    const k = Math.max(0, VELOCIDADES.indexOf(Number(vel)));
-    const lim = (lista) => {
-      if (!lista || lista[k] === null || lista[k] === undefined) return null;
-      return { sup: lista[k], inf: t.inferior !== undefined ? t.inferior : -lista[k] };
-    };
-    return { C: lim(t.curva), T: lim(t.tangente) };
-  }
-
-  /** Níveis de limite. A tabela EFVM 2026 preenche a Restrição; Alerta e Interdição são preenchidos à mão. */
-  const NIVEIS = [
-    { id: 'alerta', nome: 'Alerta', grau: 1 },
-    { id: 'restricao', nome: 'Restrição', grau: 2 },
-    { id: 'interdicao', nome: 'Interdição', grau: 3 }
-  ];
-  let edicoes = U.pref.get('telaCarro:limites', {}) || {}; // { [vel]: { [param]: { alerta, restricao, interdicao } } }
-  /** Limites de um parâmetro: { alerta: { C, T }, restricao: { C, T }, interdicao: { C, T } }. */
-  function limitesDe(p, vel) {
-    const e = edicoes[vel] && edicoes[vel][p.id];
-    const padrao = { alerta: { C: null, T: null }, restricao: limitesPadrao(p, vel), interdicao: { C: null, T: null } };
-    if (!e) return padrao;
-    if (e.C !== undefined || e.T !== undefined) return { ...padrao, restricao: { C: e.C, T: e.T } }; // formato antigo
-    return { alerta: e.alerta || padrao.alerta, restricao: e.restricao || padrao.restricao, interdicao: e.interdicao || padrao.interdicao };
-  }
-  /** Grau do excesso do valor v (0 = dentro; 1 alerta; 2 restrição; 3 interdição). */
-  function grauExcesso(lims, el, v) {
-    let g = 0;
-    NIVEIS.forEach((n) => { const l = lims[n.id][el]; if (l && (v > l.sup || v < l.inf)) g = Math.max(g, n.grau); });
-    return g;
-  }
+  const Lm = App.limites;
+  const { VELOCIDADES, PARAMETROS, NIVEIS } = Lm;
+  const limitesDe = Lm.de;
+  const grauExcesso = Lm.grau;
 
   /** Escala de cada coluna (meia largura, em mm): automática pelo arquivo, com zoom − / +. */
   let zoom = U.pref.get('telaCarro:zoom', {}) || {};
@@ -6474,7 +6589,7 @@ window.App = window.App || {};
   let resultado = null;
   let nomeArquivo = '';
   let prep = null; // dados preparados do arquivo
-  let velocidade = Number(U.pref.get('telaCarro:velocidade', 68));
+  let velocidade = Lm.velocidade();
   let janela = Number(U.pref.get('telaCarro:janela', 500)); // metros visíveis
   let fator = Number(U.pref.get('telaCarro:fator', 1)); // velocidade da reprodução: 1×, 2×, 3×…
   const BASE_MS = 10; // 1× = 10 m/s de arquivo por segundo
@@ -6538,7 +6653,7 @@ window.App = window.App || {};
     document.addEventListener('em80:analise', () => { if (raiz && raiz.offsetParent) carregar(); });
   }
 
-  function aoMostrar() { carregar(); atualizarMontagem(); }
+  function aoMostrar() { velocidade = Lm.velocidade(); carregar(); atualizarMontagem(); }
 
   /* ---------------- Arquivos da Montagem ---------------- */
 
@@ -6781,7 +6896,7 @@ window.App = window.App || {};
         h('div', { class: 'tc-campo' }, h('span', { text: 'Ir para o km' }),
           h('div', { class: 'linha-campo' }, kmInput, h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', onclick: () => irParaKm(kmInput.value) }, 'Ir'))),
         sel(janela, [[250, '250 m'], [500, '500 m'], [1000, '1.000 m'], [2000, '2.000 m']], (v) => { janela = v; U.pref.set('telaCarro:janela', v); if (prep) { topo = revelado - janela; desenhar(); } }, 'Trecho na tela'),
-        sel(velocidade, VELOCIDADES.map((v) => [v, `${v} km/h`]), (v) => { velocidade = v; U.pref.set('telaCarro:velocidade', v); desenhar(); }, 'Limites para'),
+        sel(velocidade, VELOCIDADES.map((v) => [v, `${v} km/h`]), (v) => { velocidade = v; Lm.mudarVelocidade(v); desenhar(); }, 'Limites para'),
         sel(fator, [1, 2, 3, 5, 10, 20].map((v) => [v, `${v}×`]), (v) => { fator = v; U.pref.set('telaCarro:fator', v); }, 'Velocidade'),
         h('div', { class: 'tc-botoes' },
           h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', title: 'Voltar um trecho', disabled: !prep, onclick: () => mover(-janela * 0.8) }, '▲'),
@@ -7025,7 +7140,7 @@ window.App = window.App || {};
         par('FERROVIA', 'EFVM'), par('RAMAL', m.ramal), par('CORRETIVA', m.corretiva),
         par('LINHA', App.bitola.linhaDoTrecho(arquivo, i, i)), par('DATA', m.data), par('INSPETOR', m.inspetor),
         par('ARQUIVO', nomeArquivo), par('ELEMENTO', e ? [e.trecho || e.eh, e.tipo === 'X' ? 'RH' : e.sigla].filter(Boolean).join(' · ') : ''),
-        par('LIMITES', `${velocidade} km/h${edicoes[velocidade] ? ' (editados)' : ' (EFVM 2026)'}`)));
+        par('LIMITES', `${velocidade} km/h (${Lm.editados(velocidade) ? Lm.TEXTOS.editados : Lm.TEXTOS.tabela})`)));
   }
 
   /* ---------------- Edição dos limites ---------------- */
@@ -7067,26 +7182,16 @@ window.App = window.App || {};
       titulo: `Limites para ${velocidade} km/h`,
       conteudo: caixa,
       acoes: [
-        { texto: 'Restaurar tabela EFVM 2026', classe: 'btn-secundario', onClick: (fechar) => { delete edicoes[velocidade]; U.pref.set('telaCarro:limites', edicoes); fechar(); desenhar(); ui.toast('Limites da tabela EFVM 2026 restaurados (alerta e interdição em branco).', 'ok'); } },
-        { texto: 'Salvar', classe: 'btn-primario', onClick: (fechar) => { edicoes[velocidade] = atual; U.pref.set('telaCarro:limites', edicoes); fechar(); desenhar(); ui.toast(`Limites para ${velocidade} km/h salvos.`, 'ok'); } }
+        { texto: 'Restaurar tabela EFVM 2026', classe: 'btn-secundario', onClick: (fechar) => { Lm.salvarEdicoes(velocidade, null); fechar(); desenhar(); ui.toast('Limites da tabela EFVM 2026 restaurados (alerta e interdição em branco).', 'ok'); } },
+        { texto: 'Salvar', classe: 'btn-primario', onClick: (fechar) => { Lm.salvarEdicoes(velocidade, atual); fechar(); desenhar(); ui.toast(`Limites para ${velocidade} km/h salvos.`, 'ok'); } }
       ]
     });
   }
 
-  /** Níveis de limite de um parâmetro (id) num elemento ('C' curva / 'T' tangente), na velocidade escolhida na tela. */
-  function niveisLimite(id, el, vel = velocidade) {
-    const p = PARAMETROS.find((x) => x.id === id);
-    if (!p) return [];
-    const lims = limitesDe(p, vel);
-    return NIVEIS.map((n) => (lims[n.id] && lims[n.id][el] ? { grau: n.grau, nome: n.nome, sup: lims[n.id][el].sup, inf: lims[n.id][el].inf } : null)).filter(Boolean);
-  }
-
   App.telaCarro = {
-    montar, aoMostrar, niveisLimite,
-    velocidade: () => velocidade,
-    VELOCIDADES,
+    montar, aoMostrar,
     irParaKm: (t) => { if (prep) irParaKm(t); },
-    _limitesPadrao: limitesPadrao, _PARAMETROS: PARAMETROS, _VELOCIDADES: VELOCIDADES
+    _limitesPadrao: Lm.padrao, _PARAMETROS: PARAMETROS, _VELOCIDADES: VELOCIDADES
   };
 })(window.App);
 
@@ -7539,17 +7644,22 @@ window.App = window.App || {};
   /* ---------------- Alertas de geometria ---------------- */
 
   function cartaoAlertas(lista) {
+    const Lm = App.limites;
+    const T = Lm.TEXTOS.alertas;
     const ramal = ramalEscolhido();
-    const vel = Number(U.pref.get('telaCarro:velocidade', 68));
+    const vel = Lm.velocidade();
     const filtroParam = U.pref.get('montagem:alertaParam', '');
     const filtroNivel = Number(U.pref.get('montagem:alertaNivel', 0));
-    const todos = C().alertasGeometria(planta, ramal, lista, (id, el) => App.telaCarro.niveisLimite(id, el, vel));
+    const estat = {};
+    const todos = C().alertasGeometria(planta, ramal, lista, Lm.funcaoLimites(vel), estat);
     const vis = todos.filter((x) => (!filtroParam || x.id === filtroParam) && x.grau >= filtroNivel);
     const cont = (id, g) => todos.filter((x) => x.id === id && x.grau === g).length;
-    const NOME_NIVEL = { 1: 'Alerta', 2: 'Restrição', 3: 'Interdição' };
+    const ids = C().PARAMETROS_GEOMETRIA;
+    const semNivel = ids.every((id) => ['C', 'T'].every((el) => Lm.niveis(id, el, vel).every((n) => n.grau === 2)));
+    const limTxt = (id) => ['C', 'T'].map((el) => { const r = Lm.niveis(id, el, vel).find((n) => n.grau === 2); return r ? n2(r.sup, 0) : '—'; }).join(' / ');
     const sel = (rotulo, valor, opcoes, aoMudar) => ui.campo(rotulo, h('select', { onchange: (e) => aoMudar(e.target.value) },
       opcoes.map(([v, t]) => h('option', { value: String(v), selected: String(v) === String(valor) || null, text: t }))));
-    const linhas = vis.slice(0, 500).map((x) => h('tr', { tabindex: 0, title: 'Rodar na Tela do carro neste km', onclick: () => { const a = arquivos.find((y) => y.id === x.idArquivo); if (a) abrirNaTela(a, x.kmArq); } },
+    const linhas = vis.slice(0, 500).map((x) => h('tr', { tabindex: 0, onclick: () => { const a = arquivos.find((y) => y.id === x.idArquivo); if (a) abrirNaTela(a, x.kmArq); } },
       h('td', null, h('span', { class: `mt-selo mt-nivel-${x.grau}`, text: x.nivel })),
       h('td', { text: x.param }),
       h('td', { text: `L${x.linha}` }),
@@ -7560,23 +7670,28 @@ window.App = window.App || {};
       h('td', { class: 'num', text: n2(x.valor, 1) }),
       h('td', { class: 'num', text: n2(x.limite, 0) }),
       h('td', { class: 'mt-sub', text: x.arquivo })));
+    const maior = (id) => {
+      const e = estat[id] && estat[id].maior;
+      return e ? `${n2(e.valor, 1)} (${n0(e.razao * 100)}% do limite, ${Lm.TEXTOS.elemento[e.tipo]}, ${km(e.ini)})` : '—';
+    };
     return h('section', { class: 'cartao pilha' },
-      h('div', { class: 'mt-linha-cab' }, h('h2', { text: 'Alertas de geometria' }),
-        h('span', { class: 'mt-sub', text: 'Empeno, nivelamento e superelevação. Sem bitola e sem alinhamento. Limites da Tela do carro.' })),
+      h('div', { class: 'mt-linha-cab' }, h('h2', { text: T.titulo }), h('span', { class: 'mt-sub', text: T.explicacao })),
+      h('p', { class: 'mt-sub', text: `${T.limites(vel, Lm.editados(vel))} ${T.rh}` }),
+      semNivel ? h('p', { class: 'aviso', text: T.semNivel }) : null,
       h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela tabela-centro' },
-        h('thead', null, h('tr', null, ['Parâmetro', 'Alerta', 'Restrição', 'Interdição', 'Total'].map((t) => h('th', { text: t })))),
-        h('tbody', null, C().PARAMETROS_GEOMETRIA.map((id) => h('tr', { onclick: () => { U.pref.set('montagem:alertaParam', filtroParam === id ? '' : id); render(); } },
-          h('td', { text: C().NOMES_GEOMETRIA[id] }), h('td', { text: String(cont(id, 1)) }), h('td', { text: String(cont(id, 2)) }), h('td', { text: String(cont(id, 3)) }),
+        h('thead', null, h('tr', null, T.resumo.map((t) => h('th', { text: t })))),
+        h('tbody', null, ids.map((id) => h('tr', { class: filtroParam === id ? 'mt-aberta' : '', onclick: () => { U.pref.set('montagem:alertaParam', filtroParam === id ? '' : id); render(); } },
+          h('td', { text: Lm.nomeCompleto(id) }), h('td', { text: maior(id) }), h('td', { text: limTxt(id) }),
+          h('td', { text: String(cont(id, 1)) }), h('td', { text: String(cont(id, 2)) }), h('td', { text: String(cont(id, 3)) }),
           h('td', null, h('strong', { text: String(cont(id, 1) + cont(id, 2) + cont(id, 3)) }))))))),
-      h('div', { class: 'grade-3' },
-        sel('Limites para', vel, App.telaCarro.VELOCIDADES.map((v) => [v, `${v} km/h`]), (v) => { U.pref.set('telaCarro:velocidade', Number(v)); render(); }),
-        sel('Parâmetro', filtroParam, [['', 'Todos'], ...C().PARAMETROS_GEOMETRIA.map((id) => [id, C().NOMES_GEOMETRIA[id]])], (v) => { U.pref.set('montagem:alertaParam', v); render(); }),
-        sel('Nível', filtroNivel, [[0, 'Todos'], [1, 'Alerta ou mais'], [2, 'Restrição ou mais'], [3, 'Interdição']], (v) => { U.pref.set('montagem:alertaNivel', Number(v)); render(); })),
+      h('div', { class: 'grade-2' },
+        sel(T.filtroParametro, filtroParam, [['', T.todos], ...ids.map((id) => [id, Lm.nomeCompleto(id)])], (v) => { U.pref.set('montagem:alertaParam', v); render(); }),
+        sel(T.filtroNivel, filtroNivel, [[0, T.todos], ...[1, 2, 3].map((g) => [g, T.nivelMinimo[g]])], (v) => { U.pref.set('montagem:alertaNivel', Number(v)); render(); })),
       vis.length ? h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela' },
-        h('thead', null, h('tr', null, ['Nível', 'Parâmetro', 'Linha', 'Km (geometria)', 'Ext. (m)', 'EH', 'Elemento', 'Valor', 'Limite', 'Arquivo'].map((t) => h('th', { text: t })))),
-        h('tbody', null, linhas))) : h('p', { class: 'vazio', text: todos.length ? 'Nenhum alerta com este filtro.' : 'Nenhum trecho passa dos limites nos arquivos deste ciclo.' }),
-      vis.length > 500 ? h('p', { class: 'mt-sub', text: `Mostrando 500 de ${vis.length}. Use os filtros.` }) : null,
-      h('p', { class: 'mt-sub', text: `Clique num alerta para rodar o arquivo na Tela do carro naquele km. ${NOME_NIVEL[2]} = tabela EFVM 2026; alerta e interdição são preenchidos em Limites, na Tela do carro.` }));
+        h('thead', null, h('tr', null, T.colunas.map((t) => h('th', { text: t })))),
+        h('tbody', null, linhas))) : h('p', { class: 'vazio', text: todos.length ? T.vazioFiltro : T.vazio }),
+      vis.length > 500 ? h('p', { class: 'mt-sub', text: T.limitado(500, vis.length) }) : null,
+      h('p', { class: 'mt-sub', text: T.clique }));
   }
 
   function abas() {
