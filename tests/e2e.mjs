@@ -610,7 +610,19 @@ async function main() {
       await page.locator('.tc-controles').getByRole('button', { name: 'Reproduzir' }).click();
       await page.waitForFunction(() => document.querySelectorAll('.tc-sinal').length >= 9);
       await page.locator('.tc-controles').getByRole('button', { name: 'Pausar' }).click();
-      assert.equal(await page.locator('.tc-linha-km, .tc-km, .tc-divisa, .tc-centro').count(), 0); // sem grade nem km
+      assert.equal(await page.locator('.tc-linha-km, .tc-divisa, .tc-centro').count(), 0); // sem grade
+      assert.ok(await page.locator('.tc-km').count() > 0); // km na lateral
+      assert.equal(await page.locator('.tc-zero').count(), 10); // linha zero em cada coluna
+      // F e T juntas: uma coluna a menos
+      await page.locator('.tc-juntas input').check();
+      assert.equal(await page.locator('.tc-cab-cel.tc-cab-gira').count(), 11);
+      await page.locator('.tc-juntas input').uncheck();
+      // arrastar a borda de baixo aumenta a altura
+      await page.locator('.tc-alca-altura').scrollIntoViewIfNeeded();
+      const alca = await page.locator('.tc-alca-altura').boundingBox();
+      const antes = Number(await page.locator('.tc-svg').getAttribute('height'));
+      await page.mouse.move(alca.x + 20, alca.y + 4); await page.mouse.down(); await page.mouse.move(alca.x + 20, alca.y + 60, { steps: 4 }); await page.mouse.move(alca.x + 20, alca.y + 104, { steps: 4 }); await page.mouse.up();
+      assert.ok(Number(await page.locator('.tc-svg').getAttribute('height')) >= antes + 90);
       assert.ok((await page.locator('.tc-rodape').textContent()).includes('68 km/h (EFVM 2026)'));
       await page.locator('.tc-controles').getByRole('button', { name: 'Limites' }).click();
       await page.locator('.modal input[aria-label="Bitola F curva superior"]').fill('20');

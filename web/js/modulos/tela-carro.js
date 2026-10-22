@@ -86,8 +86,11 @@
   let ultimoQuadro = 0;
   let colunaAtiva = null;
 
-  const ALTURA = 520;
-  const COL_EX = 26; const COL_EL = 64; const COL_KM = 0; // sem a coluna de km à esquerda
+  // Tamanho ajustável arrastando a borda de baixo (altura) e a da direita (largura das colunas).
+  let ALTURA = Number(U.pref.get('telaCarro:altura', 520));
+  let larguraColuna = Number(U.pref.get('telaCarro:largura', 0)) || null; // null = encaixa na tela
+  let juntas = !!U.pref.get('telaCarro:juntas', false); // Bitola F e T na mesma coluna
+  const COL_EX = 26; const COL_EL = 64; const COL_KM = 58;
 
   /* ---------------- Montagem ---------------- */
 
@@ -103,7 +106,8 @@
       controlesEl,
       h('div', { class: 'tc-janela' },
         leituraEl,
-        h('div', { class: 'tc-rolagem' }, h('div', { class: 'tc-grade' }, cabecalhoEl, corpoEl)),
+        h('div', { class: 'tc-rolagem' }, h('div', { class: 'tc-grade' }, cabecalhoEl,
+          h('div', { class: 'tc-corpo-caixa' }, corpoEl, alca('largura')), alca('altura'))),
         rodapeEl));
     corpoEl.addEventListener('wheel', (e) => {
       if (!prep) return;
@@ -136,6 +140,41 @@
   }
 
   function aoMostrar() { carregar(); }
+
+  /** Alça para arrastar: 'altura' (borda de baixo) ou 'largura' (borda da direita). */
+  function alca(tipo) {
+    const el = h('div', { class: `tc-alca tc-alca-${tipo}`, title: tipo === 'altura' ? 'Arraste para mudar a altura da tela' : 'Arraste para mudar a largura das colunas', role: 'separator' });
+    let ini = null;
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      el.setPointerCapture(e.pointerId);
+      ini = { x: e.clientX, y: e.clientY, altura: ALTURA, largura: geometria().lp };
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!ini) return;
+      if (tipo === 'altura') ALTURA = Math.round(Math.max(260, Math.min(1600, ini.altura + (e.clientY - ini.y))));
+      else larguraColuna = Math.round(Math.max(50, Math.min(320, ini.largura + (e.clientX - ini.x) / colunas().length)));
+      if (prep) desenhar();
+    });
+    const soltar = () => {
+      if (!ini) return;
+      ini = null;
+      U.pref.set('telaCarro:altura', ALTURA);
+      if (larguraColuna) U.pref.set('telaCarro:largura', larguraColuna);
+    };
+    el.addEventListener('pointerup', soltar);
+    el.addEventListener('pointercancel', soltar);
+    el.addEventListener('dblclick', () => { ALTURA = 520; larguraColuna = null; U.pref.set('telaCarro:altura', 520); U.pref.set('telaCarro:largura', 0); if (prep) desenhar(); });
+    return el;
+  }
+
+  /** Colunas da tela; com "F e T juntas", as duas bitolas ficam na mesma coluna. */
+  function colunas() {
+    const lista = PARAMETROS.map((p) => ({ ...p, series: [p] }));
+    if (!juntas) return lista;
+    const f = lista[0]; const t = lista[1];
+    return [{ ...f, id: 'bitFT', nome: 'Bitola F+T', series: [PARAMETROS[0], PARAMETROS[1]] }, ...lista.slice(2).filter((c) => c.id !== t.id)];
+  }
 
   /** Lê o arquivo da Análise e prepara as séries. */
   function carregar() {
@@ -242,7 +281,11 @@
           h('button', { class: `btn ${tocando ? 'btn-primario' : 'btn-secundario'} btn-pequeno`, type: 'button', disabled: !prep, onclick: tocar }, ui.icone(tocando ? 'parar' : 'play'), tocando ? 'Pausar' : 'Reproduzir'),
           h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', title: 'Avançar um trecho', disabled: !prep, onclick: () => (topo + janela >= revelado ? avancar(janela * 0.8) : mover(janela * 0.8)) }, '▼'),
           h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', title: 'Voltar ao início do arquivo, com a tela vazia', disabled: !prep, onclick: reiniciar }, 'Reiniciar'),
-          h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', onclick: editarLimites }, ui.icone('ajustes'), 'Limites'))));
+          h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', onclick: editarLimites }, ui.icone('ajustes'), 'Limites')),
+        h('label', { class: 'chip-sel tc-juntas' }, h('input', {
+          type: 'checkbox', checked: juntas,
+          onchange: (e) => { juntas = e.target.checked; U.pref.set('telaCarro:juntas', juntas); if (prep) desenhar(); }
+        }), 'Bitola F e T juntas')));
   }
 
   /* ---------------- Desenho ---------------- */
@@ -250,14 +293,16 @@
   function geometria() {
     const largura = Math.max(320, corpoEl.parentElement ? corpoEl.parentElement.clientWidth : 900);
     const base = COL_KM + COL_EX + COL_EL;
-    const lp = Math.max(78, Math.floor((largura - base) / PARAMETROS.length));
-    return { lp, W: base + lp * PARAMETROS.length, base };
+    const nc = colunas().length;
+    const lp = larguraColuna || Math.max(78, Math.floor((largura - base - 12) / nc));
+    return { lp, W: base + lp * nc, base };
   }
 
   function colunaEm(x) {
     const { lp, base } = geometria();
+    const cols = colunas();
     const k = Math.floor((x - base) / lp);
-    return k >= 0 && k < PARAMETROS.length ? PARAMETROS[k] : null;
+    return k >= 0 && k < cols.length ? cols[k] : null;
   }
 
   const s = (tag, attrs = {}, ...filhos) => {
@@ -284,10 +329,19 @@
       h('div', { class: 'tc-cab-cel', style: { width: `${COL_KM}px` } }),
       h('div', { class: 'tc-cab-cel tc-cab-gira', style: { width: `${COL_EX}px` } }, h('span', { text: 'EX' })),
       h('div', { class: 'tc-cab-cel tc-cab-gira', style: { width: `${COL_EL}px` } }, h('span', { text: 'T/E' })),
-      PARAMETROS.map((p) => h('div', { class: 'tc-cab-cel tc-cab-gira', style: { width: `${lp}px` }, title: p.nome },
+      colunas().map((p) => h('div', { class: 'tc-cab-cel tc-cab-gira', style: { width: `${lp}px` }, title: p.nome },
         h('span', null, h('strong', { text: p.nome }), h('small', { text: `±${p.escala}` }))))));
 
     const svg = s('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, class: 'tc-svg' });
+    // km na lateral (sem linha horizontal)
+    const passoKm = janela <= 500 ? 50 : (janela <= 1000 ? 100 : 200);
+    for (let d = Math.ceil(topo / passoKm) * passoKm; d <= topo + janela; d += passoKm) {
+      const i = indicePorDist(d);
+      const y = ((d - topo) / janela) * H;
+      if (y < 8 || y > H - 4) continue;
+      svg.appendChild(s('text', { x: COL_KM - 6, y: y + 4, class: 'tc-km', 'text-anchor': 'end' }, App.bitola.fmtKm(arquivo.pos[i])));
+    }
+
     // coluna T/E: elementos (tangente = linha, curva = barra azul, RH = cinza) e eventos
     const xEl = COL_KM + COL_EX;
     const vistos = new Set();
@@ -313,29 +367,20 @@
     // colunas dos parâmetros
     const filas = Math.ceil(H); // uma fila por pixel
     const excessoGeral = new Uint8Array(filas + 1);
-    PARAMETROS.forEach((p, k) => {
+    colunas().forEach((col, k) => {
       const x0 = base + k * lp;
       const cx = x0 + lp / 2;
       const meia = lp / 2 - 6;
-      const xv = (v) => cx + (Math.max(-p.escala, Math.min(p.escala, v)) / p.escala) * meia;
-      // KLD: só leituras válidas (|valor| < 60 mm), como na análise
-      const serie = p.campo === 'kld' && resultado && resultado.kldValido ? resultado.kldValido : dados[p.campo];
-      const lims = limitesDe(p, velocidade);
-      if (!serie) { svg.appendChild(s('text', { x: cx, y: 20, class: 'tc-sem', 'text-anchor': 'middle' }, 'sem dado')); return; }
-      // agrega por fila de pixel: mín, máx e excesso
-      const minF = new Float64Array(filas + 1).fill(NaN); const maxF = new Float64Array(filas + 1).fill(NaN);
-      const exc = new Uint8Array(filas + 1); const limF = new Array(filas + 1);
+      const xv = (v) => cx + (Math.max(-col.escala, Math.min(col.escala, v)) / col.escala) * meia;
+      const lims = limitesDe(col.series[0], velocidade);
+      // linha zero (bitola: 1000 mm), indispensável
+      svg.appendChild(s('line', { x1: cx, x2: cx, y1: 0, y2: H, class: 'tc-zero' }));
+      // limites (pontilhado), por fila (mudam entre curva e tangente)
+      const limF = new Array(filas + 1);
       for (let i = i0; i <= i1; i++) {
         const f = Math.max(0, Math.min(filas, Math.round(yDe(i))));
-        const lim = lims[tipoLim(i)];
-        if (!limF[f]) limF[f] = lim || 'nenhum';
-        const v = serie[i];
-        if (Number.isNaN(v)) continue;
-        if (Number.isNaN(minF[f]) || v < minF[f]) minF[f] = v;
-        if (Number.isNaN(maxF[f]) || v > maxF[f]) maxF[f] = v;
-        if (lim && (v > lim.sup || v < lim.inf)) { exc[f] = 1; excessoGeral[f] = 1; }
+        if (!limF[f]) limF[f] = lims[tipoLim(i)] || 'nenhum';
       }
-      // limites (pontilhado), por fila (mudam entre curva e tangente)
       ['sup', 'inf'].forEach((lado) => {
         let d = ''; let aberto = false;
         for (let f = 0; f <= filas; f++) {
@@ -347,31 +392,38 @@
         }
         if (d) svg.appendChild(s('path', { d, class: 'tc-limite' }));
       });
-      // sinal: em cada fila, do mínimo ao máximo, ligado à fila seguinte
-      let d = ''; let antes = false;
-      for (let f = 0; f <= filas; f++) {
-        if (Number.isNaN(minF[f])) { antes = false; continue; }
-        d += `${antes ? 'L' : 'M'}${xv(minF[f]).toFixed(1)},${f}L${xv(maxF[f]).toFixed(1)},${f}`;
-        antes = true;
-      }
-      if (d) svg.appendChild(s('path', { d, class: 'tc-sinal', stroke: p.cor }));
-      // excesso: caixa vermelha do limite até o pico, como na tela do carro
-      for (let f = 0; f <= filas; f++) {
-        if (!exc[f]) continue;
-        let g = f; let pico = 0; let lado = 1;
-        while (g <= filas && exc[g]) {
-          const l = limF[g] !== 'nenhum' ? limF[g] : null;
-          if (l) {
-            if (maxF[g] - l.sup > pico) { pico = maxF[g] - l.sup; lado = 1; }
-            if (l.inf - minF[g] > pico) { pico = l.inf - minF[g]; lado = -1; }
-          }
-          g++;
+      let algum = false;
+      col.series.forEach((p) => {
+        // KLD: só leituras válidas (|valor| < 60 mm), como na análise
+        const serie = p.campo === 'kld' && resultado && resultado.kldValido ? resultado.kldValido : dados[p.campo];
+        if (!serie) return;
+        algum = true;
+        // agrega por fila de pixel: mín, máx e excesso
+        const minF = new Float64Array(filas + 1).fill(NaN); const maxF = new Float64Array(filas + 1).fill(NaN);
+        const exc = new Uint8Array(filas + 1);
+        for (let i = i0; i <= i1; i++) {
+          const v = serie[i];
+          if (Number.isNaN(v)) continue;
+          const f = Math.max(0, Math.min(filas, Math.round(yDe(i))));
+          if (Number.isNaN(minF[f]) || v < minF[f]) minF[f] = v;
+          if (Number.isNaN(maxF[f]) || v > maxF[f]) maxF[f] = v;
+          const lim = lims[tipoLim(i)];
+          if (lim && (v > lim.sup || v < lim.inf)) { exc[f] = 1; excessoGeral[f] = 1; }
         }
-        const l = limF[f] !== 'nenhum' ? limF[f] : { sup: 0, inf: 0 };
-        const xa = xv(lado > 0 ? l.sup : l.inf); const xb = xv(lado > 0 ? l.sup + pico : l.inf - pico);
-        svg.appendChild(s('rect', { x: Math.min(xa, xb) - 3, y: Math.max(0, f - 2), width: Math.abs(xb - xa) + 6, height: Math.max(4, g - f + 3), class: 'tc-excesso' }));
-        f = g;
-      }
+        // traçado: em cada fila, do mínimo ao máximo, ligado à fila seguinte;
+        // o trecho que passa do limite fica vermelho
+        let d = ''; let dv = ''; let antes = false; let antesV = false;
+        for (let f = 0; f <= filas; f++) {
+          if (Number.isNaN(minF[f])) { antes = false; antesV = false; continue; }
+          const seg = `${xv(minF[f]).toFixed(1)},${f}L${xv(maxF[f]).toFixed(1)},${f}`;
+          d += `${antes ? 'L' : 'M'}${seg}`;
+          antes = true;
+          if (exc[f]) { dv += `${antesV ? 'L' : 'M'}${seg}`; antesV = true; } else antesV = false;
+        }
+        if (d) svg.appendChild(s('path', { d, class: 'tc-sinal', stroke: p.cor }));
+        if (dv) svg.appendChild(s('path', { d: dv, class: 'tc-sinal tc-sinal-excesso' }));
+      });
+      if (!algum) svg.appendChild(s('text', { x: cx, y: 20, class: 'tc-sem', 'text-anchor': 'middle' }, 'sem dado'));
     });
     // coluna EX: excesso em qualquer parâmetro
     for (let f = 0; f <= filas; f++) {
@@ -380,7 +432,6 @@
       svg.appendChild(s('rect', { x: COL_KM + 6, y: f, width: COL_EX - 10, height: Math.max(2, g - f), class: 'tc-ex' }));
       f = g;
     }
-    if (revelado <= topo) svg.appendChild(s('text', { x: W / 2, y: H / 2, class: 'tc-dica', 'text-anchor': 'middle' }, 'Toque em Reproduzir para o carro começar a andar.'));
     svg.appendChild(s('g', { class: 'tc-cursor' }));
     ui.trocar(corpoEl, svg);
     desenharCursor();
@@ -407,13 +458,14 @@
     const km = App.bitola.fmtKm(arquivo.pos[cursorI]);
     const partes = [h('span', { class: 'tc-leitura-km', text: km })];
     if (colunaAtiva) {
-      const serie = dados[colunaAtiva.campo];
-      if (serie) {
+      colunaAtiva.series.forEach((p) => {
+        const serie = dados[p.campo];
+        if (!serie) return;
         const i0 = indicePorDist(topo); const i1 = Math.min(indicePorDist(topo + janela), indicePorDist(revelado));
         let mx = -Infinity; let mn = Infinity; let soma = 0; let q = 0;
         for (let i = i0; i <= i1; i++) { const v = serie[i]; if (Number.isNaN(v)) continue; mx = Math.max(mx, v); mn = Math.min(mn, v); soma += v; q++; }
-        partes.push(h('strong', { text: colunaAtiva.nome }), h('span', { text: `VALOR: ${fmt(serie[cursorI])}  MÁX: ${q ? fmt(mx) : '—'}  MÍN: ${q ? fmt(mn) : '—'}  MÉD: ${q ? fmt(soma / q) : '—'}` }));
-      }
+        partes.push(h('strong', { text: p.nome }), h('span', { text: `VALOR: ${fmt(serie[cursorI])}  MÁX: ${q ? fmt(mx) : '—'}  MÍN: ${q ? fmt(mn) : '—'}  MÉD: ${q ? fmt(soma / q) : '—'}` }));
+      });
     } else {
       partes.push(h('span', { text: PARAMETROS.map((p) => `${p.nome} ${fmt(dados[p.campo] ? dados[p.campo][cursorI] : NaN)}`).join('   ') }));
     }
