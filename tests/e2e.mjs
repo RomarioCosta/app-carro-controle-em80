@@ -630,6 +630,18 @@ async function main() {
       await page.locator('.modal').getByRole('button', { name: 'Salvar' }).click();
       await page.getByText('Limites para 68 km/h salvos.').waitFor();
       assert.ok((await page.locator('.tc-rodape').textContent()).includes('(editados)'));
+      // nível de interdição (preenchido à mão) e zoom da coluna
+      await page.locator('.tc-controles').getByRole('button', { name: 'Limites' }).click();
+      await page.locator('.modal').getByRole('button', { name: 'Interdição' }).click();
+      for (const el of ['curva', 'tangente']) {
+        await page.locator(`.modal input[aria-label="Bitola F ${el} superior"]`).fill('0.5');
+        await page.locator(`.modal input[aria-label="Bitola F ${el} superior"]`).dispatchEvent('change');
+      }
+      await page.locator('.modal').getByRole('button', { name: 'Salvar' }).click();
+      await page.locator('.tc-limite-interdicao, .tc-ex-interdicao').first().waitFor({ state: 'attached' });
+      const escalaAntes = await page.locator('.tc-cab-gira small').nth(0).textContent();
+      await page.getByRole('button', { name: 'Aproximar Bitola F' }).click();
+      assert.notEqual(await page.locator('.tc-cab-gira small').nth(0).textContent(), escalaAntes);
       await page.screenshot({ path: `${SAIDA}15-tela-carro.png`, fullPage: true });
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });

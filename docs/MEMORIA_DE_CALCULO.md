@@ -199,4 +199,9 @@ Correção digitada em Critérios (um número) vale para o arquivo todo.
 - Sem grade nem linhas de divisão: só o km na lateral, a linha zero de cada coluna, os limites (pontilhado), os traçados e as marcas.
 - O trecho do traçado que passa de um limite fica **vermelho**; a coluna EX marca o mesmo trecho.
 - **Bitola F e T juntas** (opcional): as duas bitolas na mesma coluna, para comparar o comportamento.
+- **Sentido**: o traçado nasce embaixo e sobe (o ponto mais novo fica sempre na base da tela, como no Offboard).
+- **Valor positivo à esquerda** da linha zero (bitola maior que 1000 mm fica à esquerda).
+- **Escala automática** por coluna: 98% dos valores do arquivo cabem com folga de 30%; botões + e − no cabeçalho aproximam ou afastam. Limites fora da escala não aparecem (o excesso continua marcado).
+- **Três níveis de limite**: Alerta (laranja), Restrição (cinza; padrão = tabela EFVM 2026) e Interdição (vermelho tracejado). Alerta e Interdição começam em branco e são preenchidos em Limites. O traçado e a coluna EX ficam laranja, vermelhos ou vinho conforme o maior nível ultrapassado.
+- **Eventos** escritos na vertical, à esquerda da coluna T/E, lidos de baixo para cima.
 - **Tamanho**: arraste a borda de baixo (altura) ou a da direita (largura das colunas); dois cliques na borda voltam ao tamanho padrão.
