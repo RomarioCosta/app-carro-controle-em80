@@ -460,6 +460,15 @@
     ];
   }
 
+  /** Seção que abre e fecha pela setinha; lembra se estava aberta. */
+  function recolhivel(chave, titulo, ...conteudo) {
+    const aberto = U.pref.get(`analise:aberto:${chave}`, true) !== false;
+    return h('details', {
+      class: 'cartao detalhes recolhivel', open: aberto || null,
+      ontoggle: (e) => U.pref.set(`analise:aberto:${chave}`, e.target.open)
+    }, h('summary', null, h('h2', { class: 'recolhivel-titulo', text: titulo })), h('div', { class: 'recolhivel-corpo' }, conteudo));
+  }
+
   function renderGraficos() {
     graficos.forEach((g) => g.destruir());
     graficos = [];
@@ -518,9 +527,8 @@
         g.el);
     });
 
-    ui.trocar(secoes.graficos, h('section', { class: 'cartao' },
+    ui.trocar(secoes.graficos, recolhivel('graficos', 'Gráficos ao longo do km',
       h('div', { class: 'graf-km-topo' },
-        h('h2', { text: 'Gráficos ao longo do km' }),
         h('div', { class: 'linha-campo' },
           h('span', { class: 'sub', text: zoom ? `Trecho: ${B.fmtKm(x0)} → ${B.fmtKm(x1)}` : 'Trecho completo' }),
           zoom ? h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => { zoom = null; renderGraficos(); } }, 'Ver tudo') : null)),
@@ -667,13 +675,10 @@
     const r = resultado;
     const planta = r.comLocais;
     ui.trocar(secoes.elementos,
-      planta && r.porEh.length ? h('section', { class: 'cartao' },
-        h('h2', { text: 'Resumo por trecho (EH e RH)' }),
+      planta && r.porEh.length ? recolhivel('trechos', 'Resumo por trecho (EH e RH)',
         tabelaTela(colunasEh(false), porPerda(r.porEh), (g) => aproximar(g.ini, g.fim, 0.02))) : null,
-      h('section', { class: 'cartao' },
-        h('div', { class: 'cartao-cab' },
-          h('h2', { text: r.modo === 'curvatura' ? 'Elementos: tangentes e curvas' : `Elementos da ${nomeFonte()}: tangentes e curvas` }),
-          cartaoConferencia()),
+      recolhivel('elementos', r.modo === 'curvatura' ? 'Elementos: tangentes e curvas' : `Elementos da ${nomeFonte()}: tangentes e curvas`,
+        h('div', { class: 'cartao-cab' }, h('span'), cartaoConferencia()),
         tabelaTela(colunasElementos(false), porPerda(r.elementos), (e) => aproximar(e.ini, e.fim))));
   }
 
@@ -811,8 +816,7 @@
     if (!disponiveis.some((p) => p.id === rankingCampo) && disponiveis.length) rankingCampo = disponiveis[0].id;
     const lista = B.ranking(arquivo, resultado.elementos, rankingCampo, { limite: 10, separacao: 10 });
     const nome = (B.NIVELAMENTO.find((p) => p.id === rankingCampo) || {}).nome || rankingCampo;
-    ui.trocar(secoes.ranking, h('section', { class: 'cartao' },
-      h('h2', { text: 'Ranking de nivelamento' }),
+    ui.trocar(secoes.ranking, recolhivel('ranking', 'Ranking de nivelamento',
       h('div', { style: { marginBottom: '10px' } },
         h('select', {
           class: 'select-auto',

@@ -15,7 +15,7 @@
     versao: '2026.10.21',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-33a69d500d', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-e9f4f767ca', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {

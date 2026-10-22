@@ -640,8 +640,15 @@ async function main() {
       await page.locator('.modal').getByRole('button', { name: 'Salvar' }).click();
       await page.locator('.tc-limite-interdicao, .tc-ex-interdicao').first().waitFor({ state: 'attached' });
       const escalaAntes = await page.locator('.tc-cab-gira small').nth(0).textContent();
+      assert.equal(await page.locator('.tc-zoom').count(), 0); // botões de escala escondidos
+      await page.getByRole('button', { name: 'Mostrar escala' }).click();
       await page.getByRole('button', { name: 'Aproximar Bitola F' }).click();
       assert.notEqual(await page.locator('.tc-cab-gira small').nth(0).textContent(), escalaAntes);
+      // ordem: Bitola T passa para a primeira coluna
+      await page.locator('.tc-controles').getByRole('button', { name: /Ordem/ }).click();
+      await page.locator('.modal').getByRole('button', { name: 'Subir Bitola T' }).click();
+      await page.locator('.modal').getByRole('button', { name: 'Salvar' }).click();
+      assert.equal(await page.locator('.tc-cab-gira strong').first().textContent(), 'Bitola T');
       await page.screenshot({ path: `${SAIDA}15-tela-carro.png`, fullPage: true });
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
