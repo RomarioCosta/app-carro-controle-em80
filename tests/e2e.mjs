@@ -605,7 +605,12 @@ async function main() {
       await page.getByRole('tab', { name: 'Tela do carro' }).click();
       await page.locator('.tc-svg').waitFor();
       assert.equal(await page.locator('.tc-cab-cel.tc-cab-gira').count(), 12); // EX, T/E e 10 parâmetros
-      assert.ok(await page.locator('.tc-sinal').count() >= 9);
+      assert.equal(await page.locator('.tc-sinal').count(), 0); // ao abrir, a tela fica vazia
+      await page.locator('.tc-controles select').nth(2).selectOption('20'); // 20×
+      await page.locator('.tc-controles').getByRole('button', { name: 'Reproduzir' }).click();
+      await page.waitForFunction(() => document.querySelectorAll('.tc-sinal').length >= 9);
+      await page.locator('.tc-controles').getByRole('button', { name: 'Pausar' }).click();
+      assert.equal(await page.locator('.tc-linha-km, .tc-km, .tc-divisa, .tc-centro').count(), 0); // sem grade nem km
       assert.ok((await page.locator('.tc-rodape').textContent()).includes('68 km/h (EFVM 2026)'));
       await page.locator('.tc-controles').getByRole('button', { name: 'Limites' }).click();
       await page.locator('.modal input[aria-label="Bitola F curva superior"]').fill('20');
@@ -613,8 +618,6 @@ async function main() {
       await page.locator('.modal').getByRole('button', { name: 'Salvar' }).click();
       await page.getByText('Limites para 68 km/h salvos.').waitFor();
       assert.ok((await page.locator('.tc-rodape').textContent()).includes('(editados)'));
-      await page.locator('.tc-controles').getByRole('button', { name: 'Reproduzir' }).click();
-      await page.locator('.tc-controles').getByRole('button', { name: 'Pausar' }).click();
       await page.screenshot({ path: `${SAIDA}15-tela-carro.png`, fullPage: true });
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });

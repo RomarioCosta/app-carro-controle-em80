@@ -77,7 +77,9 @@
   let prep = null; // dados preparados do arquivo
   let velocidade = Number(U.pref.get('telaCarro:velocidade', 68));
   let janela = Number(U.pref.get('telaCarro:janela', 500)); // metros visíveis
-  let velocidadeReproducao = Number(U.pref.get('telaCarro:reproducao', 40)); // km/h
+  let fator = Number(U.pref.get('telaCarro:fator', 1)); // velocidade da reprodução: 1×, 2×, 3×…
+  const BASE_MS = 10; // 1× = 10 m/s de arquivo por segundo
+  let revelado = 0; // distância (m) até onde o traçado já foi desenhado (avança com o play)
   let topo = 0; // distância percorrida (m) no topo da tela
   let cursorI = null; // índice do ponto sob o cursor
   let tocando = false;
@@ -85,7 +87,7 @@
   let colunaAtiva = null;
 
   const ALTURA = 520;
-  const COL_EX = 26; const COL_EL = 64; const COL_KM = 58;
+  const COL_EX = 26; const COL_EL = 64; const COL_KM = 0; // sem a coluna de km à esquerda
 
   /* ---------------- Montagem ---------------- */
 
@@ -123,7 +125,8 @@
       const r = svg.getBoundingClientRect();
       const y = ((e.clientY - r.top) / r.height) * ALTURA;
       const x = ((e.clientX - r.left) / r.width) * Number(svg.getAttribute('width'));
-      cursorI = indicePorDist(topo + (y / ALTURA) * janela);
+      const d = topo + (y / ALTURA) * janela;
+      cursorI = d <= revelado ? indicePorDist(d) : null;
       colunaAtiva = colunaEm(x);
       desenharCursor();
     });
@@ -170,6 +173,7 @@
     });
     prep = { n, esp, dist, tipo, elementoDo, eventos, total: dist[n - 1] || 0 };
     topo = 0;
+    revelado = 0; // ao abrir, a tela começa vazia: o traçado aparece com o play
     cursorI = null;
   }
 
@@ -177,6 +181,13 @@
 
   const limitarTopo = (t) => Math.max(0, Math.min(t, Math.max(0, prep.total - janela * 0.2)));
   function mover(dm) { topo = limitarTopo(topo + dm); desenhar(); }
+  /** Avança o traçado (como o carro andando); a tela rola quando ele chega perto do fim. */
+  function avancar(dm) {
+    revelado = Math.min(prep.total, revelado + dm);
+    if (revelado > topo + janela * 0.9) topo = limitarTopo(revelado - janela * 0.9);
+    desenhar();
+  }
+  function reiniciar() { revelado = 0; topo = 0; cursorI = null; desenhar(); }
 
   function indicePorDist(d) {
     const { dist, n } = prep;
@@ -191,7 +202,8 @@
     let melhor = 0; let d = Infinity;
     arquivo.pos.forEach((p, i) => { const x = Math.abs(p - metros); if (x < d) { d = x; melhor = i; } });
     if (d > 500) ui.toast(`O km mais próximo no arquivo é ${App.bitola.fmtKm(arquivo.pos[melhor])}.`, 'info');
-    topo = limitarTopo(prep.dist[melhor] - janela * 0.3);
+    revelado = prep.dist[melhor];
+    topo = limitarTopo(revelado - janela * 0.9);
     cursorI = melhor;
     desenhar();
   }
@@ -205,10 +217,8 @@
       if (!tocando || !raiz.offsetParent) { tocando = false; renderControles(); return; }
       const dt = (agora - ultimoQuadro) / 1000;
       ultimoQuadro = agora;
-      const antes = topo;
-      topo = limitarTopo(topo + (velocidadeReproducao / 3.6) * dt);
-      desenhar();
-      if (topo === antes && dt > 0) { tocando = false; renderControles(); return; }
+      avancar(BASE_MS * fator * dt);
+      if (revelado >= prep.total) { tocando = false; renderControles(); return; }
       requestAnimationFrame(passo);
     };
     requestAnimationFrame(passo);
@@ -226,11 +236,12 @@
           h('div', { class: 'linha-campo' }, kmInput, h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', onclick: () => irParaKm(kmInput.value) }, 'Ir'))),
         sel(janela, [[250, '250 m'], [500, '500 m'], [1000, '1.000 m'], [2000, '2.000 m']], (v) => { janela = v; U.pref.set('telaCarro:janela', v); if (prep) { topo = limitarTopo(topo); desenhar(); } }, 'Trecho na tela'),
         sel(velocidade, VELOCIDADES.map((v) => [v, `${v} km/h`]), (v) => { velocidade = v; U.pref.set('telaCarro:velocidade', v); desenhar(); }, 'Limites para'),
-        sel(velocidadeReproducao, [[20, '20 km/h'], [40, '40 km/h'], [60, '60 km/h'], [120, '120 km/h'], [300, '300 km/h']], (v) => { velocidadeReproducao = v; U.pref.set('telaCarro:reproducao', v); }, 'Reprodução'),
+        sel(fator, [1, 2, 3, 5, 10, 20].map((v) => [v, `${v}×`]), (v) => { fator = v; U.pref.set('telaCarro:fator', v); }, 'Velocidade'),
         h('div', { class: 'tc-botoes' },
           h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', title: 'Voltar um trecho', disabled: !prep, onclick: () => mover(-janela * 0.8) }, '▲'),
           h('button', { class: `btn ${tocando ? 'btn-primario' : 'btn-secundario'} btn-pequeno`, type: 'button', disabled: !prep, onclick: tocar }, ui.icone(tocando ? 'parar' : 'play'), tocando ? 'Pausar' : 'Reproduzir'),
-          h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', title: 'Avançar um trecho', disabled: !prep, onclick: () => mover(janela * 0.8) }, '▼'),
+          h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', title: 'Avançar um trecho', disabled: !prep, onclick: () => (topo + janela >= revelado ? avancar(janela * 0.8) : mover(janela * 0.8)) }, '▼'),
+          h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', title: 'Voltar ao início do arquivo, com a tela vazia', disabled: !prep, onclick: reiniciar }, 'Reiniciar'),
           h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', onclick: editarLimites }, ui.icone('ajustes'), 'Limites'))));
   }
 
@@ -263,7 +274,8 @@
     const { dist, tipo, n } = prep;
     const dados = (resultado && resultado.dados) || arquivo.dados;
     const i0 = indicePorDist(topo);
-    const i1 = indicePorDist(topo + janela);
+    // só o que o "carro" já percorreu (play): ao abrir, nada é desenhado
+    const i1 = revelado > topo ? Math.min(indicePorDist(topo + janela), indicePorDist(revelado)) : -1;
     const yDe = (i) => ((dist[i] - topo) / janela) * H;
     const tipoLim = (i) => (tipo[i] === 1 ? 'C' : 'T');
 
@@ -276,15 +288,6 @@
         h('span', null, h('strong', { text: p.nome }), h('small', { text: `±${p.escala}` }))))));
 
     const svg = s('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, class: 'tc-svg' });
-    // linhas de km a cada 100 m
-    const passoKm = janela <= 500 ? 50 : (janela <= 1000 ? 100 : 200);
-    for (let d = Math.ceil(topo / passoKm) * passoKm; d <= topo + janela; d += passoKm) {
-      const i = indicePorDist(d);
-      const y = ((d - topo) / janela) * H;
-      svg.appendChild(s('line', { x1: COL_KM - 6, x2: W, y1: y, y2: y, class: 'tc-linha-km' }));
-      svg.appendChild(s('text', { x: COL_KM - 8, y: y + 4, class: 'tc-km', 'text-anchor': 'end' }, App.bitola.fmtKm(arquivo.pos[i])));
-    }
-
     // coluna T/E: elementos (tangente = linha, curva = barra azul, RH = cinza) e eventos
     const xEl = COL_KM + COL_EX;
     const vistos = new Set();
@@ -318,8 +321,6 @@
       // KLD: só leituras válidas (|valor| < 60 mm), como na análise
       const serie = p.campo === 'kld' && resultado && resultado.kldValido ? resultado.kldValido : dados[p.campo];
       const lims = limitesDe(p, velocidade);
-      svg.appendChild(s('line', { x1: x0, x2: x0, y1: 0, y2: H, class: 'tc-divisa' }));
-      svg.appendChild(s('line', { x1: cx, x2: cx, y1: 0, y2: H, class: 'tc-centro' }));
       if (!serie) { svg.appendChild(s('text', { x: cx, y: 20, class: 'tc-sem', 'text-anchor': 'middle' }, 'sem dado')); return; }
       // agrega por fila de pixel: mín, máx e excesso
       const minF = new Float64Array(filas + 1).fill(NaN); const maxF = new Float64Array(filas + 1).fill(NaN);
@@ -379,7 +380,7 @@
       svg.appendChild(s('rect', { x: COL_KM + 6, y: f, width: COL_EX - 10, height: Math.max(2, g - f), class: 'tc-ex' }));
       f = g;
     }
-    svg.appendChild(s('line', { x1: COL_KM + COL_EX, x2: COL_KM + COL_EX, y1: 0, y2: H, class: 'tc-divisa' }));
+    if (revelado <= topo) svg.appendChild(s('text', { x: W / 2, y: H / 2, class: 'tc-dica', 'text-anchor': 'middle' }, 'Toque em Reproduzir para o carro começar a andar.'));
     svg.appendChild(s('g', { class: 'tc-cursor' }));
     ui.trocar(corpoEl, svg);
     desenharCursor();
@@ -408,7 +409,7 @@
     if (colunaAtiva) {
       const serie = dados[colunaAtiva.campo];
       if (serie) {
-        const i0 = indicePorDist(topo); const i1 = indicePorDist(topo + janela);
+        const i0 = indicePorDist(topo); const i1 = Math.min(indicePorDist(topo + janela), indicePorDist(revelado));
         let mx = -Infinity; let mn = Infinity; let soma = 0; let q = 0;
         for (let i = i0; i <= i1; i++) { const v = serie[i]; if (Number.isNaN(v)) continue; mx = Math.max(mx, v); mn = Math.min(mn, v); soma += v; q++; }
         partes.push(h('strong', { text: colunaAtiva.nome }), h('span', { text: `VALOR: ${fmt(serie[cursorI])}  MÁX: ${q ? fmt(mx) : '—'}  MÍN: ${q ? fmt(mn) : '—'}  MÉD: ${q ? fmt(soma / q) : '—'}` }));

@@ -773,3 +773,5 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .tc-vazio { padding: 40px 16px; background: #fff; }
 .tc-lim td { padding: 4px; }
 .tc-lim-input { width: 76px !important; min-height: 34px !important; padding: 4px 8px !important; text-align: center; }
+
+.tc-dica { font-size: 14px; fill: #6b7280; font-family: system-ui, sans-serif; }
