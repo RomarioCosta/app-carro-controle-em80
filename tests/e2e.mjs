@@ -669,6 +669,35 @@ async function main() {
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 
+    await passo('montagem dos dados: cobertura pela planta, buracos e arquivos', async () => {
+      await page.getByRole('tab', { name: 'Montagem' }).click();
+      await page.getByRole('heading', { name: 'Montagem dos dados' }).waitFor();
+      await page.getByText('Nenhum arquivo neste ciclo').waitFor();
+      await page.locator('input[name="arquivo-montagem"]').setInputFiles([
+        { name: 'TESTE.zip', mimeType: 'application/zip', buffer: zipar('TESTE.csv', Buffer.from(gerarCSV(), 'latin1')) }
+      ]);
+      await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
+      await page.getByRole('heading', { name: 'Linha 1' }).waitFor();
+      assert.equal(await page.locator('.mt-arquivo').count(), 1);
+      assert.ok((await page.locator('.mt-arquivo summary').textContent()).includes('TESTE.csv'));
+      const medido = await page.locator('.kpi:visible').filter({ hasText: 'Medido' }).locator('.kpi-valor').textContent();
+      assert.match(medido, /%$/);
+      assert.ok(await page.locator('.mt-faixa .mt-cob').count() > 0);
+      // abre a sede: lista os arquivos e os buracos
+      await page.locator('.mt-tabela tbody tr').first().click();
+      await page.locator('.mt-detalhe').first().waitFor();
+      // recorte do arquivo e persistência
+      await page.locator('.mt-arquivo summary').click();
+      await page.locator('.mt-arquivo').getByLabel('Até o km').fill('2+000');
+      await page.locator('.mt-arquivo').getByLabel('Até o km').dispatchEvent('change');
+      await page.locator('.mt-arquivo summary', { hasText: 'recortado' }).waitFor();
+      await page.screenshot({ path: `${SAIDA}16-montagem.png`, fullPage: true });
+      await page.reload();
+      await page.getByRole('heading', { name: 'Montagem dos dados' }).waitFor();
+      await page.locator('.mt-arquivo summary', { hasText: 'recortado' }).waitFor();
+      await page.getByRole('tab', { name: 'Checklist' }).click();
+    });
+
     await passo('rota: programação dia a dia, ponto de atenção, execução e PDF', async () => {
       await page.getByRole('navigation').getByRole('button', { name: 'Rota' }).click();
       await page.getByRole('heading', { name: 'Rota do carro controle' }).waitFor();

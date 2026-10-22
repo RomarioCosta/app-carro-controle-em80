@@ -207,3 +207,14 @@ Correção digitada em Critérios (um número) vale para o arquivo todo.
 - **Eventos** escritos na vertical, à esquerda da coluna T/E, lidos de baixo para cima. "INICIO X" + "FIM X" (túnel, AMV, RH, travador, lastro alto…) viram uma barra na lateral durante toda a extensão (túnel em preto, travador em roxo, AMV em laranja). Eventos de um ponto (JIC, PSUP, lubrificador…) têm uma marca e o texto.
 - **Ordem** das colunas: botão "Ordem" (▲ ▼ e esconder coluna). Os botões de escala (+ / −) ficam escondidos; a seta "escala ▸" no canto mostra.
 - **Tamanho**: arraste a borda de baixo (altura) ou a da direita (largura das colunas); dois cliques na borda voltam ao tamanho padrão.
+
+## 15. Montagem dos dados (cobertura pela geometria)
+
+Aba **Montagem** do Checklist. Junta os arquivos do carro de um ciclo e mostra quanto do trecho já está medido antes de subir para o banco.
+
+- **O que precisa ser medido**: pela geometria, cada tangente e curva do ramal e linha, mais os circuitos (RH) entre elas (vão de até 1.000 m). Cada trecho tem a sede (corretiva) da geometria: `GV I` → GV1, `NE II` → NE2.
+- **O que o arquivo cobre**: amostras a cada ~1 m, com o km corrigido pela geometria ponto a ponto (mesma correção variável da análise, seção 4.1) e a linha de cada ponto (valor que não é linha, como `TESTE01`, vira a linha mais frequente do arquivo). Só fica guardado esse resumo, não o CSV.
+- **Buraco**: trecho necessário sem nenhum arquivo, maior que 5 m. Mostra o km, o EH e se é salto do km dentro de um arquivo, entre dois arquivos, antes ou depois deles. Em sede sem arquivo o trecho todo conta como "falta medir".
+- **Divisa entre sedes** (ex.: GV1 → GV2): *encosta* quando algum arquivo cobre o km da divisa; *buraco* quando há arquivo terminando a até 2 km da divisa sem encostar no vizinho; *falta arquivo* quando nenhum dos lados foi medido perto dela.
+- **Sobreposição**: trecho (> 5 m) coberto por dois arquivos. Use "Usar a partir do km / Até o km" do arquivo para recortar o que sobra (km do arquivo, sem editar o CSV).
+- **Inconsistências do arquivo**: ramal fora da geometria; corretiva diferente da sede onde o arquivo caiu (mais da metade do trecho); km que volta (mais de 1 m, no sentido do arquivo); km que salta (mais de 5 m); km parado; coluna LINHA inválida; menos de 70% das curvas casadas com a geometria; aviso de Excel; arquivo sem eventos.

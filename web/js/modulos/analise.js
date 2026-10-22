@@ -83,19 +83,25 @@
     throw new Error('Nenhum arquivo .csv dentro do .zip.');
   }
 
+  /** Texto do arquivo do carro (.csv, ou o .csv de dentro de um .zip). */
+  async function textoDoArquivo(f) {
+    let buf = await f.arrayBuffer();
+    let nome = f.name;
+    // .zip (como o arquivo é enviado pelo WhatsApp/e-mail): abre o .csv de dentro
+    if (buf.byteLength > 4 && new DataView(buf).getUint32(0, true) === 0x04034b50) ({ nome, buf } = await csvDoZip(buf));
+    let texto;
+    try {
+      texto = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+    } catch (e) {
+      texto = new TextDecoder('windows-1252').decode(buf); // arquivos do carro costumam vir em ANSI
+    }
+    return { nome, texto };
+  }
+
   async function lerArquivo(f) {
     ui.toast(`Lendo ${f.name}…`, 'info', 3000);
     try {
-      let buf = await f.arrayBuffer();
-      let nome = f.name;
-      // .zip (como o arquivo é enviado pelo WhatsApp/e-mail): abre o .csv de dentro
-      if (buf.byteLength > 4 && new DataView(buf).getUint32(0, true) === 0x04034b50) ({ nome, buf } = await csvDoZip(buf));
-      let texto;
-      try {
-        texto = new TextDecoder('utf-8', { fatal: true }).decode(buf);
-      } catch (e) {
-        texto = new TextDecoder('windows-1252').decode(buf); // arquivos do carro costumam vir em ANSI
-      }
+      const { nome, texto } = await textoDoArquivo(f);
       processar(texto, nome, { salvar: true });
     } catch (e) {
       ui.toast(`Não foi possível abrir o arquivo: ${e.message}`, 'erro', 8000);
@@ -1075,6 +1081,8 @@
   App.analise = {
     montar,
     /** Estado atual (arquivo carregado e análise), usado pela Tela do carro. */
-    estado: () => ({ arquivo, resultado, nomeArquivo, opcoes })
+    estado: () => ({ arquivo, resultado, nomeArquivo, opcoes }),
+    textoDoArquivo,
+    planta: async () => { try { return await store.get(CHAVE_PLANTA); } catch (e) { return null; } }
   };
 })(window.App);
