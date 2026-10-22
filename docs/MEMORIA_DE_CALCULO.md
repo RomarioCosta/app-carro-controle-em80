@@ -196,4 +196,7 @@ Correção digitada em Critérios (um número) vale para o arquivo todo.
 - **Excesso**: valor acima do superior ou abaixo do inferior. Fica marcado com uma caixa vermelha na coluna, e a coluna EX fica vermelha onde algum parâmetro passa do limite.
 - Coluna **T/E**: tangente (linha preta), curva (barra azul), RH (barra cinza) e eventos do arquivo (TRAV em roxo).
 - **Reproduzir**: ao abrir, a tela fica vazia; com o play, o traçado vai sendo desenhado como o carro andando, e a tela rola quando ele chega perto do fim. Velocidade 1×, 2×, 3×, 5×, 10× ou 20× (1× = 10 m de arquivo por segundo). "Ir para o km" mostra o traçado até aquele km; "Reiniciar" volta ao início com a tela vazia.
-- Sem grade, sem linhas de divisão e sem km na lateral: só os limites (pontilhado), os traçados e as marcas.
+- Sem grade nem linhas de divisão: só o km na lateral, a linha zero de cada coluna, os limites (pontilhado), os traçados e as marcas.
+- O trecho do traçado que passa de um limite fica **vermelho**; a coluna EX marca o mesmo trecho.
+- **Bitola F e T juntas** (opcional): as duas bitolas na mesma coluna, para comparar o comportamento.
+- **Tamanho**: arraste a borda de baixo (altura) ou a da direita (largura das colunas); dois cliques na borda voltam ao tamanho padrão.

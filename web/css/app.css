@@ -775,3 +775,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .tc-lim-input { width: 76px !important; min-height: 34px !important; padding: 4px 8px !important; text-align: center; }
 
 .tc-dica { font-size: 14px; fill: #6b7280; font-family: system-ui, sans-serif; }
+.tc-zero { stroke: #222; stroke-width: 1; }
+.tc-sinal-excesso { stroke: #e11d1d; stroke-width: 2; fill: none; stroke-linejoin: round; }
+.tc-corpo-caixa { display: flex; align-items: stretch; }
+.tc-alca { background: #b3b3b3; flex: none; touch-action: none; }
+.tc-alca:hover, .tc-alca:active { background: #8e8e8e; }
+.tc-alca-largura { width: 10px; cursor: ew-resize; border-left: 1px solid #9a9a9a; }
+.tc-alca-altura { height: 10px; cursor: ns-resize; border-top: 1px solid #9a9a9a; }
+.tc-alca-largura::after, .tc-alca-altura::after { content: ''; display: block; margin: auto; background: #666; border-radius: 2px; }
+.tc-alca-largura { display: flex; align-items: center; } .tc-alca-largura::after { width: 2px; height: 28px; }
+.tc-alca-altura { display: flex; align-items: center; } .tc-alca-altura::after { height: 2px; width: 40px; }
+.tc-juntas { align-self: center; }
