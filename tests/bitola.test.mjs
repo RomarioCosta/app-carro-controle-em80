@@ -475,3 +475,21 @@ test('dupla checagem com offset aplicado: confere com o mesmo offset (sem falsa 
     assert.equal(B.conferir(texto, r, 2).ok, false);
   }
 });
+
+test('formato novo sem linhas de evento: trechos da coluna EX viram eventos INICIO/FIM EX', () => {
+  const linhas = gerarCSV().split('\r\n').filter((l) => !l.startsWith('E;'));
+  const cab = linhas.find((l) => l.startsWith('H;')).split(';').map((x) => x.trim());
+  const iEx = cab.indexOf('EX');
+  let k = 0;
+  const texto = linhas.map((l) => {
+    if (!l.startsWith('D;')) return l;
+    const c = l.split(';'); k++;
+    c[iEx] = k >= 100 && k < 140 ? '5.0000' : '0.0000';
+    return c.join(';');
+  }).join('\r\n');
+  const a = B.lerCSV(texto);
+  const ex = a.eventos.filter((e) => e.ex);
+  assert.deepEqual(j(ex.map((e) => e.texto)), ['INICIO EX 5', 'FIM EX 5']);
+  assert.equal(ex[0].pos, a.pos[99]);
+  assert.equal(ex[1].pos, a.pos[138]);
+});

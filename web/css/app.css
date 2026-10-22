@@ -802,11 +802,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .tc-cab-cel { position: relative; }
 .tc-ev text { font-size: 8.5px; }
 /* Seções da análise que abrem e fecham pela setinha */
-.recolhivel > summary { display: flex; align-items: center; gap: 8px; list-style: none; }
-.recolhivel > summary::-webkit-details-marker { display: none; }
-.recolhivel > summary::before { content: '▸'; font-size: 1rem; color: var(--texto2); transition: transform .15s; }
-.recolhivel[open] > summary::before { transform: rotate(90deg); }
-.recolhivel-titulo { margin: 0; }
+/* mesma seta (marcador padrão) e mesmo tamanho de "Simulação de offset" */
+.recolhivel > summary { display: list-item; }
+.recolhivel-titulo { display: inline; margin: 0; font-size: 1rem; font-weight: 700; }
 .recolhivel-corpo { margin-top: 12px; }
 .tc-sinal { stroke-width: 1.1 !important; }
 .tc-sinal-excesso { stroke-width: 1.4 !important; }
@@ -822,3 +820,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .tc-ordem { display: flex; flex-direction: column; gap: 6px; }
 .tc-ordem-item { display: flex; align-items: center; gap: 8px; }
 .tc-ordem-nome { flex: 1; display: flex; align-items: center; gap: 8px; font-weight: 650; }
+
+/* Eventos da Tela do carro: texto sempre preto (as cores ficam só nas barras/marcas) */
+.tc-ev text, .tc-ev-faixa text, .tc-ev-trav text, .tc-ev-tunel text { fill: #000 !important; font-weight: 600; }
+.tc-ev-ex rect { fill: #111; }

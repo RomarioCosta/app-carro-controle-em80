@@ -206,7 +206,8 @@
       if (juntas && (p.id === 'bitF' || p.id === 'bitT')) {
         if (lista.some((c) => c.id === 'bitFT')) return; // F e T juntas: uma coluna, na posição da primeira
         const f = PARAMETROS.find((x) => x.id === 'bitF'); const t = PARAMETROS.find((x) => x.id === 'bitT');
-        lista.push({ ...f, id: 'bitFT', nome: 'Bitola F+T', escala: esc(['bitF', 'bitT'], 'bitFT'), series: [f, t] });
+        // mesma escala e mesmo zoom da Bitola F: os limites ficam no mesmo lugar da coluna separada
+        lista.push({ ...f, id: 'bitFT', nome: 'Bitola F+T', zoomId: 'bitF', escala: esc(['bitF', 'bitT'], 'bitF'), series: [f, t] });
         return;
       }
       lista.push({ ...p, escala: esc([p.id]), series: [p] });
@@ -429,8 +430,8 @@
       h('div', { class: 'tc-cab-cel tc-cab-gira', style: { width: `${COL_EL}px` } }, h('span', { text: 'T/E' })),
       colunas().map((p) => h('div', { class: 'tc-cab-cel tc-cab-gira', style: { width: `${lp}px` }, title: p.nome },
         mostrarEscala && h('div', { class: 'tc-zoom' },
-          h('button', { type: 'button', title: 'Diminuir a escala (mais detalhe)', 'aria-label': `Aproximar ${p.nome}`, onclick: () => mudarZoom(p.id, 1.5) }, '+'),
-          h('button', { type: 'button', title: 'Aumentar a escala', 'aria-label': `Afastar ${p.nome}`, onclick: () => mudarZoom(p.id, 1 / 1.5) }, '−')),
+          h('button', { type: 'button', title: 'Diminuir a escala (mais detalhe)', 'aria-label': `Aproximar ${p.nome}`, onclick: () => mudarZoom(p.zoomId || p.id, 1.5) }, '+'),
+          h('button', { type: 'button', title: 'Aumentar a escala', 'aria-label': `Afastar ${p.nome}`, onclick: () => mudarZoom(p.zoomId || p.id, 1 / 1.5) }, '−')),
         h('span', null, h('strong', { text: p.nome }), h('small', { text: `±${String(Math.round(p.escala * 10) / 10).replace('.', ',')}` }))))));
 
     const svg = s('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}`, class: 'tc-svg' });
@@ -457,7 +458,7 @@
       if (yb - ya > 26) svg.appendChild(s('text', { x: xEl + 40, y: (ya + yb) / 2 + 3, class: 'tc-el-rotulo' }, t === 'rh' ? (e.trecho || 'RH').split(' · ')[0].replace('RH-', 'R') : e.sigla));
     }
     // eventos com extensão (INICIO/FIM): barra na lateral esquerda durante todo o trecho, com o nome na vertical
-    const classeEv = (nome) => (/TUNEL|TÚNEL/.test(nome) ? 'tunel' : /TRA?V/.test(nome) ? 'trav' : /AMV/.test(nome) ? 'amv' : /^RH/.test(nome) ? 'rh' : 'outro');
+    const classeEv = (nome) => (/^EX\b/.test(nome) ? 'ex' : /TUNEL|TÚNEL/.test(nome) ? 'tunel' : /TRA?V/.test(nome) ? 'trav' : /AMV/.test(nome) ? 'amv' : /^RH/.test(nome) ? 'rh' : 'outro');
     (prep.eventos.faixas || []).forEach((fx) => {
       if (fx.i1 < i0 || fx.i0 > i1) return;
       const a = Math.max(0, yDe(Math.max(fx.i0, i0))); const b = Math.min(H, yDe(Math.min(fx.i1, i1)));
