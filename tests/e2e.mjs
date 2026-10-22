@@ -564,8 +564,8 @@ async function main() {
       assert.equal(await laudo.locator('.laudo-grafico svg').count(), 6);
       assert.ok((await laudo.textContent()).includes('Checklist de inspeção'), 'checklist incluído no laudo');
       assert.ok((await laudo.textContent()).includes('TGT 02'));
-      assert.ok(!(await laudo.textContent()).includes('Melhor offset'), 'sem o offset antigo no laudo');
-      assert.ok((await laudo.textContent()).includes('Dif. F − T (mm)'), 'coluna da diferença F − T por elemento');
+      assert.ok((await laudo.textContent()).includes('Melhor offset e resultado se aplicado'), 'tabela de melhor offset no laudo');
+      assert.ok((await laudo.textContent()).includes('% c/ offset'), 'coluna de perda com offset por elemento');
       assert.ok((await laudo.textContent()).includes('TGT 02'), 'elemento abreviado (TGT/CVA)');
       assert.ok(!(await laudo.textContent()).includes('Gerado pelo App'), 'sem rodapé de texto');
       assert.equal(await laudo.locator('.laudo-cab .laudo-foto').count(), 1);
@@ -599,19 +599,16 @@ async function main() {
       await page.getByLabel(/Parâmetro do gráfico/).selectOption('sup');
       await page.locator('.graf-km-item h3', { hasText: 'Superelevação: SUPerABS' }).waitFor();
       await page.getByLabel(/Parâmetro do gráfico/).selectOption('alr10');
-      // Offset por elemento (mediana de F − T): caixa para aplicar ou não
-      assert.equal(await page.locator('details').filter({ hasText: 'Simulação de offset' }).count(), 0);
-      const caixaOff = page.locator('input[name="offset-elemento"]');
-      const tabOff = page.locator('.tabela').filter({ hasText: 'Dif. F − T (mm)' }).first();
-      await tabOff.waitFor();
-      await caixaOff.check();
-      await page.locator('.tabela', { hasText: '% sem offset' }).first().waitFor();
-      await page.getByText('Offset por elemento aplicado').waitFor();
-      await page.locator('.conf-ok').first().waitFor(); // a conferência considera o mesmo offset
+      // Offset: o melhor valor na bitola T zera a perda.
+      const cartaoOff = page.locator('details').filter({ hasText: 'Simulação de offset' });
+      await cartaoOff.locator('summary').click();
+      await cartaoOff.locator('select').selectOption('bitT');
+      await page.locator('details').filter({ hasText: 'Simulação de offset' }).getByRole('button', { name: /Usar melhor offset/ }).click();
+      await page.locator('details').filter({ hasText: 'Simulação de offset' }).locator('input[type="checkbox"]').check();
+      await page.waitForFunction(() => document.querySelector('.kpi .kpi-valor')?.textContent === '0,0%');
       await page.locator('.graf-alvo').first().hover();
       await page.screenshot({ path: `${SAIDA}15-analise-planta.png`, fullPage: true });
-      await caixaOff.uncheck();
-      await page.locator('.tabela', { hasText: '% sem offset' }).waitFor({ state: 'detached' });
+      await page.locator('details').filter({ hasText: 'Simulação de offset' }).locator('input[type="checkbox"]').uncheck();
       // o arquivo fica guardado no aparelho
       await page.reload();
       await page.getByRole('tab', { name: 'Análise do arquivo' }).waitFor();

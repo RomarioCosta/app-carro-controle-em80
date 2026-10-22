@@ -268,55 +268,24 @@ OGMS − KLD médio = média das diferenças (com sinal), fora dos RH
 
 ---
 
-## 10. Offset por elemento (Dif. F − T)
+## 10. Simulação de offset
 
-**O que é.** Cada elemento (tangente ou curva) tem a sua **diferença sistemática** entre os dois sensores, a Bitola F e a Bitola T. O app calcula essa diferença e, se você marcar a caixa, desconta dela.
-
-**Como calcula a Dif. F − T de um elemento.**
-
-1. Pega os pontos do elemento com F e T lidas.
-2. Tira os pontos com |F − T| ≥ **10 mm**, que são leitura errada.
-3. Fica com a **mediana** das diferenças F − T, arredondada em 0,01 mm. A mediana é o valor do meio da lista em ordem; a média seria puxada por defeitos e juntas.
+**O que é.** Soma um valor fixo a uma das bitolas e refaz a conta do item 3.
 
 ```
-Dif. F − T do elemento = mediana de (F − T) nos pontos do elemento
+D com offset = (Bitola F + offset) − Bitola T
 ```
 
-**Exemplo.** Uma curva com as diferenças −1,0 / −1,1 / −1,2 / −1,1 / +4,0 (defeito):
-- em ordem: −1,2 / −1,1 / −1,1 / −1,0 / +4,0 → a mediana é **−1,1 mm**;
-- a média daria −0,08 mm, puxada pelo defeito.
+**Melhor offset.** O app testa de −10 a +10 mm, de 0,1 em 0,1, e fica com o que deixa **menos pontos acima da regra**.
 
-**Caixa "Aplicar offset por elemento".** Fica em cima da tabela de elementos.
-- **Desmarcada:** nada muda. A coluna **Dif. F − T (mm)** só mostra o valor de cada elemento.
-- **Marcada:** em cada ponto do elemento, a diferença passa a ser:
+**Exemplo (RLT_CP).** A Bitola F lia cerca de 1,15 mm a menos que a T.
 
-```
-D com offset = (F − T) − Dif. F − T do elemento
-```
+| Situação | Perda |
+|---|---|
+| Sem offset | 13,1% |
+| Com +1,3 mm na Bitola F | **3,4%** |
 
-  Com essa nova diferença, o app refaz tudo com a mesma regra do item 3: cartões, tabelas, gráficos, laudo e conferência. A coluna **"% sem offset"** mostra o valor antigo, para comparar.
-
-**Exemplo de um ponto.** A curva tem Dif. F − T = −1,1 mm.
-
-| Ponto | F − T | Sem offset | Com offset: (F − T) − (−1,1) |
-|---|---|---|---|
-| A | −2,5 | acima (2,5 > 2) | −1,4 → **dentro** |
-| B | −3,4 | acima | −2,3 → **acima** (defeito real) |
-
-**Exemplo real (RLT_CP, a partir do km 290).**
-
-| | Sem offset | Com offset por elemento |
-|---|---|---|
-| Perda de bitola | 13,1% | **3,6%** |
-| Em tangentes | 9,6% | 4,0% |
-| Em curvas | 19,3% | 2,9% |
-| Curva C04 | 47,7% | 1,7% (Dif. F − T = −1,99 mm) |
-
-As diferenças dos elementos foram de −2,23 a −0,27 mm, com mediana de −1,05 mm.
-
-**Cuidado.** Um defeito que pega o elemento **inteiro** também vira "diferença sistemática" e some com o offset. Por isso a caixa fica a seu critério e o laudo informa quando ela está marcada.
-
-**Conferência (item 13).** Com o offset marcado, a recontagem a partir do CSV soma o mesmo offset do elemento na Bitola T de cada ponto. A planilha de conferência traz a coluna "Offset do elemento".
+No laudo aparecem a tabela "Melhor offset e resultado se aplicado" e a coluna **"% c/ offset"**.
 
 **Travadores (TRAV).** Eventos com TRAV/TRV/TRAVADOR viram uma faixa roxa ▼ nos gráficos. Ali a perda de bitola é esperada.
 
