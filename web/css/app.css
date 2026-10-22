@@ -874,3 +874,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-km { max-width: 140px; }
 .kpi-ruim .kpi-valor { color: var(--erro); }
 .kpi-atencao .kpi-valor { color: var(--alerta); }
+.tc-linha-arquivo { margin-bottom: 10px; }
+.tc-campo-arquivo { flex: 1 1 320px; min-width: 0; }
+.tc-campo-arquivo select { width: 100%; }
+.mt-comp { border: 1px solid var(--borda); border-radius: 10px; padding: 10px 12px; background: var(--sup); }
+.mt-comp-item { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-top: 1px solid var(--grade); font-size: .88rem; }
+.mt-selo.mt-nivel-1 { background: var(--alerta-fundo); color: var(--alerta); }
+.mt-selo.mt-nivel-2 { background: var(--sup2); color: var(--texto); border: 1px solid var(--borda); }
+.mt-selo.mt-nivel-3 { background: var(--erro-fundo); color: var(--erro); }

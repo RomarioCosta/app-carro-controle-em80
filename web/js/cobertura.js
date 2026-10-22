@@ -111,22 +111,34 @@
       let q = 0; (arquivo.linhaIdx || []).forEach((k) => { if (!validas[k]) q++; });
       avisar('alerta', `Coluna LINHA com valor que não é linha (${invalidas.join(', ')}) em ${q.toLocaleString('pt-BR')} pontos: considerada a linha ${linhaRef}.`);
     }
-    // correção do km pela geometria (ponto a ponto)
+    // saltos/voltas pequenos do km: compensados só quando o usuário pede (botão "Compensar")
+    const compensaveis = b.saltosCompensaveis(pos, opcoes.compensacao || {});
+    const pedidos = new Set(opcoes.compensar || []);
+    compensaveis.forEach((c) => { c.tratado = c.cabe && pedidos.has(c.chave); });
+    const aplicar = compensaveis.filter((c) => c.tratado);
+    const posC = aplicar.length ? b.compensarPos(pos, aplicar) : pos;
+    // correção do km pela geometria (ponto a ponto), sobre o km já compensado
     const els = ramal ? b.elementosDaPlanta(planta, ramal, linhaRef) : [];
-    const aj = els.length ? b.ajusteVariavel(pos, arquivo.dados.curv, els, opcoes) : { ajustes: new Float64Array(n), casadas: 0, curvas: 0, min: 0, max: 0 };
+    const aj = els.length ? b.ajusteVariavel(posC, arquivo.dados.curv, els, opcoes) : { ajustes: new Float64Array(n), casadas: 0, curvas: 0, min: 0, max: 0 };
+    if (aplicar.length) for (let i = 0; i < n; i++) aj.ajustes[i] += posC[i] - pos[i]; // correção total em relação ao km do arquivo
     if (els.length && aj.curvas && aj.casadas / aj.curvas < 0.7) avisar('alerta', `Só ${Math.round((aj.casadas / aj.curvas) * 100)}% das curvas casaram com a geometria: confira o ramal, a linha e o km.`);
     // inconsistências de km no arquivo
     const voltas = []; const saltos = []; let parados = 0;
     const sinal = n > 1 && pos[n - 1] < pos[0] ? -1 : 1; // arquivo em km decrescente
+    const margem = (opcoes.compensacao && opcoes.compensacao.margem) ?? b.COMPENSACAO.margem;
+    const candidato = new Set(compensaveis.map((c) => c.i));
     for (let i = 1; i < n; i++) {
+      if (candidato.has(i)) continue; // listado à parte, com o botão Compensar
       const d = (pos[i] - pos[i - 1]) * sinal;
+      const delta = d - esp;
       if (d === 0) parados++;
-      else if (d < -1) voltas.push({ de: pos[i - 1], para: pos[i] });
-      else if (d > Math.max(5, 20 * esp)) saltos.push({ de: pos[i - 1], para: pos[i] });
+      else if (Math.abs(delta) <= margem) continue; // até 2 m: dentro da margem de erro
+      else if (d < 0) voltas.push({ de: pos[i - 1], para: pos[i] });
+      else if (delta > 0) saltos.push({ de: pos[i - 1], para: pos[i] });
     }
     const fmt = b.fmtKm;
-    voltas.forEach((v) => avisar('alerta', `Km volta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(v.de - v.para)} m medidos de novo).`, v.de));
-    saltos.forEach((v) => avisar('alerta', `Km salta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(v.para - v.de)} m sem medição no arquivo).`, v.de));
+    voltas.forEach((v) => avisar('alerta', `Km volta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(Math.abs(v.de - v.para))} m medidos de novo).`, v.de));
+    saltos.forEach((v) => avisar('alerta', `Km salta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(Math.abs(v.para - v.de))} m sem medição no arquivo).`, v.de));
     if (parados > 40) avisar('info', `${parados.toLocaleString('pt-BR')} pontos com o km parado (carro parado).`);
     (arquivo.avisos || []).forEach((t) => avisar('alerta', t));
     if (!(arquivo.eventos || []).some((e) => !e.ex)) avisar('info', 'Arquivo sem eventos (linhas "E").');
@@ -143,6 +155,20 @@
     };
     for (let i = 0; i < n; i += passo) amostrar(i);
     if (n && (n - 1) % passo) amostrar(n - 1);
+    // parâmetros de geometria (alertas): em cada amostra, o valor de maior módulo dos pontos dela
+    const geometria = {};
+    C.PARAMETROS_GEOMETRIA.forEach((id) => {
+      const v = arquivo.dados[id];
+      if (!v) return;
+      const g = new Float32Array(qtd).fill(NaN);
+      for (let k = 0; k < qtd; k++) {
+        const i0 = k * passo; const i1 = Math.min(n, i0 + passo);
+        let m = NaN;
+        for (let i = i0; i < i1; i++) if (!Number.isNaN(v[i]) && (Number.isNaN(m) || Math.abs(v[i]) > Math.abs(m))) m = v[i];
+        g[k] = m;
+      }
+      geometria[id] = g;
+    });
     return {
       nome,
       meta: { ...meta },
@@ -152,7 +178,10 @@
       pontos: n,
       kmIni: pos[0], kmFim: pos[n - 1],
       correcao: { min: aj.min, max: aj.max, casadas: aj.casadas, curvas: aj.curvas },
+      espacamento: esp,
+      compensaveis: compensaveis.map(({ i, de, km, delta, tipo, pontosFaltando, N, disponiveis, cabe, porPonto, chave, tratado }) => ({ i, de, km, delta, tipo, pontosFaltando, N, disponiveis, cabe, porPonto, chave, tratado })),
       amostras,
+      geometria,
       inconsistencias
     };
   };
@@ -162,7 +191,68 @@
     const a = r.amostras;
     const tipar = (x, T) => (x instanceof T ? x : T.from(Array.isArray(x) ? x : Object.values(x || {})));
     r.amostras = { pos: tipar(a.pos, Float64Array), aj: tipar(a.aj, Float32Array), linha: tipar(a.linha, Uint8Array), linhas: a.linhas || [r.linhaRef] };
+    Object.keys(r.geometria || {}).forEach((id) => { r.geometria[id] = tipar(r.geometria[id], Float32Array); });
+    r.compensaveis = r.compensaveis || [];
     return r;
+  };
+
+  /* ---------------- Alertas de geometria ---------------- */
+
+  /** Parâmetros de geometria com limite (sem bitola, sem alinhamento e sem variação de bitola). */
+  C.PARAMETROS_GEOMETRIA = ['emp2', 'nl5', 'emp10', 'sup'];
+  C.NOMES_GEOMETRIA = { emp2: 'EMP_2 (empeno em 2 m)', nl5: 'NLmax_5 (nivelamento)', emp10: 'EMP_10 (empeno em 10 m)', sup: 'SUPerABS (superelevação)' };
+
+  /**
+   * Trechos que passam dos limites, por arquivo e parâmetro, no km da geometria.
+   * limites(id, 'C' | 'T') → [{ grau, nome, sup, inf }] (níveis de alerta da Tela do carro), ou [] sem limite.
+   * Amostras seguidas acima do limite (até 3 m de folga) viram um alerta só, com o maior valor e o maior nível.
+   * Retorna [{ arquivo, id, param, linha, ini, fim, kmArq, valor, limite, grau, nivel, eh, elemento, tipo }].
+   */
+  C.alertasGeometria = (planta, ramal, arquivos, limites) => {
+    const out = [];
+    arquivos.filter((a) => a.resumo.ramal === ramal).forEach((a) => {
+      const r = a.resumo;
+      const { pos, aj, linha, linhas } = r.amostras;
+      const rc = a.recorte;
+      const porLinha = {};
+      const elsDe = (l) => { if (!porLinha[l]) porLinha[l] = B().elementosDaPlanta(planta, ramal, l); return porLinha[l]; };
+      const elemento = (els, y) => {
+        let lo = 0; let hi = els.length - 1;
+        while (lo <= hi) { const m = (lo + hi) >> 1; if (els[m].fim < y) lo = m + 1; else if (els[m].ini > y) hi = m - 1; else return els[m]; }
+        return null;
+      };
+      C.PARAMETROS_GEOMETRIA.forEach((id) => {
+        const v = r.geometria && r.geometria[id];
+        if (!v) return;
+        let atual = null;
+        const fechar = () => { if (atual) out.push(atual); atual = null; };
+        for (let k = 0; k < pos.length; k++) {
+          const x = pos[k];
+          if (rc && ((rc.de !== null && rc.de !== undefined && x < rc.de) || (rc.ate !== null && rc.ate !== undefined && x > rc.ate))) { fechar(); continue; }
+          const val = v[k];
+          if (Number.isNaN(val)) continue;
+          const y = x + aj[k];
+          const l = linhas[linha[k]];
+          const el = elemento(elsDe(l), y);
+          if (!el) continue; // fora de tangente/curva (circuito): sem limite
+          const niveis = limites(id, el.tipo === 'C' ? 'C' : 'T') || [];
+          let g = null;
+          niveis.forEach((n) => { if (n && ((n.sup !== null && n.sup !== undefined && val > n.sup) || (n.inf !== null && n.inf !== undefined && val < n.inf)) && (!g || n.grau > g.grau)) g = n; });
+          if (!g) { if (atual && Math.abs(y - atual.ultimo) > 3) fechar(); continue; }
+          if (atual && (atual.linha !== l || Math.abs(y - atual.ultimo) > 3)) fechar();
+          const limite = val > 0 ? g.sup : g.inf;
+          if (!atual) {
+            atual = { arquivo: a.nome, idArquivo: a.id, id, param: C.NOMES_GEOMETRIA[id], linha: l, ini: y, fim: y, kmArq: x, valor: val, limite, grau: g.grau, nivel: g.nome, eh: el.nomeEh || `EH ${el.eh}`, elemento: `${el.tipo === 'C' ? 'C' : 'T'}${String(el.num || '').padStart(2, '0')}`, tipo: el.tipo, ultimo: y };
+          } else {
+            atual.ini = Math.min(atual.ini, y); atual.fim = Math.max(atual.fim, y); atual.ultimo = y;
+            if (Math.abs(val) > Math.abs(atual.valor)) { atual.valor = val; atual.limite = limite; atual.kmArq = x; }
+            if (g.grau > atual.grau) { atual.grau = g.grau; atual.nivel = g.nome; }
+          }
+        }
+        fechar();
+      });
+    });
+    return out.map(({ ultimo, ...x }) => x).sort((p, q) => q.grau - p.grau || p.linha.localeCompare(q.linha) || p.ini - q.ini);
   };
 
   /** Intervalos cobertos por um arquivo resumido, por linha, já no km da geometria. recorte = { de, ate } no km do arquivo. */

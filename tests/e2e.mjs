@@ -677,7 +677,7 @@ async function main() {
         { name: 'TESTE.zip', mimeType: 'application/zip', buffer: zipar('TESTE.csv', Buffer.from(gerarCSV(), 'latin1')) }
       ]);
       await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
-      await page.getByRole('heading', { name: 'Linha 1' }).waitFor();
+      await page.getByRole('heading', { name: 'Linha 1', exact: true }).waitFor();
       assert.equal(await page.locator('.mt-arquivo').count(), 1);
       assert.ok((await page.locator('.mt-arquivo summary').textContent()).includes('TESTE.csv'));
       const medido = await page.locator('.kpi:visible').filter({ hasText: 'Medido' }).locator('.kpi-valor').textContent();
@@ -695,6 +695,29 @@ async function main() {
       await page.reload();
       await page.getByRole('heading', { name: 'Montagem dos dados' }).waitFor();
       await page.locator('.mt-arquivo summary', { hasText: 'recortado' }).waitFor();
+      // salto de 3 m no km: botão Compensar (1.200 pontos × 0,0025 m)
+      await page.locator('input[name="arquivo-montagem"]').setInputFiles([{ name: 'SALTO.csv', mimeType: 'text/csv', buffer: Buffer.from(gerarCSV({ salto: 3 }), 'latin1') }]);
+      await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
+      const salto = page.locator('.mt-arquivo', { hasText: 'SALTO.csv' });
+      await salto.locator('summary').click();
+      await salto.locator('.mt-comp-item', { hasText: 'buraco de 3,00 m (12 pontos)' }).waitFor();
+      assert.ok((await salto.locator('.mt-comp-item').textContent()).includes('1.200 pontos'));
+      await salto.getByRole('button', { name: 'Compensar' }).click();
+      await page.getByText('Compensado:').waitFor();
+      await salto.locator('.mt-comp-item', { hasText: 'Compensado' }).waitFor();
+      // alertas de geometria (sem bitola e sem alinhamento)
+      await page.getByRole('tab', { name: 'Alertas de geometria' }).click();
+      await page.locator('h2', { hasText: 'Alertas de geometria' }).waitFor();
+      assert.ok(!(await page.locator('.cartao', { hasText: 'Alertas de geometria' }).textContent()).includes('Bitola'));
+      await page.getByRole('tab', { name: 'Cobertura e arquivos' }).click();
+      // rodar o arquivo da Montagem na Tela do carro e trocar pelo seletor da própria tela
+      await salto.getByRole('button', { name: 'Rodar na Tela do carro' }).click();
+      await page.locator('.tc-rodape', { hasText: 'SALTO.csv' }).waitFor();
+      assert.equal(await page.locator('.seg-abas .ativo').first().textContent(), 'Tela do carro');
+      const seletor = page.getByLabel('Arquivo da Montagem');
+      assert.equal(await seletor.locator('option').count(), 3);
+      await seletor.selectOption({ label: await seletor.locator('option', { hasText: 'TESTE.csv' }).textContent() });
+      await page.locator('.tc-rodape', { hasText: 'TESTE.csv' }).waitFor();
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 

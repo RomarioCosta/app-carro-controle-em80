@@ -892,6 +892,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-km { max-width: 140px; }
 .kpi-ruim .kpi-valor { color: var(--erro); }
 .kpi-atencao .kpi-valor { color: var(--alerta); }
+.tc-linha-arquivo { margin-bottom: 10px; }
+.tc-campo-arquivo { flex: 1 1 320px; min-width: 0; }
+.tc-campo-arquivo select { width: 100%; }
+.mt-comp { border: 1px solid var(--borda); border-radius: 10px; padding: 10px 12px; background: var(--sup); }
+.mt-comp-item { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-top: 1px solid var(--grade); font-size: .88rem; }
+.mt-selo.mt-nivel-1 { background: var(--alerta-fundo); color: var(--alerta); }
+.mt-selo.mt-nivel-2 { background: var(--sup2); color: var(--texto); border: 1px solid var(--borda); }
+.mt-selo.mt-nivel-3 { background: var(--erro-fundo); color: var(--erro); }
 
 </style>
 </head>
@@ -1114,7 +1122,7 @@ window.App = window.App || {};
     versao: '2026.10.22',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-48281c7e91', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-efb486ce3d', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -3672,6 +3680,58 @@ window.App = window.App || {};
    * 4. Entre duas curvas casadas, a correção é interpolada; antes da primeira e depois da última, fica constante.
    * Retorna { ajustes: Float64Array, ancoras: [{ i, ajuste }], casadas, curvas, min, max }.
    */
+  /**
+   * Saltos e voltas do km que podem ser compensados (botão "Compensar" da Montagem).
+   * Um único passo fora do normal, com o km andando normal nos 8 pontos seguintes.
+   *  Δ = x[i] − (x[i−1] + s·e)  (s = sentido do arquivo; e = espaçamento)
+   *  |Δ| ≤ margem (2 m): dentro da margem de erro, não entra.  |Δ| > maxSalto (300 m): não é acerto de km.
+   *  N = ⌈|Δ| / (passoMax · e)⌉ pontos antes do salto recebem a compensação (passoMax = 1% do espaçamento).
+   *  Cabe quando há N pontos antes do salto, depois da quebra anterior (outro salto/volta ou início do arquivo).
+   */
+  B.COMPENSACAO = { margem: 2, passoMax: 0.01, maxSalto: 300 };
+  B.saltosCompensaveis = (pos, opcoes = {}) => {
+    const o = { ...B.COMPENSACAO, ...opcoes };
+    const n = pos.length;
+    if (n < 10) return [];
+    const esp = B.espacamento(pos) || 0.25;
+    const s = pos[n - 1] < pos[0] ? -1 : 1;
+    const normal = (i) => Math.abs(pos[i] - pos[i - 1] - s * esp) <= 0.6 * esp + 0.01;
+    const out = [];
+    let quebra = 0; // ponto depois da última quebra do km
+    for (let i = 1; i < n; i++) {
+      if (normal(i)) continue;
+      const delta = pos[i] - (pos[i - 1] + s * esp);
+      let segue = true;
+      for (let k = i + 1; k <= Math.min(n - 1, i + 8); k++) if (!normal(k)) segue = false;
+      if (segue && Math.abs(delta) > o.margem && Math.abs(delta) <= o.maxSalto) {
+        const N = Math.ceil(Math.abs(delta) / (o.passoMax * esp));
+        const disponiveis = i - quebra;
+        out.push({
+          i, de: pos[i - 1], km: pos[i], delta, tipo: delta * s > 0 ? 'salto' : 'volta',
+          pontosFaltando: Math.round(Math.abs(delta) / esp), N, disponiveis, cabe: N <= disponiveis,
+          porPonto: delta / N, chave: `${Math.round(pos[i - 1] * 100) / 100}>${Math.round(pos[i] * 100) / 100}`
+        });
+      }
+      if (Math.abs(pos[i] - pos[i - 1] - s * esp) > 1) quebra = i;
+    }
+    return out;
+  };
+
+  /**
+   * Aplica as compensações: os N pontos antes do salto ganham Δ/N cada um, acumulado.
+   *  x'[j] = x[j] + Δ · k / N,  com k = 1 … N  (j = i − N … i − 1)
+   * O último ponto antes do salto recebe Δ inteiro e o km fica contínuo; o km depois do salto não muda.
+   */
+  B.compensarPos = (pos, lista) => {
+    const p = Float64Array.from(pos);
+    lista.forEach(({ i, N, delta }) => {
+      const ini = Math.max(0, i - N);
+      const total = i - ini;
+      for (let j = ini; j < i; j++) p[j] += (delta * (j - ini + 1)) / total;
+    });
+    return p;
+  };
+
   B.ajusteVariavel = (pos, curv, els, opcoes = {}) => {
     const o = { ...B.PADRAO, ...opcoes };
     const n = pos.length;
@@ -4376,22 +4436,34 @@ window.App = window.App || {};
       let q = 0; (arquivo.linhaIdx || []).forEach((k) => { if (!validas[k]) q++; });
       avisar('alerta', `Coluna LINHA com valor que não é linha (${invalidas.join(', ')}) em ${q.toLocaleString('pt-BR')} pontos: considerada a linha ${linhaRef}.`);
     }
-    // correção do km pela geometria (ponto a ponto)
+    // saltos/voltas pequenos do km: compensados só quando o usuário pede (botão "Compensar")
+    const compensaveis = b.saltosCompensaveis(pos, opcoes.compensacao || {});
+    const pedidos = new Set(opcoes.compensar || []);
+    compensaveis.forEach((c) => { c.tratado = c.cabe && pedidos.has(c.chave); });
+    const aplicar = compensaveis.filter((c) => c.tratado);
+    const posC = aplicar.length ? b.compensarPos(pos, aplicar) : pos;
+    // correção do km pela geometria (ponto a ponto), sobre o km já compensado
     const els = ramal ? b.elementosDaPlanta(planta, ramal, linhaRef) : [];
-    const aj = els.length ? b.ajusteVariavel(pos, arquivo.dados.curv, els, opcoes) : { ajustes: new Float64Array(n), casadas: 0, curvas: 0, min: 0, max: 0 };
+    const aj = els.length ? b.ajusteVariavel(posC, arquivo.dados.curv, els, opcoes) : { ajustes: new Float64Array(n), casadas: 0, curvas: 0, min: 0, max: 0 };
+    if (aplicar.length) for (let i = 0; i < n; i++) aj.ajustes[i] += posC[i] - pos[i]; // correção total em relação ao km do arquivo
     if (els.length && aj.curvas && aj.casadas / aj.curvas < 0.7) avisar('alerta', `Só ${Math.round((aj.casadas / aj.curvas) * 100)}% das curvas casaram com a geometria: confira o ramal, a linha e o km.`);
     // inconsistências de km no arquivo
     const voltas = []; const saltos = []; let parados = 0;
     const sinal = n > 1 && pos[n - 1] < pos[0] ? -1 : 1; // arquivo em km decrescente
+    const margem = (opcoes.compensacao && opcoes.compensacao.margem) ?? b.COMPENSACAO.margem;
+    const candidato = new Set(compensaveis.map((c) => c.i));
     for (let i = 1; i < n; i++) {
+      if (candidato.has(i)) continue; // listado à parte, com o botão Compensar
       const d = (pos[i] - pos[i - 1]) * sinal;
+      const delta = d - esp;
       if (d === 0) parados++;
-      else if (d < -1) voltas.push({ de: pos[i - 1], para: pos[i] });
-      else if (d > Math.max(5, 20 * esp)) saltos.push({ de: pos[i - 1], para: pos[i] });
+      else if (Math.abs(delta) <= margem) continue; // até 2 m: dentro da margem de erro
+      else if (d < 0) voltas.push({ de: pos[i - 1], para: pos[i] });
+      else if (delta > 0) saltos.push({ de: pos[i - 1], para: pos[i] });
     }
     const fmt = b.fmtKm;
-    voltas.forEach((v) => avisar('alerta', `Km volta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(v.de - v.para)} m medidos de novo).`, v.de));
-    saltos.forEach((v) => avisar('alerta', `Km salta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(v.para - v.de)} m sem medição no arquivo).`, v.de));
+    voltas.forEach((v) => avisar('alerta', `Km volta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(Math.abs(v.de - v.para))} m medidos de novo).`, v.de));
+    saltos.forEach((v) => avisar('alerta', `Km salta de ${fmt(v.de)} para ${fmt(v.para)} (${Math.round(Math.abs(v.para - v.de))} m sem medição no arquivo).`, v.de));
     if (parados > 40) avisar('info', `${parados.toLocaleString('pt-BR')} pontos com o km parado (carro parado).`);
     (arquivo.avisos || []).forEach((t) => avisar('alerta', t));
     if (!(arquivo.eventos || []).some((e) => !e.ex)) avisar('info', 'Arquivo sem eventos (linhas "E").');
@@ -4408,6 +4480,20 @@ window.App = window.App || {};
     };
     for (let i = 0; i < n; i += passo) amostrar(i);
     if (n && (n - 1) % passo) amostrar(n - 1);
+    // parâmetros de geometria (alertas): em cada amostra, o valor de maior módulo dos pontos dela
+    const geometria = {};
+    C.PARAMETROS_GEOMETRIA.forEach((id) => {
+      const v = arquivo.dados[id];
+      if (!v) return;
+      const g = new Float32Array(qtd).fill(NaN);
+      for (let k = 0; k < qtd; k++) {
+        const i0 = k * passo; const i1 = Math.min(n, i0 + passo);
+        let m = NaN;
+        for (let i = i0; i < i1; i++) if (!Number.isNaN(v[i]) && (Number.isNaN(m) || Math.abs(v[i]) > Math.abs(m))) m = v[i];
+        g[k] = m;
+      }
+      geometria[id] = g;
+    });
     return {
       nome,
       meta: { ...meta },
@@ -4417,7 +4503,10 @@ window.App = window.App || {};
       pontos: n,
       kmIni: pos[0], kmFim: pos[n - 1],
       correcao: { min: aj.min, max: aj.max, casadas: aj.casadas, curvas: aj.curvas },
+      espacamento: esp,
+      compensaveis: compensaveis.map(({ i, de, km, delta, tipo, pontosFaltando, N, disponiveis, cabe, porPonto, chave, tratado }) => ({ i, de, km, delta, tipo, pontosFaltando, N, disponiveis, cabe, porPonto, chave, tratado })),
       amostras,
+      geometria,
       inconsistencias
     };
   };
@@ -4427,7 +4516,68 @@ window.App = window.App || {};
     const a = r.amostras;
     const tipar = (x, T) => (x instanceof T ? x : T.from(Array.isArray(x) ? x : Object.values(x || {})));
     r.amostras = { pos: tipar(a.pos, Float64Array), aj: tipar(a.aj, Float32Array), linha: tipar(a.linha, Uint8Array), linhas: a.linhas || [r.linhaRef] };
+    Object.keys(r.geometria || {}).forEach((id) => { r.geometria[id] = tipar(r.geometria[id], Float32Array); });
+    r.compensaveis = r.compensaveis || [];
     return r;
+  };
+
+  /* ---------------- Alertas de geometria ---------------- */
+
+  /** Parâmetros de geometria com limite (sem bitola, sem alinhamento e sem variação de bitola). */
+  C.PARAMETROS_GEOMETRIA = ['emp2', 'nl5', 'emp10', 'sup'];
+  C.NOMES_GEOMETRIA = { emp2: 'EMP_2 (empeno em 2 m)', nl5: 'NLmax_5 (nivelamento)', emp10: 'EMP_10 (empeno em 10 m)', sup: 'SUPerABS (superelevação)' };
+
+  /**
+   * Trechos que passam dos limites, por arquivo e parâmetro, no km da geometria.
+   * limites(id, 'C' | 'T') → [{ grau, nome, sup, inf }] (níveis de alerta da Tela do carro), ou [] sem limite.
+   * Amostras seguidas acima do limite (até 3 m de folga) viram um alerta só, com o maior valor e o maior nível.
+   * Retorna [{ arquivo, id, param, linha, ini, fim, kmArq, valor, limite, grau, nivel, eh, elemento, tipo }].
+   */
+  C.alertasGeometria = (planta, ramal, arquivos, limites) => {
+    const out = [];
+    arquivos.filter((a) => a.resumo.ramal === ramal).forEach((a) => {
+      const r = a.resumo;
+      const { pos, aj, linha, linhas } = r.amostras;
+      const rc = a.recorte;
+      const porLinha = {};
+      const elsDe = (l) => { if (!porLinha[l]) porLinha[l] = B().elementosDaPlanta(planta, ramal, l); return porLinha[l]; };
+      const elemento = (els, y) => {
+        let lo = 0; let hi = els.length - 1;
+        while (lo <= hi) { const m = (lo + hi) >> 1; if (els[m].fim < y) lo = m + 1; else if (els[m].ini > y) hi = m - 1; else return els[m]; }
+        return null;
+      };
+      C.PARAMETROS_GEOMETRIA.forEach((id) => {
+        const v = r.geometria && r.geometria[id];
+        if (!v) return;
+        let atual = null;
+        const fechar = () => { if (atual) out.push(atual); atual = null; };
+        for (let k = 0; k < pos.length; k++) {
+          const x = pos[k];
+          if (rc && ((rc.de !== null && rc.de !== undefined && x < rc.de) || (rc.ate !== null && rc.ate !== undefined && x > rc.ate))) { fechar(); continue; }
+          const val = v[k];
+          if (Number.isNaN(val)) continue;
+          const y = x + aj[k];
+          const l = linhas[linha[k]];
+          const el = elemento(elsDe(l), y);
+          if (!el) continue; // fora de tangente/curva (circuito): sem limite
+          const niveis = limites(id, el.tipo === 'C' ? 'C' : 'T') || [];
+          let g = null;
+          niveis.forEach((n) => { if (n && ((n.sup !== null && n.sup !== undefined && val > n.sup) || (n.inf !== null && n.inf !== undefined && val < n.inf)) && (!g || n.grau > g.grau)) g = n; });
+          if (!g) { if (atual && Math.abs(y - atual.ultimo) > 3) fechar(); continue; }
+          if (atual && (atual.linha !== l || Math.abs(y - atual.ultimo) > 3)) fechar();
+          const limite = val > 0 ? g.sup : g.inf;
+          if (!atual) {
+            atual = { arquivo: a.nome, idArquivo: a.id, id, param: C.NOMES_GEOMETRIA[id], linha: l, ini: y, fim: y, kmArq: x, valor: val, limite, grau: g.grau, nivel: g.nome, eh: el.nomeEh || `EH ${el.eh}`, elemento: `${el.tipo === 'C' ? 'C' : 'T'}${String(el.num || '').padStart(2, '0')}`, tipo: el.tipo, ultimo: y };
+          } else {
+            atual.ini = Math.min(atual.ini, y); atual.fim = Math.max(atual.fim, y); atual.ultimo = y;
+            if (Math.abs(val) > Math.abs(atual.valor)) { atual.valor = val; atual.limite = limite; atual.kmArq = x; }
+            if (g.grau > atual.grau) { atual.grau = g.grau; atual.nivel = g.nome; }
+          }
+        }
+        fechar();
+      });
+    });
+    return out.map(({ ultimo, ...x }) => x).sort((p, q) => q.grau - p.grau || p.linha.localeCompare(q.linha) || p.ini - q.ini);
   };
 
   /** Intervalos cobertos por um arquivo resumido, por linha, já no km da geometria. recorte = { de, ate } no km do arquivo. */
@@ -5033,10 +5183,13 @@ window.App = window.App || {};
 
   /* ---------------- Arquivo ---------------- */
 
+  let versaoArquivo = 0; // muda a cada arquivo aberto: o carregamento do último arquivo não passa por cima
   async function carregarUltimo() {
+    const v = versaoArquivo;
     try {
       const salvo = await store.get(CHAVE);
-      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null });
+      if (v !== versaoArquivo) return;
+      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [] });
     } catch (e) { /* sem arquivo salvo */ }
   }
 
@@ -5096,6 +5249,8 @@ window.App = window.App || {};
   /** Trecho analisado (km inicial e final, em metros): descarta o resto do arquivo sem editar o CSV. */
   let recorte = { de: null, ate: null };
   let arquivoCompleto = null;
+  /** Saltos/voltas do km compensados na Montagem (chaves de B.saltosCompensaveis). */
+  let compensar = [];
 
   function aplicarRecorte() {
     arquivo = B.recortar(arquivoCompleto, recorte.de, recorte.ate);
@@ -5106,9 +5261,17 @@ window.App = window.App || {};
     }
   }
 
-  function processar(texto, nome, { salvar, trecho = null }) {
+  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [] }) {
+    versaoArquivo++;
+    compensar = [...comp];
+    cacheAjuste.clear(); cacheConferencia.clear();
     try {
       arquivoCompleto = B.lerCSV(texto);
+      if (compensar.length) {
+        // mesmo km compensado da Montagem: os pontos antes do salto/volta recebem a diferença aos poucos
+        const lista = B.saltosCompensaveis(arquivoCompleto.pos).filter((c) => c.cabe && compensar.includes(c.chave));
+        if (lista.length) arquivoCompleto = { ...arquivoCompleto, pos: B.compensarPos(arquivoCompleto.pos, lista), compensados: lista.length };
+      }
       recorte = trecho ? { de: trecho.de ?? null, ate: trecho.ate ?? null } : { de: null, ate: null };
       aplicarRecorte();
     } catch (e) {
@@ -5128,7 +5291,7 @@ window.App = window.App || {};
     }
     zoom = null;
     recalcular();
-    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte }).catch(() => {});
+    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar }).catch(() => {});
   }
 
   async function mudarRecorte(de, ate) {
@@ -6068,6 +6231,8 @@ window.App = window.App || {};
     /** Estado atual (arquivo carregado e análise), usado pela Tela do carro. */
     estado: () => ({ arquivo, resultado, nomeArquivo, opcoes }),
     textoDoArquivo,
+    /** Abre um arquivo vindo de outra tela (Montagem / Tela do carro), com o trecho e as compensações dela. */
+    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [] } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp }),
     planta: async () => { try { return await store.get(CHAVE_PLANTA); } catch (e) { return null; } }
   };
 })(window.App);
@@ -6237,7 +6402,32 @@ window.App = window.App || {};
     document.addEventListener('em80:analise', () => { if (raiz && raiz.offsetParent) carregar(); });
   }
 
-  function aoMostrar() { carregar(); }
+  function aoMostrar() { carregar(); atualizarMontagem(); }
+
+  /* ---------------- Arquivos da Montagem ---------------- */
+
+  let montagemLista = []; // arquivos carregados na Montagem dos dados (ciclo atual), em ordem de linha e km
+  let seguir = !!U.pref.get('telaCarro:seguir', false); // ao terminar um arquivo, roda o próximo
+  async function atualizarMontagem() {
+    try { montagemLista = App.montagem && App.montagem.lista ? await App.montagem.lista() : []; } catch (e) { montagemLista = []; }
+    renderControles();
+  }
+  const idAtual = () => {
+    const id = App.montagem && App.montagem.atual ? App.montagem.atual() : null;
+    const a = montagemLista.find((x) => x.id === id);
+    return a && a.nome === nomeArquivo ? id : '';
+  };
+  async function abrirDaMontagem(id, tocarDepois = false) {
+    if (!id) return;
+    tocando = false;
+    const ok = await App.montagem.abrir(id);
+    if (ok && tocarDepois) tocar();
+  }
+  function vizinho(passo) {
+    const k = montagemLista.findIndex((x) => x.id === idAtual());
+    const j = k + passo;
+    return k >= 0 && j >= 0 && j < montagemLista.length ? montagemLista[j] : (k < 0 && passo > 0 ? montagemLista[0] : null);
+  }
 
   /** Alça para arrastar: 'altura' (borda de baixo) ou 'largura' (borda da direita). */
   function alca(tipo) {
@@ -6323,7 +6513,7 @@ window.App = window.App || {};
       prep = null;
       renderControles();
       ui.trocar(cabecalhoEl); ui.trocar(leituraEl); ui.trocar(rodapeEl);
-      ui.trocar(corpoEl, h('p', { class: 'vazio tc-vazio', text: 'Carregue o arquivo do carro em "Análise do arquivo" para ver a tela.' }));
+      ui.trocar(corpoEl, h('p', { class: 'vazio tc-vazio', text: 'Carregue o arquivo do carro em "Análise do arquivo" ou escolha um arquivo da Montagem acima.' }));
       return;
     }
     if (mudou || !prep) preparar();
@@ -6421,7 +6611,12 @@ window.App = window.App || {};
       const dt = (agora - ultimoQuadro) / 1000;
       ultimoQuadro = agora;
       avancar(BASE_MS * fator * dt);
-      if (revelado >= prep.total) { tocando = false; renderControles(); return; }
+      if (revelado >= prep.total) {
+        tocando = false; renderControles();
+        const prox = seguir ? vizinho(1) : null; // rodar os arquivos da Montagem em sequência
+        if (prox) { ui.toast(`Próximo arquivo: ${prox.nome}`, 'info', 3000); abrirDaMontagem(prox.id, true); }
+        return;
+      }
       requestAnimationFrame(passo);
     };
     requestAnimationFrame(passo);
@@ -6433,7 +6628,19 @@ window.App = window.App || {};
     const sel = (valor, opcoes, aoMudar, rotulo) => h('label', { class: 'tc-campo' }, h('span', { text: rotulo }),
       h('select', { value: String(valor), onchange: (e) => aoMudar(Number(e.target.value)) }, opcoes.map(([v, t]) => h('option', { value: String(v), text: t }))));
     const kmInput = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'ex.: 312+000', 'aria-label': 'Ir para o km', onkeydown: (e) => { if (e.key === 'Enter') irParaKm(e.target.value); } });
+    const atualId = idAtual();
+    const anterior = vizinho(-1); const proximo = vizinho(1);
+    const linhaMontagem = montagemLista.length ? h('div', { class: 'tc-linha tc-linha-arquivo' },
+      h('label', { class: 'tc-campo tc-campo-arquivo' }, h('span', { text: `Arquivos da Montagem${App.montagem.ciclo() ? ` (ciclo ${App.montagem.ciclo()})` : ''}` }),
+        h('select', { 'aria-label': 'Arquivo da Montagem', onchange: (e) => abrirDaMontagem(e.target.value) },
+          h('option', { value: '', selected: !atualId || null, text: atualId ? '—' : `Arquivo da Análise${nomeArquivo ? `: ${nomeArquivo}` : ''}` }),
+          montagemLista.map((a) => h('option', { value: a.id, selected: a.id === atualId || null, text: a.rotulo })))),
+      h('div', { class: 'tc-botoes' },
+        h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: !anterior || null, title: anterior ? anterior.nome : '', onclick: () => abrirDaMontagem(anterior.id) }, ui.icone('esquerda'), 'Anterior'),
+        h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: !proximo || null, title: proximo ? proximo.nome : '', onclick: () => abrirDaMontagem(proximo.id) }, 'Próximo', ui.icone('direita'))),
+      h('label', { class: 'chip-sel' }, h('input', { type: 'checkbox', checked: seguir || null, onchange: (e) => { seguir = e.target.checked; U.pref.set('telaCarro:seguir', seguir); } }), 'Ao terminar, rodar o próximo arquivo')) : null;
     ui.trocar(controlesEl,
+      linhaMontagem,
       h('div', { class: 'tc-linha' },
         h('div', { class: 'tc-campo' }, h('span', { text: 'Ir para o km' }),
           h('div', { class: 'linha-campo' }, kmInput, h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', onclick: () => irParaKm(kmInput.value) }, 'Ir'))),
@@ -6730,7 +6937,21 @@ window.App = window.App || {};
     });
   }
 
-  App.telaCarro = { montar, aoMostrar, _limitesPadrao: limitesPadrao, _PARAMETROS: PARAMETROS, _VELOCIDADES: VELOCIDADES };
+  /** Níveis de limite de um parâmetro (id) num elemento ('C' curva / 'T' tangente), na velocidade escolhida na tela. */
+  function niveisLimite(id, el, vel = velocidade) {
+    const p = PARAMETROS.find((x) => x.id === id);
+    if (!p) return [];
+    const lims = limitesDe(p, vel);
+    return NIVEIS.map((n) => (lims[n.id] && lims[n.id][el] ? { grau: n.grau, nome: n.nome, sup: lims[n.id][el].sup, inf: lims[n.id][el].inf } : null)).filter(Boolean);
+  }
+
+  App.telaCarro = {
+    montar, aoMostrar, niveisLimite,
+    velocidade: () => velocidade,
+    VELOCIDADES,
+    irParaKm: (t) => { if (prep) irParaKm(t); },
+    _limitesPadrao: limitesPadrao, _PARAMETROS: PARAMETROS, _VELOCIDADES: VELOCIDADES
+  };
 })(window.App);
 
 </script>
@@ -6749,12 +6970,14 @@ window.App = window.App || {};
   const B = () => App.bitola;
   const C = () => App.cobertura;
   const CHAVE = 'montagem:arquivos';
+  const CHAVE_CSV = (id) => `montagem:csv:${id}`;
 
   let raiz;
   let planta = null;
   let arquivos = []; // [{ id, nome, ciclo, adicionadoEm, recorte, resumo }]
   let processando = false;
-  let abertos = new Set(); // linhas da tabela de sedes abertas ("linha|sede")
+  const abertos = new Set(); // linhas abertas ("linha|sede") e arquivos abertos ("arq|id")
+  let carregado = null; // promessa da primeira leitura do armazenamento
 
   const km = (m) => B().fmtKm(m);
   const kmTxt = (m) => `${(m / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;
@@ -6762,14 +6985,41 @@ window.App = window.App || {};
   const pctTxt = (p) => `${p.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
   const ciclo = () => U.pref.get('montagem:ciclo', (App.OM && App.OM.cicloAtivo()) || '');
   const doCiclo = () => arquivos.filter((a) => (a.ciclo || '') === ciclo());
+  const aba = () => U.pref.get('montagem:aba', 'cobertura');
+  /** Regras da compensação de km (editáveis): margem em m e máximo por ponto em fração do espaçamento. */
+  const regras = () => ({ ...B().COMPENSACAO, ...(U.pref.get('montagem:compensacao', {}) || {}) });
 
-  async function carregar() {
-    planta = App.analise && App.analise.planta ? await App.analise.planta() : null;
-    try {
-      const salvos = (await store.get(CHAVE)) || [];
-      arquivos = salvos.map((a) => ({ ...a, resumo: C().normalizarResumo(a.resumo) }));
-    } catch (e) { arquivos = []; }
+  function carregar() {
+    if (!carregado) {
+      carregado = (async () => {
+        planta = App.analise && App.analise.planta ? await App.analise.planta() : null;
+        try {
+          const salvos = (await store.get(CHAVE)) || [];
+          arquivos = salvos.map((a) => ({ ...a, compensar: a.compensar || [], resumo: C().normalizarResumo(a.resumo) }));
+        } catch (e) { arquivos = []; }
+      })();
+    }
+    return carregado;
   }
+
+  /* ---------------- CSV guardado (comprimido) ---------------- */
+
+  /** Guarda o CSV comprimido (gzip): a Tela do carro roda o arquivo e a compensação do km recalcula a partir dele. */
+  async function guardarCsv(id, texto) {
+    try {
+      if (typeof CompressionStream !== 'undefined') {
+        const blob = await new Response(new Blob([texto]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+        await store.set(CHAVE_CSV(id), { gz: blob });
+      } else await store.set(CHAVE_CSV(id), { texto });
+    } catch (e) { ui.toast(`O arquivo não pôde ser guardado inteiro (${e.message}).`, 'erro', 8000); }
+  }
+  async function lerCsv(id) {
+    const g = await store.get(CHAVE_CSV(id)).catch(() => null);
+    if (!g) return null;
+    if (g.texto) return g.texto;
+    return new Response(g.gz.stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  }
+  const semCsv = () => ui.toast('O CSV deste arquivo não está guardado (foi adicionado numa versão anterior): adicione o arquivo de novo.', 'erro', 8000);
   const gravar = () => store.set(CHAVE, arquivos).catch((e) => ui.toast(`Não foi possível guardar: ${e.message}`, 'erro', 6000));
 
   /* ---------------- Arquivos ---------------- */
@@ -6786,9 +7036,10 @@ window.App = window.App || {};
       try {
         const { nome, texto } = await App.analise.textoDoArquivo(f);
         const arq = B().lerCSV(texto);
-        const resumo = C().resumirArquivo(arq, planta, nome);
+        const resumo = C().resumirArquivo(arq, planta, nome, { compensacao: regras() });
         const existente = arquivos.findIndex((a) => a.nome === nome && (a.ciclo || '') === ciclo());
-        const item = { id: existente >= 0 ? arquivos[existente].id : `${Date.now()}-${k}`, nome, ciclo: ciclo(), adicionadoEm: U.agora(), recorte: null, resumo };
+        const item = { id: existente >= 0 ? arquivos[existente].id : `${Date.now()}-${k}`, nome, ciclo: ciclo(), adicionadoEm: U.agora(), recorte: null, compensar: [], resumo };
+        await guardarCsv(item.id, texto);
         if (existente >= 0) arquivos[existente] = item; else arquivos.push(item);
         ok++;
       } catch (e) {
@@ -6804,9 +7055,41 @@ window.App = window.App || {};
   async function remover(a) {
     if (!(await ui.confirmar('Remover arquivo', `Remover ${a.nome} da montagem?`, { ok: 'Remover', perigo: true }))) return;
     arquivos = arquivos.filter((x) => x !== a);
+    await store.del(CHAVE_CSV(a.id)).catch(() => {});
     await gravar();
     render();
   }
+
+  /** Compensar (ou desfazer) um salto/volta do km: recalcula o arquivo a partir do CSV guardado. */
+  async function mudarCompensacao(a, chave, compensar) {
+    const texto = await lerCsv(a.id).catch(() => null);
+    if (!texto) { semCsv(); return; }
+    const lista = compensar ? [...new Set([...(a.compensar || []), chave])] : (a.compensar || []).filter((x) => x !== chave);
+    ui.toast(`Recalculando ${a.nome}…`, 'info', 3000);
+    await new Promise((r) => setTimeout(r, 30));
+    try {
+      a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: lista, compensacao: regras() });
+      a.compensar = lista;
+      await gravar();
+      ui.toast(compensar ? 'Compensado: a diferença foi distribuída nos pontos anteriores.' : 'Compensação desfeita.', 'ok');
+    } catch (e) { ui.toast(`Não foi possível recalcular: ${e.message}`, 'erro', 7000); }
+    render();
+  }
+
+  /** Roda o arquivo na Tela do carro (Offboard), com o recorte e as compensações dele. km = ir direto para este km. */
+  async function abrirNaTela(a, km = null) {
+    const texto = await lerCsv(a.id).catch(() => null);
+    if (!texto) { semCsv(); return false; }
+    window.dispatchEvent(new CustomEvent('em80:checklist-aba', { detail: 'tela' }));
+    ui.toast(`Abrindo ${a.nome} na Tela do carro…`, 'info', 2500);
+    await new Promise((r) => setTimeout(r, 30));
+    App.analise.abrirTexto(texto, a.nome, { recorte: a.recorte, compensar: a.compensar || [] });
+    atual = a.id;
+    if (App.telaCarro.aoMostrar) App.telaCarro.aoMostrar();
+    if (km !== null) App.telaCarro.irParaKm(String(Math.round(km) / 1000).replace('.', ','));
+    return true;
+  }
+  let atual = null; // arquivo da Montagem rodando na Tela do carro
 
   /* ---------------- Desenho da faixa (km) ---------------- */
 
@@ -6962,20 +7245,120 @@ window.App = window.App || {};
           if (a.recorte.de === null && a.recorte.ate === null) a.recorte = null;
           await gravar(); render();
         };
-        return h('details', { class: 'mt-arquivo' },
+        return h('details', { class: 'mt-arquivo', open: abertos.has(`arq|${a.id}`) || null, ontoggle: (e) => { if (e.target.open) abertos.add(`arq|${a.id}`); else abertos.delete(`arq|${a.id}`); } },
           h('summary', null,
             h('span', { class: `mt-ponto ${erros ? 'mt-erro' : alertas ? 'mt-alerta' : 'mt-ok'}` }),
             h('strong', { text: a.nome }),
             h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}` }),
-            avisos.length ? h('span', { class: 'mt-cont', text: `${avisos.length} aviso(s)` }) : null),
+            r.compensaveis.some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${r.compensaveis.filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
+              : avisos.length ? h('span', { class: 'mt-cont', text: `${avisos.length} aviso(s)` }) : null),
           h('div', { class: 'pilha mt-arquivo-corpo' },
             h('p', { class: 'mt-sub', text: `Caiu em: ${ondeCaiu || '—'} · correção do km pela geometria ${Math.round(r.correcao.min)} a ${Math.round(r.correcao.max)} m · ${r.correcao.casadas}/${r.correcao.curvas} curvas casadas` }),
             avisos.length ? h('ul', { class: 'mt-lista' }, avisos.map((x) => h('li', { class: x.tipo === 'erro' ? 'mt-erro-txt' : x.tipo === 'alerta' ? 'mt-atencao-txt' : 'mt-sub', text: x.texto }))) : h('p', { class: 'mt-sub', text: 'Sem inconsistências.' }),
+            r.compensaveis.length ? listaCompensaveis(a) : null,
+            h('div', { class: 'linha-acoes' },
+              h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
             h('div', { class: 'grade-3' },
               ui.campo('Usar a partir do km', campoKm(a.recorte && a.recorte.de, (v) => mudarRecorte('de', v), 'início')),
               ui.campo('Até o km', campoKm(a.recorte && a.recorte.ate, (v) => mudarRecorte('ate', v), 'fim')),
               h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-fantasma', onclick: () => remover(a) }, ui.icone('lixo'), 'Remover')))));
       }));
+  }
+
+  /* ---------------- Compensação de saltos e voltas do km ---------------- */
+
+  const n2 = (v, d = 2) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const n0 = (v) => Math.round(v).toLocaleString('pt-BR');
+
+  function listaCompensaveis(a) {
+    const r = a.resumo;
+    const esp = r.espacamento || 0.25;
+    const rg = regras();
+    return h('div', { class: 'pilha mt-comp' },
+      h('strong', { text: 'Saltos e voltas do km' }),
+      r.compensaveis.map((c) => {
+        const precisaria = (Math.abs(c.delta) / (c.disponiveis * esp)) * 100;
+        return h('div', { class: `mt-comp-item ${c.tratado ? 'mt-comp-feito' : ''}` },
+          h('div', null, h('strong', { text: `Km ${c.tipo === 'salto' ? 'salta' : 'volta'} de ${km(c.de)} para ${km(c.km)}` }),
+            h('span', { class: 'mt-sub', text: c.tipo === 'salto' ? ` · buraco de ${n2(Math.abs(c.delta))} m (${n0(c.pontosFaltando)} pontos)` : ` · sobreposição de ${n2(Math.abs(c.delta))} m (${n0(c.pontosFaltando)} pontos)` })),
+          c.cabe
+            ? h('div', { class: 'mt-sub', text: `Compensar: os ${n0(c.N)} pontos antes (${n0(c.N * esp)} m) ${c.tipo === 'salto' ? 'ganham' : 'perdem'} ${n2(Math.abs(c.porPonto), 4)} m cada um, acumulando até ${n2(Math.abs(c.delta))} m no último ponto. O km depois não muda.` })
+            : h('div', { class: 'mt-atencao-txt', text: `Não cabe: seriam ${n0(c.N)} pontos, mas só há ${n0(c.disponiveis)} antes (desde o início do arquivo ou a quebra anterior). Precisaria de ${n2(precisaria, 1)}% por ponto (limite ${n2(rg.passoMax * 100, 1)}%).` }),
+          h('div', { class: 'linha-acoes' },
+            c.tratado ? h('span', { class: 'mt-selo mt-ok', text: '✓ Compensado' }) : null,
+            c.cabe || c.tratado ? h('button', { class: `btn ${c.tratado ? 'btn-fantasma' : 'btn-primario'} btn-pequeno`, onclick: () => mudarCompensacao(a, c.chave, !c.tratado) }, c.tratado ? 'Desfazer' : 'Compensar') : null));
+      }));
+  }
+
+  function cartaoRegras() {
+    const rg = regras();
+    const salvar = (campo, v) => {
+      const atual = U.pref.get('montagem:compensacao', {}) || {};
+      U.pref.set('montagem:compensacao', { ...atual, [campo]: v });
+      ui.toast('Regra salva. Vale para os arquivos adicionados ou recalculados daqui em diante.', 'ok', 5000);
+    };
+    const campoNum = (rotulo, valor, aoMudar, ajuda) => ui.campo(rotulo, h('input', {
+      type: 'text', inputmode: 'decimal', value: String(valor).replace('.', ','),
+      onchange: (e) => { const v = U.numero(e.target.value); if (v === null || v <= 0) { ui.toast('Valor inválido.', 'erro'); return; } aoMudar(v); }
+    }), { ajuda });
+    return h('details', { class: 'cartao detalhes' },
+      h('summary', null, h('strong', { text: 'Regras da compensação do km' }), h('span', { class: 'sub', text: ` · até ${n2(rg.margem, 1)} m não mexe · máx. ${n2(rg.passoMax * 100, 1)}% por ponto` })),
+      h('div', { class: 'grade-3', style: { marginTop: '12px' } },
+        campoNum('Margem de erro (m)', rg.margem, (v) => salvar('margem', v), 'Salto ou volta até este valor não é compensado.'),
+        campoNum('Máximo por ponto (% do espaçamento)', n2(rg.passoMax * 100, 1), (v) => salvar('passoMax', v / 100), '1% de 0,25 m = 0,0025 m por ponto.'),
+        campoNum('Maior salto/volta (m)', rg.maxSalto, (v) => salvar('maxSalto', v), 'Acima disso é passada repetida ou falta de arquivo: use o recorte.')));
+  }
+
+  /* ---------------- Alertas de geometria ---------------- */
+
+  function cartaoAlertas(lista) {
+    const ramal = ramalEscolhido();
+    const vel = Number(U.pref.get('telaCarro:velocidade', 68));
+    const filtroParam = U.pref.get('montagem:alertaParam', '');
+    const filtroNivel = Number(U.pref.get('montagem:alertaNivel', 0));
+    const todos = C().alertasGeometria(planta, ramal, lista, (id, el) => App.telaCarro.niveisLimite(id, el, vel));
+    const vis = todos.filter((x) => (!filtroParam || x.id === filtroParam) && x.grau >= filtroNivel);
+    const cont = (id, g) => todos.filter((x) => x.id === id && x.grau === g).length;
+    const NOME_NIVEL = { 1: 'Alerta', 2: 'Restrição', 3: 'Interdição' };
+    const sel = (rotulo, valor, opcoes, aoMudar) => ui.campo(rotulo, h('select', { onchange: (e) => aoMudar(e.target.value) },
+      opcoes.map(([v, t]) => h('option', { value: String(v), selected: String(v) === String(valor) || null, text: t }))));
+    const linhas = vis.slice(0, 500).map((x) => h('tr', { tabindex: 0, title: 'Rodar na Tela do carro neste km', onclick: () => { const a = arquivos.find((y) => y.id === x.idArquivo); if (a) abrirNaTela(a, x.kmArq); } },
+      h('td', null, h('span', { class: `mt-selo mt-nivel-${x.grau}`, text: x.nivel })),
+      h('td', { text: x.param }),
+      h('td', { text: `L${x.linha}` }),
+      h('td', { text: `${km(x.ini)}${x.fim - x.ini >= 1 ? ` – ${km(x.fim)}` : ''}` }),
+      h('td', { class: 'num', text: n0(Math.max(1, x.fim - x.ini)) }),
+      h('td', { text: x.eh }),
+      h('td', { text: x.elemento }),
+      h('td', { class: 'num', text: n2(x.valor, 1) }),
+      h('td', { class: 'num', text: n2(x.limite, 0) }),
+      h('td', { class: 'mt-sub', text: x.arquivo })));
+    return h('section', { class: 'cartao pilha' },
+      h('div', { class: 'mt-linha-cab' }, h('h2', { text: 'Alertas de geometria' }),
+        h('span', { class: 'mt-sub', text: 'Empeno, nivelamento e superelevação. Sem bitola e sem alinhamento. Limites da Tela do carro.' })),
+      h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela tabela-centro' },
+        h('thead', null, h('tr', null, ['Parâmetro', 'Alerta', 'Restrição', 'Interdição', 'Total'].map((t) => h('th', { text: t })))),
+        h('tbody', null, C().PARAMETROS_GEOMETRIA.map((id) => h('tr', { onclick: () => { U.pref.set('montagem:alertaParam', filtroParam === id ? '' : id); render(); } },
+          h('td', { text: C().NOMES_GEOMETRIA[id] }), h('td', { text: String(cont(id, 1)) }), h('td', { text: String(cont(id, 2)) }), h('td', { text: String(cont(id, 3)) }),
+          h('td', null, h('strong', { text: String(cont(id, 1) + cont(id, 2) + cont(id, 3)) }))))))),
+      h('div', { class: 'grade-3' },
+        sel('Limites para', vel, App.telaCarro.VELOCIDADES.map((v) => [v, `${v} km/h`]), (v) => { U.pref.set('telaCarro:velocidade', Number(v)); render(); }),
+        sel('Parâmetro', filtroParam, [['', 'Todos'], ...C().PARAMETROS_GEOMETRIA.map((id) => [id, C().NOMES_GEOMETRIA[id]])], (v) => { U.pref.set('montagem:alertaParam', v); render(); }),
+        sel('Nível', filtroNivel, [[0, 'Todos'], [1, 'Alerta ou mais'], [2, 'Restrição ou mais'], [3, 'Interdição']], (v) => { U.pref.set('montagem:alertaNivel', Number(v)); render(); })),
+      vis.length ? h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela' },
+        h('thead', null, h('tr', null, ['Nível', 'Parâmetro', 'Linha', 'Km (geometria)', 'Ext. (m)', 'EH', 'Elemento', 'Valor', 'Limite', 'Arquivo'].map((t) => h('th', { text: t })))),
+        h('tbody', null, linhas))) : h('p', { class: 'vazio', text: todos.length ? 'Nenhum alerta com este filtro.' : 'Nenhum trecho passa dos limites nos arquivos deste ciclo.' }),
+      vis.length > 500 ? h('p', { class: 'mt-sub', text: `Mostrando 500 de ${vis.length}. Use os filtros.` }) : null,
+      h('p', { class: 'mt-sub', text: `Clique num alerta para rodar o arquivo na Tela do carro naquele km. ${NOME_NIVEL[2]} = tabela EFVM 2026; alerta e interdição são preenchidos em Limites, na Tela do carro.` }));
+  }
+
+  function abas() {
+    const atualAba = aba();
+    return h('div', { class: 'seg seg-abas', role: 'tablist', 'aria-label': 'Cobertura ou alertas' },
+      [['cobertura', 'Cobertura e arquivos'], ['alertas', 'Alertas de geometria']].map(([id, t]) => h('button', {
+        type: 'button', role: 'tab', class: `seg-opcao${atualAba === id ? ' ativo' : ''}`, 'aria-selected': atualAba === id ? 'true' : 'false',
+        onclick: () => { U.pref.set('montagem:aba', id); render(); }
+      }, t)));
   }
 
   function render() {
@@ -6984,20 +7367,38 @@ window.App = window.App || {};
     const partes = [cabecalho()];
     if (planta) {
       const ramal = ramalEscolhido();
-      const linhas = C().montar(planta, ramal, lista);
-      const conferencia = C().conferirArquivos(planta, lista);
       const outros = lista.filter((a) => a.resumo.ramal && a.resumo.ramal !== ramal);
-      partes.push(resumoGeral(linhas));
+      partes.push(abas());
       if (outros.length) partes.push(h('p', { class: 'aviso', text: `${outros.length} arquivo(s) deste ciclo são de outro ramal (${[...new Set(outros.map((a) => a.resumo.ramal))].join(', ')}): escolha o ramal acima para vê-los.` }));
-      linhas.forEach((l) => partes.push(cartaoLinha(l)));
-      partes.push(cartaoArquivos(lista, conferencia));
+      if (aba() === 'alertas') {
+        partes.push(cartaoAlertas(lista));
+      } else {
+        const linhas = C().montar(planta, ramal, lista);
+        const conferencia = C().conferirArquivos(planta, lista);
+        partes.push(resumoGeral(linhas));
+        linhas.forEach((l) => partes.push(cartaoLinha(l)));
+        partes.push(cartaoArquivos(lista, conferencia));
+        partes.push(cartaoRegras());
+      }
     }
     ui.trocar(raiz, ...partes);
   }
 
+  /** Arquivos da Montagem em ordem (ramal, linha, km), para a Tela do carro. */
+  async function listaParaTela() {
+    await carregar();
+    return doCiclo().slice().sort((a, b) => (a.resumo.ramal + a.resumo.linhaRef).localeCompare(b.resumo.ramal + b.resumo.linhaRef)
+      || Math.min(a.resumo.kmIni, a.resumo.kmFim) - Math.min(b.resumo.kmIni, b.resumo.kmFim))
+      .map((a) => ({ id: a.id, nome: a.nome, rotulo: `${a.nome} · ${a.resumo.corretiva || '—'} · L${a.resumo.linhaRef} · ${km(a.resumo.kmIni)} → ${km(a.resumo.kmFim)}` }));
+  }
+
   App.montagem = {
     async montar(el) { raiz = el; await carregar(); render(); },
-    async aoMostrar() { if (!raiz) return; planta = App.analise && App.analise.planta ? await App.analise.planta() : planta; render(); }
+    async aoMostrar() { if (!raiz) return; planta = App.analise && App.analise.planta ? await App.analise.planta() : planta; render(); },
+    lista: listaParaTela,
+    atual: () => atual,
+    ciclo,
+    async abrir(id) { await carregar(); if (!planta && App.analise.planta) planta = await App.analise.planta(); const a = arquivos.find((x) => x.id === id); return a ? abrirNaTela(a) : false; }
   };
 })(window.App);
 
@@ -7107,6 +7508,8 @@ window.App = window.App || {};
     });
 
     raiz.append(abas, parteChecklist, parteAnalise, parteTela, parteMontagem);
+    // outra tela pede para mostrar uma aba (ex.: Montagem roda um arquivo na Tela do carro)
+    window.addEventListener('em80:checklist-aba', (e) => mostrar(e.detail));
     renderForm();
     const salva = U.pref.get('checklist:aba', 'checklist');
     mostrar(['analise', 'tela', 'montagem'].includes(salva) ? salva : 'checklist');

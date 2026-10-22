@@ -160,7 +160,32 @@
     document.addEventListener('em80:analise', () => { if (raiz && raiz.offsetParent) carregar(); });
   }
 
-  function aoMostrar() { carregar(); }
+  function aoMostrar() { carregar(); atualizarMontagem(); }
+
+  /* ---------------- Arquivos da Montagem ---------------- */
+
+  let montagemLista = []; // arquivos carregados na Montagem dos dados (ciclo atual), em ordem de linha e km
+  let seguir = !!U.pref.get('telaCarro:seguir', false); // ao terminar um arquivo, roda o próximo
+  async function atualizarMontagem() {
+    try { montagemLista = App.montagem && App.montagem.lista ? await App.montagem.lista() : []; } catch (e) { montagemLista = []; }
+    renderControles();
+  }
+  const idAtual = () => {
+    const id = App.montagem && App.montagem.atual ? App.montagem.atual() : null;
+    const a = montagemLista.find((x) => x.id === id);
+    return a && a.nome === nomeArquivo ? id : '';
+  };
+  async function abrirDaMontagem(id, tocarDepois = false) {
+    if (!id) return;
+    tocando = false;
+    const ok = await App.montagem.abrir(id);
+    if (ok && tocarDepois) tocar();
+  }
+  function vizinho(passo) {
+    const k = montagemLista.findIndex((x) => x.id === idAtual());
+    const j = k + passo;
+    return k >= 0 && j >= 0 && j < montagemLista.length ? montagemLista[j] : (k < 0 && passo > 0 ? montagemLista[0] : null);
+  }
 
   /** Alça para arrastar: 'altura' (borda de baixo) ou 'largura' (borda da direita). */
   function alca(tipo) {
@@ -246,7 +271,7 @@
       prep = null;
       renderControles();
       ui.trocar(cabecalhoEl); ui.trocar(leituraEl); ui.trocar(rodapeEl);
-      ui.trocar(corpoEl, h('p', { class: 'vazio tc-vazio', text: 'Carregue o arquivo do carro em "Análise do arquivo" para ver a tela.' }));
+      ui.trocar(corpoEl, h('p', { class: 'vazio tc-vazio', text: 'Carregue o arquivo do carro em "Análise do arquivo" ou escolha um arquivo da Montagem acima.' }));
       return;
     }
     if (mudou || !prep) preparar();
@@ -344,7 +369,12 @@
       const dt = (agora - ultimoQuadro) / 1000;
       ultimoQuadro = agora;
       avancar(BASE_MS * fator * dt);
-      if (revelado >= prep.total) { tocando = false; renderControles(); return; }
+      if (revelado >= prep.total) {
+        tocando = false; renderControles();
+        const prox = seguir ? vizinho(1) : null; // rodar os arquivos da Montagem em sequência
+        if (prox) { ui.toast(`Próximo arquivo: ${prox.nome}`, 'info', 3000); abrirDaMontagem(prox.id, true); }
+        return;
+      }
       requestAnimationFrame(passo);
     };
     requestAnimationFrame(passo);
@@ -356,7 +386,19 @@
     const sel = (valor, opcoes, aoMudar, rotulo) => h('label', { class: 'tc-campo' }, h('span', { text: rotulo }),
       h('select', { value: String(valor), onchange: (e) => aoMudar(Number(e.target.value)) }, opcoes.map(([v, t]) => h('option', { value: String(v), text: t }))));
     const kmInput = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'ex.: 312+000', 'aria-label': 'Ir para o km', onkeydown: (e) => { if (e.key === 'Enter') irParaKm(e.target.value); } });
+    const atualId = idAtual();
+    const anterior = vizinho(-1); const proximo = vizinho(1);
+    const linhaMontagem = montagemLista.length ? h('div', { class: 'tc-linha tc-linha-arquivo' },
+      h('label', { class: 'tc-campo tc-campo-arquivo' }, h('span', { text: `Arquivos da Montagem${App.montagem.ciclo() ? ` (ciclo ${App.montagem.ciclo()})` : ''}` }),
+        h('select', { 'aria-label': 'Arquivo da Montagem', onchange: (e) => abrirDaMontagem(e.target.value) },
+          h('option', { value: '', selected: !atualId || null, text: atualId ? '—' : `Arquivo da Análise${nomeArquivo ? `: ${nomeArquivo}` : ''}` }),
+          montagemLista.map((a) => h('option', { value: a.id, selected: a.id === atualId || null, text: a.rotulo })))),
+      h('div', { class: 'tc-botoes' },
+        h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: !anterior || null, title: anterior ? anterior.nome : '', onclick: () => abrirDaMontagem(anterior.id) }, ui.icone('esquerda'), 'Anterior'),
+        h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: !proximo || null, title: proximo ? proximo.nome : '', onclick: () => abrirDaMontagem(proximo.id) }, 'Próximo', ui.icone('direita'))),
+      h('label', { class: 'chip-sel' }, h('input', { type: 'checkbox', checked: seguir || null, onchange: (e) => { seguir = e.target.checked; U.pref.set('telaCarro:seguir', seguir); } }), 'Ao terminar, rodar o próximo arquivo')) : null;
     ui.trocar(controlesEl,
+      linhaMontagem,
       h('div', { class: 'tc-linha' },
         h('div', { class: 'tc-campo' }, h('span', { text: 'Ir para o km' }),
           h('div', { class: 'linha-campo' }, kmInput, h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', onclick: () => irParaKm(kmInput.value) }, 'Ir'))),
@@ -653,5 +695,19 @@
     });
   }
 
-  App.telaCarro = { montar, aoMostrar, _limitesPadrao: limitesPadrao, _PARAMETROS: PARAMETROS, _VELOCIDADES: VELOCIDADES };
+  /** Níveis de limite de um parâmetro (id) num elemento ('C' curva / 'T' tangente), na velocidade escolhida na tela. */
+  function niveisLimite(id, el, vel = velocidade) {
+    const p = PARAMETROS.find((x) => x.id === id);
+    if (!p) return [];
+    const lims = limitesDe(p, vel);
+    return NIVEIS.map((n) => (lims[n.id] && lims[n.id][el] ? { grau: n.grau, nome: n.nome, sup: lims[n.id][el].sup, inf: lims[n.id][el].inf } : null)).filter(Boolean);
+  }
+
+  App.telaCarro = {
+    montar, aoMostrar, niveisLimite,
+    velocidade: () => velocidade,
+    VELOCIDADES,
+    irParaKm: (t) => { if (prep) irParaKm(t); },
+    _limitesPadrao: limitesPadrao, _PARAMETROS: PARAMETROS, _VELOCIDADES: VELOCIDADES
+  };
 })(window.App);
