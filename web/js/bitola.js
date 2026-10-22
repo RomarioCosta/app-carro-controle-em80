@@ -480,28 +480,35 @@
   /** Elemento que perdeu a bitola: % de perda acima do limite do elemento (padrão 10%). */
   B.elementoPerdeu = (pctPerda, limiteElemento = 10) => pctPerda !== null && pctPerda !== undefined && pctPerda > limiteElemento;
 
-  /**
-   * Offset (em mm) para a bitola F ou T que mais reduz a perda de bitola (mesma regra).
-   * Testa de −10 a +10 mm em passos de 0,1 mm.
-   */
-  B.melhorOffset = (dados, bitola, limite, mascara = null) => {
-    if (bitola !== 'bitF' && bitola !== 'bitT') return null;
-    const difs = [];
-    for (let i = 0; i < dados.bitF.length; i++) {
-      if (mascara && !mascara[i]) continue;
+  /* ------------------------------------------------------------------ */
+  /* Offset por elemento                                                 */
+  /* ------------------------------------------------------------------ */
+  //
+  // Offset do elemento = mediana das diferenças F − T dos pontos do elemento (diferença sistemática entre os
+  // dois sensores naquele elemento). Só entram pontos com F e T lidas e |F − T| < 10 mm (tira leitura errada).
+  // Aplicado: em cada ponto do elemento, F − T passa a ser (F − T) − offset do elemento (o mesmo que somar o
+  // offset na Bitola T), e a regra da perda é a mesma.
+
+  B.OFFSET_ELEMENTO = { filtro: 10 };
+
+  /** Mediana de F − T (arredondada a 0,01 mm) nos pontos i0…i1: { valor, pontos }. */
+  B.offsetDoElemento = (dados, i0, i1) => {
+    const d = [];
+    for (let i = i0; i <= i1; i++) {
       const dif = B.difBitola(dados.bitF[i], dados.bitT[i]);
-      if (!Number.isNaN(dif)) difs.push(dif);
+      if (!Number.isNaN(dif) && abs(dif) < B.OFFSET_ELEMENTO.filtro) d.push(dif);
     }
-    if (!difs.length) return null;
-    const sinal = bitola === 'bitF' ? 1 : -1; // offset em F soma na diferença; em T, subtrai
-    let melhor = { valor: 0, perdas: Infinity };
-    for (let k = -100; k <= 100; k++) {
-      const off = k / 10;
-      let perdas = 0;
-      for (const d of difs) if (B.ehPerda(Math.round((d + sinal * off) * 100) / 100, limite)) perdas++;
-      if (perdas < melhor.perdas || (perdas === melhor.perdas && abs(off) < abs(melhor.valor))) melhor = { valor: off, perdas };
-    }
-    return { valor: melhor.valor, perdas: melhor.perdas, pontos: difs.length, pct: (melhor.perdas / difs.length) * 100 };
+    if (!d.length) return { valor: 0, pontos: 0 };
+    d.sort((a, b) => a - b);
+    const m = d.length % 2 ? d[(d.length - 1) / 2] : (d[d.length / 2 - 1] + d[d.length / 2]) / 2;
+    return { valor: Math.round(m * 100) / 100, pontos: d.length };
+  };
+
+  /** Dados com o offset de cada elemento somado na Bitola T dos pontos do elemento. Não altera o original. */
+  B.dadosComOffsetElementos = (dados, elementos, valores) => {
+    const t = Float64Array.from(dados.bitT);
+    elementos.forEach((e, k) => { const off = valores[k] || 0; if (off) for (let i = e.i0; i <= e.i1; i++) t[i] += off; });
+    return { ...dados, bitT: t };
   };
 
   function resumoTrecho(d, i0, i1, opcoes, extras) {
@@ -1201,10 +1208,29 @@
    *         offset { bitola, valor, aplicar }, modo ('planta'|'curvatura'), elementosPlanta, ajusteKm.
    */
   B.analisar = (arquivo, opcoes = {}) => {
+    const r = analisarBase(arquivo, opcoes);
+    // offset por elemento: mediana de F − T de cada elemento (sempre calculada; aplicada só se pedido)
+    const offs = r.elementos.map((e) => B.offsetDoElemento(arquivo.dados, e.i0, e.i1));
+    r.elementos.forEach((e, k) => { e.difMediana = offs[k].valor; e.pontosDif = offs[k].pontos; });
+    if (!opcoes.offsetElemento) return r;
+    const valores = offs.map((x) => x.valor);
+    const r2 = analisarBase({ ...arquivo, dados: B.dadosComOffsetElementos(arquivo.dados, r.elementos, valores) }, opcoes);
+    if (r2.elementos.length !== r.elementos.length) return r; // não deve acontecer: os elementos não dependem das bitolas
+    r2.elementos.forEach((e, k) => {
+      const s0 = r.elementos[k];
+      e.difMediana = s0.difMediana; e.pontosDif = s0.pontosDif; e.offset = valores[k];
+      e.semOffset = { pontos: s0.pontos, perdas: s0.perdas, pctPerda: s0.pctPerda };
+    });
+    r2.porEh.forEach((g, k) => { const s0 = r.porEh[k]; if (s0) g.semOffset = { pontos: s0.pontos, perdas: s0.perdas, pctPerda: s0.pctPerda }; });
+    r2.semOffset = { geral: r.geral, tangentes: r.tangentes, curvas: r.curvas };
+    r2.offsetElemento = true;
+    return r2;
+  };
+
+  function analisarBase(arquivo, opcoes = {}) {
     const o = { ...B.PADRAO, alinhamento: 'alr10', ...opcoes };
     const { pos } = arquivo;
-    const original = arquivo.dados;
-    const dados = o.offset && o.offset.aplicar ? B.dadosComOffset(original, o.offset) : original;
+    const dados = arquivo.dados;
     const alin = dados[o.alinhamento];
     const esp = B.espacamento(pos) || 0.25;
     const janela = Math.max(3, Math.round(o.janelaVariacao / esp) + 1);
@@ -1348,10 +1374,7 @@
     };
   };
 
-  B.conferir = (texto, resultado, limite, faixa = null, offset = null) => {
-    // Offset aplicado na análise: a conferência soma o mesmo valor na mesma bitola.
-    const offF = offset && offset.aplicar && offset.bitola === 'bitF' ? Math.round((Number(offset.valor) || 0) * 10000) : 0;
-    const offT = offset && offset.aplicar && offset.bitola === 'bitT' ? Math.round((Number(offset.valor) || 0) * 10000) : 0;
+  B.conferir = (texto, resultado, limite, faixa = null) => {
     const linhas = String(texto || '').split(/\r?\n/);
     let iF = -1; let iT = -1; let iKm = -1; let iLoc = -1;
     const norm = (x) => String(x || '').trim().toUpperCase().replace(/\s+/g, ' ');
@@ -1377,7 +1400,7 @@
       const metros = km * 1000 + loc;
       if (faixa && ((faixa.de !== null && faixa.de !== undefined && metros < faixa.de) || (faixa.ate !== null && faixa.ate !== undefined && metros > faixa.ate))) continue;
       const f = ler(c[iF]); const t = ler(c[iT]);
-      pontos.push({ m: Math.round((km * 1000 + loc) * 100), f: f === null ? null : f + offF, t: t === null ? null : t + offT });
+      pontos.push({ m: Math.round((km * 1000 + loc) * 100), f, t });
     }
     // Mesma regra da análise, em inteiros: |F − T| arredondada a 0,01 mm > limite.
     // Arredondar a 0,01 mm e passar do limite ⇔ F − T ≥ limite + 0,005 (ou ≤ −(limite + 0,005), excluindo o meio exato).
@@ -1386,13 +1409,14 @@
     // Os elementos são conferidos pela posição de cada ponto no arquivo (ordem das linhas "D"),
     // e não pela faixa de km: o mesmo km pode aparecer mais de uma vez no arquivo (km corrigido
     // durante a inspeção, passagem pela outra linha…), e aí a faixa de km pegaria pontos de outro trecho.
-    const contar = (i0, i1) => {
+    // Offset por elemento aplicado na análise: a conferência soma o mesmo offset na Bitola T dos pontos do elemento.
+    const contar = (i0, i1, offT = 0) => {
       let n = 0; let acima = 0;
       for (let i = i0; i <= i1 && i < pontos.length; i++) {
         const p = pontos[i];
         if (p.f === null || p.t === null) continue;
         n++;
-        if (acimaDe(p.f - p.t)) acima++;
+        if (acimaDe(p.f - (p.t + offT))) acima++;
       }
       return { pontos: n, perdas: acima };
     };
@@ -1406,7 +1430,7 @@
     const divergencias = [];
     let somaPontos = 0; let somaPerdas = 0;
     resultado.elementos.forEach((e) => {
-      const c = contar(e.i0, e.i1);
+      const c = contar(e.i0, e.i1, resultado.offsetElemento ? Math.round((e.offset || 0) * 10000) : 0);
       const fora = e.tipo === 'X' || e.rh;
       // elemento que atravessa um circuito: confere o elemento inteiro (antes de tirar os pontos do RH)
       const anal = e.pontosTotal !== undefined ? { pontos: e.pontosTotal, perdas: e.perdasTotal } : { pontos: e.pontos, perdas: e.perdas };
