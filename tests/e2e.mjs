@@ -4,6 +4,7 @@
  * relatório de anomalia, tema claro/escuro, persistência após recarregar e o modo Apps Script.
  * Rodar: TZ=America/Sao_Paulo node tests/e2e.mjs   (capturas de tela em tests/saida/)
  */
+import { deflateRawSync } from 'node:zlib';
 import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -64,6 +65,20 @@ async function aguardar(fn, msg, ms = 15000) {
     await new Promise((r) => setTimeout(r, 250));
   }
   throw new Error(`Tempo esgotado: ${msg} (${ultimo && ultimo.message ? ultimo.message : ultimo})`);
+}
+
+/** .zip mínimo com um arquivo (deflate), para testar a abertura de .zip no app. */
+function zipar(nome, dados) {
+  const comp = deflateRawSync(dados);
+  const n = Buffer.from(nome);
+  const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(8, 8);
+  local.writeUInt32LE(comp.length, 18); local.writeUInt32LE(dados.length, 22); local.writeUInt16LE(n.length, 26);
+  const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6); central.writeUInt16LE(8, 10);
+  central.writeUInt32LE(comp.length, 20); central.writeUInt32LE(dados.length, 24); central.writeUInt16LE(n.length, 28); central.writeUInt32LE(0, 42);
+  const inicioCentral = 30 + n.length + comp.length;
+  const fim = Buffer.alloc(22); fim.writeUInt32LE(0x06054b50, 0); fim.writeUInt16LE(1, 8); fim.writeUInt16LE(1, 10);
+  fim.writeUInt32LE(46 + n.length, 12); fim.writeUInt32LE(inicioCentral, 16);
+  return Buffer.concat([local, n, comp, central, n, fim]);
 }
 
 const planilha = async () => (await fetch(`${BASE}/__planilha`)).json();
@@ -515,7 +530,8 @@ async function main() {
     await passo('análise do arquivo do carro: elementos, perda de bitola e ranking', async () => {
       await page.getByRole('navigation').getByRole('button', { name: 'Checklist' }).click();
       await page.getByRole('tab', { name: 'Análise do arquivo' }).click();
-      await page.locator('input[type="file"][accept=".csv,.txt"]').setInputFiles({ name: 'TESTE.csv', mimeType: 'text/csv', buffer: Buffer.from(gerarCSV(), 'latin1') });
+      // como no celular: o arquivo vem zipado (WhatsApp/e-mail); o app abre o .csv de dentro
+      await page.locator('input[name="arquivo-carro"]').setInputFiles({ name: 'TESTE.zip', mimeType: 'application/zip', buffer: zipar('TESTE.csv', Buffer.from(gerarCSV(), 'latin1')) });
       await page.locator('.graf-km svg').first().waitFor();
       assert.deepEqual(await page.locator('.tabela:not(.tabela-offset)').first().locator('tbody .el-tag').allTextContents(), ['T02', 'T01', 'C01', 'C02']); // maior perda primeiro
       assert.equal(await page.locator('.kpi:visible').first().locator('.kpi-valor').textContent(), '5,0%');
@@ -560,7 +576,7 @@ async function main() {
       assert.equal(await page.locator('#laudo').count(), 0);
       // Planta da linha: elementos por EH, com ajuste automático do km (+30 m nos dados inventados).
       await page.evaluate((linhas) => { window.__linhasXlsx = linhas; }, PLANTA_E2E);
-      await page.locator('input[type="file"][accept=".xls,.xlsx"]').setInputFiles({ name: 'Planta.xls', mimeType: 'application/vnd.ms-excel', buffer: Buffer.from('falso') });
+      await page.locator('input[name="arquivo-planta"]').setInputFiles({ name: 'Planta.xls', mimeType: 'application/vnd.ms-excel', buffer: Buffer.from('falso') });
       await page.getByText('Planta importada').waitFor();
       await page.evaluate(() => { delete window.__linhasXlsx; });
       // Ramal e linha vêm do arquivo CSV (sem escolha na planta).
