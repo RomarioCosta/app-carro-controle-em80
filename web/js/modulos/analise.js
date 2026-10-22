@@ -19,7 +19,7 @@
   let opcoesAnalise = null; // opções usadas na última análise (o laudo refaz a análise com o offset)
   let nomeArquivo = '';
   let resultado = null; // resultado de B.analisar
-  const OPCOES_PADRAO = { ...B.PADRAO, alinhamento: 'alr10', modo: 'hibrido', ajusteKm: 'auto', offsetElemento: false, bitolas: ['bitF', 'bitT'] };
+  const OPCOES_PADRAO = { ...B.PADRAO, alinhamento: 'alr10', modo: 'hibrido', ajusteKm: 'auto', offset: { bitola: 'bitT', valor: 0, aplicar: false }, bitolas: ['bitF', 'bitT'] };
   const opcoesSalvas = { ...(U.pref.get('bitola:opcoes', {}) || {}) };
   if ('limiarCurva' in opcoesSalvas) { // versão antiga (curvatura): passa a valer o padrão do método pelo raio
     delete opcoesSalvas.limiarCurva; delete opcoesSalvas.suavizacao;
@@ -36,12 +36,12 @@
 
   function montar(el) {
     raiz = el;
-    ['arquivo', 'planta', 'parametros', 'kpis', 'graficos', 'elementos', 'ranking'].forEach((k) => { secoes[k] = h('div'); });
+    ['arquivo', 'planta', 'parametros', 'kpis', 'offset', 'graficos', 'elementos', 'ranking'].forEach((k) => { secoes[k] = h('div'); });
     raiz.append(
       h('div', { class: 'tela-cab' },
         h('h1', { text: 'Análise do arquivo do carro controle' }),
         null),
-      secoes.arquivo, secoes.planta, secoes.parametros, secoes.kpis, secoes.graficos, secoes.elementos, secoes.ranking);
+      secoes.arquivo, secoes.planta, secoes.parametros, secoes.kpis, secoes.offset, secoes.graficos, secoes.elementos, secoes.ranking);
     renderArquivo();
     carregarPlanta().then(carregarUltimo);
   }
@@ -318,6 +318,7 @@
     renderArquivo();
     renderPlanta();
     renderParametros();
+    renderOffset();
     renderKpis();
     renderGraficos();
     renderElementos();
@@ -429,7 +430,7 @@
       h('button', {
         class: 'btn btn-fantasma',
         onclick: () => {
-          opcoes = { ...OPCOES_PADRAO, alinhamento: opcoes.alinhamento, offsetElemento: opcoes.offsetElemento };
+          opcoes = { ...OPCOES_PADRAO, alinhamento: opcoes.alinhamento, offset: opcoes.offset };
           salvarOpcoes();
           recalcular();
         }
@@ -504,7 +505,7 @@
     const nomesEscolhidas = escolhidas.map((k) => NOMES_BITOLA[k]).join(', ').replace(/, ([^,]*)$/, ' e $1');
     // Bitolas: linhas finas; em trechos longos, faixa mín–máx + média (sem borrão).
     const fino = { classe: 'graf-fino' };
-    const offsetTxt = r.offsetElemento ? ' · Bitola T com o offset de cada elemento' : '';
+    const offsetTxt = opcoes.offset.aplicar && opcoes.offset.valor ? ` · offset ${fmt(opcoes.offset.valor, 1)} mm em ${NOMES_BITOLA[opcoes.offset.bitola]}` : '';
     return [
       { titulo: 'Raio (10000/R) — tangentes e curvas', op: { ...base, series: [{ nome: '10000/R', valores: d.curv, classe: 's1' }], referencias: [10000 / opcoes.raioCurva, -10000 / opcoes.raioCurva], eventos } },
       { titulo: `Bitolas (mm): ${nomesEscolhidas}${offsetTxt}`, seletor: 'bitolas', op: { ...base, ...fino, altura: 230, estilo: 'faixa', corteY: 0.01, series: escolhidas.map((k) => serieBitola[k]) } },
@@ -607,6 +608,19 @@
     h('span', { class: 'barra-pct-fundo' }, h('span', { style: { width: `${Math.min(pct || 0, 100)}%` } })),
     h('span', { text: `${fmt(pct)}%` }));
 
+  /** No laudo: % de perda de cada linha se o melhor offset for aplicado (mesmos elementos, mesma ordem). */
+  let laudoOffset = null; // { bitola, valor, r } enquanto o laudo é montado
+  function colunaOffset(paraLaudo, lista, daAnalise) {
+    if (!paraLaudo || !laudoOffset) return null;
+    const outra = daAnalise(laudoOffset.r);
+    const rotulo = `% c/ offset ${laudoOffset.bitola === 'bitF' ? 'F' : 'T'} ${laudoOffset.valor > 0 ? '+' : ''}${fmt(laudoOffset.valor, 1)}`;
+    return {
+      t: rotulo, n: true,
+      total: `${fmt(laudoOffset.r.geral.pctPerda)}%`,
+      v: (x) => { const k = lista.indexOf(x); const y = k >= 0 ? outra[k] : null; return y && y.pctPerda !== null && y.pctPerda !== undefined ? `${fmt(y.pctPerda)}%` : '—'; }
+    };
+  }
+
   /** Colunas da tabela de elementos (usadas na tela e no laudo). */
   function colunasElementos(paraLaudo) {
     const planta = resultado.comLocais;
@@ -638,8 +652,7 @@
         const v = pct(e.pctPerda);
         return baixa ? h('span', { class: 'baixa-cobertura', title: `Só ${fmt(e.cobertura * 100, 0)}% dos pontos do elemento com Bitola F e T lidas` }, v, ' ⚠') : v;
       } },
-      { t: 'Dif. F − T (mm)', n: true, v: (e) => (e.pontosDif ? fmt(e.difMediana, 2) : '—') },
-      resultado.offsetElemento ? { t: '% sem offset', n: true, total: `${fmt(resultado.semOffset.geral.pctPerda)}%`, v: (e) => (e.semOffset && e.semOffset.pctPerda !== null ? `${fmt(e.semOffset.pctPerda)}%` : '—') } : null,
+      colunaOffset(paraLaudo, resultado.elementos, (x) => x.elementos),
       { t: `Máx ${nomeAlinhamento()}`, n: true, v: (e) => fmt(e.alinhMax, 2) });
     cols.push({ t: 'Eventos', ev: true, v: eventosDo });
     return cols.filter(Boolean);
@@ -677,7 +690,7 @@
       { t: 'Pontos acima', n: true, v: (g) => int(g.perdas) },
       { t: 'Ext. acima (m)', n: true, v: (g) => fmt(extAcima(g.perdas), 1) },
       { t: '% perda', n: true, v: (g) => `${fmt(g.pctPerda)}%` },
-      resultado.offsetElemento ? { t: '% sem offset', n: true, total: `${fmt(resultado.semOffset.geral.pctPerda)}%`, v: (g) => (g.semOffset && g.semOffset.pctPerda !== null && g.semOffset.pctPerda !== undefined ? `${fmt(g.semOffset.pctPerda)}%` : '—') } : null,
+      colunaOffset(paraLaudo, resultado.porEh, (x) => x.porEh),
       { t: `Perderam (>${fmt(opcoes.limiteElemento ?? 10, 0)}%)`, n: true, v: (g) => (g.rh ? '—' : `${g.comPerda || 0} de ${(g.tangentes || 0) + (g.curvas || 0)}`) },
       { t: 'Maior perda', v: (g) => nomeEl(g.pior) },
       { t: '% do elemento', n: true, v: (g) => (g.pior ? `${fmt(g.pior.pctPerda)}%` : '—') }
@@ -721,23 +734,15 @@
       planta && r.porEh.length ? recolhivel('trechos', 'Resumo por trecho (EH e RH)',
         tabelaTela(colunasEh(false), porPerda(r.porEh), (g) => aproximar(g.ini, g.fim, 0.02))) : null,
       recolhivel('elementos', r.modo === 'curvatura' ? 'Elementos: tangentes e curvas' : `Elementos da ${nomeFonte()}: tangentes e curvas`,
-        h('div', { class: 'cartao-cab' }, caixaOffset(), cartaoConferencia()),
-        r.offsetElemento ? h('p', { class: 'sub', text: `Offset por elemento aplicado: perda de bitola ${fmt(r.semOffset.geral.pctPerda)}% sem offset → ${fmt(r.geral.pctPerda)}% com o offset de cada elemento (tangentes ${fmt(r.semOffset.tangentes.pctPerda)}% → ${fmt(r.tangentes.pctPerda)}%, curvas ${fmt(r.semOffset.curvas.pctPerda)}% → ${fmt(r.curvas.pctPerda)}%).` }) : null,
+        h('div', { class: 'cartao-cab' }, h('span'), cartaoConferencia()),
         tabelaTela(colunasElementos(false), porPerda(r.elementos), (e) => aproximar(e.ini, e.fim))));
-  }
-
-  /** Caixa para aplicar (ou não) o offset de cada elemento: mediana de F − T do próprio elemento. */
-  function caixaOffset() {
-    return h('label', { class: 'chip-sel', title: 'Offset do elemento = mediana de F − T dos pontos do elemento (|F − T| < 10 mm). Aplicado, F − T de cada ponto passa a ser (F − T) − offset do elemento.' },
-      h('input', { type: 'checkbox', name: 'offset-elemento', checked: !!opcoes.offsetElemento || null, onchange: (e) => { opcoes = { ...opcoes, offsetElemento: e.target.checked }; salvarOpcoes(); recalcular(); } }),
-      'Aplicar offset por elemento (Dif. F − T)');
   }
 
   /* ---------------- Dupla checagem ---------------- */
 
   /** Selo da conferência independente (relê o CSV original e recalcula) e botão da planilha de conferência. */
   function cartaoConferencia() {
-    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda, recorte) : null;
+    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda, recorte, opcoes.offset) : null;
     const selo = !c ? null : c.ok
       ? h('span', { class: 'conf-ok', title: `Recontagem independente a partir do CSV original: ${c.linhas.toLocaleString('pt-BR')} linhas de medição; pontos e pontos acima de cada elemento iguais aos da análise.${c.voltas.length ? ` O km volta ${c.voltas.length} vez(es) no arquivo.` : ''}` }, ui.icone('check'), 'Conferido')
       : h('button', { class: 'conf-erro', onclick: () => mostrarDivergencias(c) }, `⚠ ${c.divergencias.length} divergência(s)`);
@@ -763,13 +768,14 @@
   function baixarConferencia() {
     const r = resultado;
     const { pos } = arquivo;
-    const dados = r.dados; // com o offset de cada elemento, se aplicado (mesmos valores do cartão e das tabelas)
+    const dados = r.dados; // com o offset, se aplicado (mesmos valores do cartão e das tabelas)
     const lim = opcoes.limitePerda;
-    const comOffset = (b) => (r.offsetElemento && b === 'bitT' ? ' (com o offset do elemento)' : '');
+    const off = opcoes.offset;
+    const comOffset = (b) => (off.aplicar && off.valor && off.bitola === b ? ` (com offset ${off.valor > 0 ? '+' : ''}${fmt(off.valor, 1)})` : '');
     const doPonto = new Array(pos.length);
     r.elementos.forEach((e) => { for (let i = e.i0; i <= e.i1; i++) doPonto[i] = e; });
     const num = (v, casas = 2) => (Number.isNaN(v) ? '' : v.toFixed(casas).replace('.', ','));
-    const linhas = [`KM;LOCALIZACAO;Linha;Bitola F${comOffset('bitF')};Bitola T${comOffset('bitT')};F - T;|F - T| (módulo);Acima do limite (1 = sim);Elemento;Tipo;EH / RH;Na estatística (1 = sim);Offset do elemento (mediana F - T)${r.offsetElemento ? ' aplicado' : ''}`];
+    const linhas = [`KM;LOCALIZACAO;Linha;Bitola F${comOffset('bitF')};Bitola T${comOffset('bitT')};F - T;|F - T| (módulo);Acima do limite (1 = sim);Elemento;Tipo;EH / RH;Na estatística (1 = sim)`];
     for (let i = 0; i < pos.length; i++) {
       const e = doPonto[i] || {};
       const dif = B.difBitola(dados.bitF[i], dados.bitT[i]);
@@ -779,14 +785,83 @@
         num(dados.bitF[i]), num(dados.bitT[i]), num(dif), num(Math.abs(dif)),
         Number.isNaN(dif) ? '' : (B.ehPerda(dif, lim) ? 1 : 0),
         e.sigla || '', !e.tipo ? '' : (e.tipo === 'X' || e.rh ? 'Circuito' : (e.tipo === 'C' ? 'Curva' : 'Tangente')),
-        e.trecho || e.eh || '', (r.mascara && !r.mascara[i]) || Number.isNaN(dif) ? 0 : 1,
-        e.pontosDif ? num(e.difMediana) : ''
+        e.trecho || e.eh || '', (r.mascara && !r.mascara[i]) || Number.isNaN(dif) ? 0 : 1
       ].join(';'));
     }
     const blob = new Blob(['\ufeff' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     const a = h('a', { href: URL.createObjectURL(blob), download: `conferencia-${nomeArquivo.replace(/\.[^.]+$/, '')}.csv` });
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+
+  /* ---------------- Simulação de offset ---------------- */
+
+  let offsetAberto = false; // mantém o cartão aberto ao trocar a bitola
+  function renderOffset() {
+    if (!resultado) return ui.limpar(secoes.offset);
+    const off = opcoes.offset;
+    const original = arquivo.dados;
+    const lim = opcoes.limitePerda;
+    const simulado = B.dadosComOffset(original, { ...off, valor: off.valor || 0 });
+    const mascara = resultado.mascara; // pátios (RH) fora da estatística
+    const antes = B.avaliarPerda(original, lim, 0, original.bitF.length - 1, mascara);
+    const depois = B.avaliarPerda(simulado, lim, 0, simulado.bitF.length - 1, mascara);
+    const porTipo = (dados, tipo) => {
+      let pontos = 0; let perdas = 0;
+      resultado.elementos.filter((e) => e.tipo === tipo && !e.rh).forEach((e) => {
+        const x = B.avaliarPerda(dados, lim, e.i0, e.i1, mascara);
+        pontos += x.pontos; perdas += x.perdas;
+      });
+      return pontos ? (perdas / pontos) * 100 : null;
+    };
+    const mediaKld = (dados) => {
+      let n = 0; let soma = 0;
+      for (let i = 0; i < dados.bitF.length; i++) {
+        const f = dados.bitF[i]; const k = dados.kld[i];
+        if (!Number.isNaN(f) && !Number.isNaN(k) && Math.abs(k) < 60) { n++; soma += f - k; }
+      }
+      return n ? soma / n : null;
+    };
+    const mudar = (campos) => { offsetAberto = true; opcoes = { ...opcoes, offset: { ...opcoes.offset, ...campos } }; salvarOpcoes(); recalcular(); };
+
+    const valor = h('input', {
+      type: 'text', inputmode: 'tel', value: off.valor ? String(off.valor).replace('.', ',') : '', placeholder: '0,0',
+      onchange: (e) => { const v = U.numero(e.target.value); mudar({ valor: v === null ? 0 : v }); }
+    });
+    // porModulo: melhora = mais perto de zero (ex.: OGMS − KLD pode ser negativo).
+    const linha = (rotulo, a, b, casas = 1, suf = '%', porModulo = false) => {
+      const ok = a !== null && b !== null;
+      const va = ok && porModulo ? Math.abs(a) : a; const vb = ok && porModulo ? Math.abs(b) : b;
+      const classe = !ok || Math.abs(vb - va) < 1e-9 ? '' : (vb < va ? 'melhor' : 'pior');
+      return h('tr', null,
+        h('td', { text: rotulo }),
+        h('td', { class: 'num', text: `${fmt(a, casas)}${suf}` }),
+        h('td', { class: 'num', text: `${fmt(b, casas)}${suf}` }),
+        h('td', { class: `num ${classe}`, text: ok ? `${b - a > 0 ? '+' : ''}${fmt(b - a, casas)}` : '—' }));
+    };
+
+    const sugestao = off.bitola !== 'kld' ? B.melhorOffset(original, off.bitola, lim, mascara) : null;
+    ui.trocar(secoes.offset, h('details', { class: 'cartao detalhes', open: off.valor || offsetAberto ? true : null, ontoggle: (e) => { offsetAberto = e.target.open; } },
+      h('summary', null, h('strong', { text: 'Simulação de offset' }),
+        h('span', { class: 'sub', text: off.valor ? ` · ${fmt(off.valor, 1)} mm em ${NOMES_BITOLA[off.bitola]}${off.aplicar ? ' (aplicado)' : ''} · perda ${fmt(antes.pct)}% → ${fmt(depois.pct)}%` : ' · escolha uma bitola e um valor' })),
+      h('div', { class: 'pilha', style: { marginTop: '12px' } },
+        h('div', { class: 'grade-3' },
+          ui.campo('Bitola', h('select', { value: off.bitola, onchange: (e) => mudar({ bitola: e.target.value }) },
+            Object.entries(NOMES_BITOLA).map(([k, n]) => h('option', { value: k, text: n })))),
+          ui.campo('Offset (mm)', valor),
+          ui.campo('Aplicar', h('label', { class: 'check' },
+            h('input', { type: 'checkbox', checked: off.aplicar, onchange: (e) => mudar({ aplicar: e.target.checked }) }),
+            ' Usar nos gráficos, tabelas e laudo'))),
+        sugestao ? h('div', { class: 'linha-acoes' },
+          h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => mudar({ valor: sugestao.valor }) }, ui.icone('sync'), `Usar melhor offset: ${fmt(sugestao.valor, 1)} mm`),
+          h('span', { class: 'sub', text: `perda mínima possível com offset em ${NOMES_BITOLA[off.bitola]}: ${fmt(sugestao.pct)}%` })) : null,
+        h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela tabela-offset tabela-centro' },
+          h('thead', null, h('tr', null, ['', 'Sem offset', 'Com offset', 'Diferença'].map((t) => h('th', { text: t })))),
+          h('tbody', null,
+            linha('Perda de bitola (geral)', antes.pct, depois.pct),
+            linha('Perda em tangentes', porTipo(original, 'T'), porTipo(simulado, 'T')),
+            linha('Perda em curvas', porTipo(original, 'C'), porTipo(simulado, 'C')),
+            linha('OGMS − KLD médio', mediaKld(original), mediaKld(simulado), 2, ' mm', true)))))));
   }
 
   /* ---------------- Ranking de nivelamento ---------------- */
@@ -863,6 +938,41 @@
     });
   }
 
+  /** Laudo: melhor offset em cada bitola e o resultado se ele for aplicado (mesma regra da análise). */
+  /** Melhor offset em cada bitola e a análise refeita com ele. Define laudoOffset (o de menor perda). */
+  function calcularOffsetsLaudo() {
+    laudoOffset = null;
+    if (!opcoesAnalise) return null;
+    const lim = opcoes.limitePerda;
+    const base = B.analisar(arquivo, { ...opcoesAnalise, offset: { ...opcoes.offset, aplicar: false } });
+    const lista = [];
+    ['bitF', 'bitT'].forEach((b) => {
+      const m = B.melhorOffset(arquivo.dados, b, lim, base.mascara);
+      if (!m) return;
+      lista.push({ b, m, com: B.analisar(arquivo, { ...opcoesAnalise, offset: { bitola: b, valor: m.valor, aplicar: true } }) });
+    });
+    const melhor = lista.filter((x) => x.m.valor).sort((a, c) => (a.com.geral.pctPerda ?? 1e9) - (c.com.geral.pctPerda ?? 1e9))[0];
+    if (melhor) laudoOffset = { bitola: melhor.b, valor: melhor.m.valor, r: melhor.com };
+    return { base, lista };
+  }
+
+  function tabelaOffsetLaudo(tabela, calc) {
+    if (!calc) return null;
+    const { base } = calc;
+    const linhas = [];
+    calc.lista.forEach(({ b, m, com }) => {
+      const el = (r) => `${r.tangentes.comPerda + r.curvas.comPerda} de ${r.tangentes.quantidade + r.curvas.quantidade}`;
+      const seta = (a, d) => `${fmt(a)}% → ${fmt(d)}%`;
+      linhas.push([NOMES_BITOLA[b], `${m.valor > 0 ? '+' : ''}${fmt(m.valor, 1)}`,
+        seta(base.geral.pctPerda, com.geral.pctPerda), seta(base.tangentes.pctPerda, com.tangentes.pctPerda),
+        seta(base.curvas.pctPerda, com.curvas.pctPerda), `${el(base)} → ${el(com)}`]);
+    });
+    if (!linhas.length) return null;
+    return h('section', { class: 'laudo-secao' }, h('h2', { text: 'Melhor offset e resultado se aplicado' }),
+      tabela(['Bitola', 'Melhor offset (mm)', 'Perda de bitola', 'Em tangentes', 'Em curvas', 'Elementos com perda'], linhas, 'centro'),
+      h('p', { class: 'laudo-nota', text: `Sem offset → com o melhor offset. Melhor offset: o valor de −10 a +10 mm (passo 0,1) que deixa menos pontos com |F − T| > ${fmt(opcoes.limitePerda, 0)} mm.` }));
+  }
+
   function montarLaudo(info) {
     const r = resultado;
     const m = arquivo.meta;
@@ -872,6 +982,7 @@
       h('thead', null, h('tr', null, cab.map((t) => h('th', { text: t })))),
       h('tbody', null, linhas.map((l) => h('tr', null, l.map((c) => (c instanceof Node ? h('td', null, c) : h('td', { text: c === null || c === undefined ? '' : String(c) })))))));
     const secao = (titulo, ...filhos) => h('section', { class: 'laudo-secao' }, h('h2', { text: titulo }), filhos);
+    const calcOffset = calcularOffsetsLaudo(); // antes das tabelas: coluna "% perda c/ offset"
 
     // Gráficos com largura fixa (o PDF reduz para caber na página).
     const graficosLaudo = definirGraficos({ x0: pos[0], x1: pos[pos.length - 1], aoPassar: null })
@@ -879,6 +990,7 @@
 
     const nivel = B.NIVELAMENTO.filter((p) => arquivo.dados[p.id] && arquivo.dados[p.id].some((v) => !Number.isNaN(v)));
     const tabelaCols = (cols, itens) => tabela(cols.map((c) => c.t), [...itens.map((x) => cols.map((c) => c.v(x))), valoresTotal(cols)], 'centro');
+    const off = opcoes.offset;
     const criterios = [
       `Bitola = ${B.NOMINAL} mm + valor do arquivo.`,
       `Ponto acima da regra: |Bitola F − Bitola T| > ${fmt(opcoes.limitePerda, 0)} mm, com a diferença arredondada a 0,01 mm (exatamente ${fmt(opcoes.limitePerda, 0)},00 mm não está acima); só pontos com Bitola F e T lidas. % perda = pontos acima da regra ÷ total de pontos. Curva ou tangente perdeu a bitola quando a % de perda passa de ${fmt(opcoes.limiteElemento ?? 10, 0)}%. * = elemento com menos de 90% dos pontos com leitura.`,
@@ -886,8 +998,7 @@
       r.modo !== 'curvatura'
         ? `${r.modo === 'hibrido' ? 'Elementos com limites pelo raio medido e nomes da planta da linha' : 'Elementos pelo km da planta da linha'} (${planta.nome}), por trecho EH x/y e RH (circuito); circuitos (RH) fora das estatísticas gerais: ramal ${infoPlanta.ramal} do arquivo CSV, localização pelo km (a coluna LINHA é só informativa), correção do km de ${infoPlanta.ajusteTxt}${infoPlanta.automatico ? ' (automática, ponto a ponto pelas curvas' + (infoPlanta.acerto !== null ? `; ${fmt(infoPlanta.acerto, 0)}% das curvas medidas casadas com a ${nomeFonte()}` : '') + ')' : ''}.`
         : `Elementos pelo raio medido (10000/R, média móvel de ${fmt(opcoes.suavizacao, 0)} m): curva com raio até ${int(opcoes.raioCurva)} m, volta a tangente acima de ${int(opcoes.raioCurva * 2)} m; curva mínima ${fmt(opcoes.curvaMin, 0)} m; tangente menor que ${fmt(opcoes.tangenteMin, 0)} m entre curvas é absorvida por elas.`,
-      `Dif. F − T: mediana de F − T dos pontos de cada elemento (|F − T| < 10 mm).`,
-      r.offsetElemento ? `Offset por elemento aplicado: em cada elemento, F − T passa a ser (F − T) − Dif. F − T do elemento (perda de bitola ${fmt(r.semOffset.geral.pctPerda)}% sem offset → ${fmt(r.geral.pctPerda)}% com offset).` : ''
+      off.aplicar && off.valor ? `Offset de ${fmt(off.valor, 1)} mm aplicado em ${NOMES_BITOLA[off.bitola]}.` : ''
     ].filter(Boolean).join(' ');
 
     const el = h('div', { id: 'laudo', class: 'laudo' },
@@ -915,6 +1026,8 @@
             ['Variação rápida', `${fmt(r.geral.pctVariacao)}%`, `σ em 1 m > ${fmt(opcoes.limiteVariacao, 1)} mm`]
           ].map(([t, v, sub]) => h('div', { class: 'laudo-kpi' }, h('span', { text: t }), h('strong', { text: v }), h('small', { text: sub })))),
         h('p', { class: 'laudo-nota', text: `Critérios: ${criterios}` })),
+
+      tabelaOffsetLaudo(tabela, calcOffset),
 
       secao('Gráficos ao longo do km', graficosLaudo.map(({ titulo, g }) => h('div', { class: 'laudo-grafico' }, h('h3', { text: titulo }), g.el))),
 
