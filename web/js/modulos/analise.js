@@ -259,6 +259,7 @@
   }
 
   function renderTudo() {
+    document.dispatchEvent(new CustomEvent('em80:analise')); // a Tela do carro usa o mesmo arquivo
     renderArquivo();
     renderPlanta();
     renderParametros();
@@ -1027,5 +1028,9 @@
     }, 400);
   }
 
-  App.analise = { montar };
+  App.analise = {
+    montar,
+    /** Estado atual (arquivo carregado e análise), usado pela Tela do carro. */
+    estado: () => ({ arquivo, resultado, nomeArquivo, opcoes })
+  };
 })(window.App);

@@ -160,7 +160,8 @@
       inspetor: pega('inspetor'),
       carro: pega('car'),
       data: pega('data'),
-      sentido: pega('sequncia') || pega('sequencia')
+      sentido: pega('sequncia') || pega('sequencia'),
+      corretiva: pega('corretiva')
     };
 
     const n = brutos.length;
