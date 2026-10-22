@@ -1232,7 +1232,7 @@
 
   /**
    * Dupla checagem (conferência independente): relê o texto original do CSV linha a linha, sem usar
-   * a leitura nem os cálculos da análise, e recalcula com números inteiros (centésimos de mm):
+   * a leitura nem os cálculos da análise, e recalcula com números inteiros (0,0001 mm, a resolução do arquivo):
    * pontos e pontos acima da regra de cada elemento (pela faixa de km dele) e do geral.
    * Compara com a análise e devolve as divergências.
    */
@@ -1268,7 +1268,10 @@
     };
   };
 
-  B.conferir = (texto, resultado, limite, faixa = null) => {
+  B.conferir = (texto, resultado, limite, faixa = null, offset = null) => {
+    // Offset aplicado na análise: a conferência soma o mesmo valor na mesma bitola.
+    const offF = offset && offset.aplicar && offset.bitola === 'bitF' ? Math.round((Number(offset.valor) || 0) * 10000) : 0;
+    const offT = offset && offset.aplicar && offset.bitola === 'bitT' ? Math.round((Number(offset.valor) || 0) * 10000) : 0;
     const linhas = String(texto || '').split(/\r?\n/);
     let iF = -1; let iT = -1; let iKm = -1; let iLoc = -1;
     const norm = (x) => String(x || '').trim().toUpperCase().replace(/\s+/g, ' ');
@@ -1276,7 +1279,7 @@
       const t = String(v || '').trim();
       if (!t || t.includes('*')) return null;
       const n = parseFloat(t.replace(',', '.'));
-      return Number.isFinite(n) ? Math.round(n * 100) : null; // centésimos de mm (inteiro)
+      return Number.isFinite(n) ? Math.round(n * 10000) : null; // décimos de milésimo de mm (inteiro, o arquivo tem 4 casas)
     };
     const pontos = [];
     for (const ln of linhas) {
@@ -1293,9 +1296,13 @@
       if (!Number.isFinite(km) || !Number.isFinite(loc)) continue;
       const metros = km * 1000 + loc;
       if (faixa && ((faixa.de !== null && faixa.de !== undefined && metros < faixa.de) || (faixa.ate !== null && faixa.ate !== undefined && metros > faixa.ate))) continue;
-      pontos.push({ m: Math.round((km * 1000 + loc) * 100), f: ler(c[iF]), t: ler(c[iT]) });
+      const f = ler(c[iF]); const t = ler(c[iT]);
+      pontos.push({ m: Math.round((km * 1000 + loc) * 100), f: f === null ? null : f + offF, t: t === null ? null : t + offT });
     }
-    const lim100 = Math.round(limite * 100);
+    // Mesma regra da análise, em inteiros: |F − T| arredondada a 0,01 mm > limite.
+    // Arredondar a 0,01 mm e passar do limite ⇔ F − T ≥ limite + 0,005 (ou ≤ −(limite + 0,005), excluindo o meio exato).
+    const limInt = Math.round(limite * 10000) + 50;
+    const acimaDe = (d) => d >= limInt || d < -limInt;
     // Os elementos são conferidos pela posição de cada ponto no arquivo (ordem das linhas "D"),
     // e não pela faixa de km: o mesmo km pode aparecer mais de uma vez no arquivo (km corrigido
     // durante a inspeção, passagem pela outra linha…), e aí a faixa de km pegaria pontos de outro trecho.
@@ -1305,7 +1312,7 @@
         const p = pontos[i];
         if (p.f === null || p.t === null) continue;
         n++;
-        if (Math.abs(p.f - p.t) > lim100) acima++;
+        if (acimaDe(p.f - p.t)) acima++;
       }
       return { pontos: n, perdas: acima };
     };

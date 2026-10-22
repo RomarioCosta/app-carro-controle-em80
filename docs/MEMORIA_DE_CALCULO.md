@@ -175,6 +175,8 @@ Correção digitada em Critérios (um número) vale para o arquivo todo.
 - **Conferência automática:** a cada análise, o app relê o **texto original do CSV** linha a linha, sem usar a leitura nem as contas da análise, e recalcula com números inteiros (centésimos de mm): para cada elemento, total de pontos com F e T lidas e pontos com |F − T| > limite.
   - Os pontos de cada elemento são tomados **pela ordem das linhas do arquivo** (do primeiro ao último ponto do elemento), não pela faixa de km. O km pode voltar ou repetir no arquivo (km corrigido durante a inspeção, nova passada no mesmo km); contar pela faixa de km puxaria pontos de outro trecho.
   - Confere também se o número de linhas de medição lidas pelo app é igual ao do arquivo.
+  - Com **offset aplicado**, a conferência soma o mesmo offset na mesma bitola, e a planilha de conferência traz as bitolas já com o offset (indicado no cabeçalho da coluna).
+  - As contas são feitas em inteiros de 0,0001 mm (a resolução do arquivo): ponto acima quando F − T ≥ limite + 0,005 mm ou F − T < −(limite + 0,005 mm), que é exatamente "|F − T| arredondada a 0,01 mm > limite".
   - Tudo igual: selo **✓ Conferido** na tabela de elementos.
   - Diferente: botão **⚠ N divergência(s)** com o elemento, os pontos e os pontos acima pelo app e pela conferência, e a lista dos pontos onde o km volta.
   - Elemento que atravessa um circuito é conferido inteiro (antes de tirar os pontos do RH).

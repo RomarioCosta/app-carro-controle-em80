@@ -463,3 +463,15 @@ test('aviso de arquivo alterado (números multiplicados ao salvar no Excel)', ()
   assert.ok(B.lerCSV(alterado).avisos.some((a) => a.includes('Excel')));
   assert.ok(!B.lerCSV(gerarCSV()).avisos.some((a) => a.includes('Excel')));
 });
+
+test('dupla checagem com offset aplicado: confere com o mesmo offset (sem falsa divergência)', () => {
+  const texto = gerarCSV();
+  const a = B.lerCSV(texto);
+  for (const offset of [{ bitola: 'bitF', valor: 5, aplicar: true }, { bitola: 'bitT', valor: -4, aplicar: true }]) {
+    const r = B.analisar(a, { offset });
+    const c = B.conferir(texto, r, 2, null, offset);
+    assert.equal(c.ok, true, JSON.stringify(c.divergencias.slice(0, 2)));
+    // sem informar o offset, a recontagem acusaria diferença
+    assert.equal(B.conferir(texto, r, 2).ok, false);
+  }
+});

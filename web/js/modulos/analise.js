@@ -681,7 +681,7 @@
 
   /** Selo da conferência independente (relê o CSV original e recalcula) e botão da planilha de conferência. */
   function cartaoConferencia() {
-    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda, recorte) : null;
+    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda, recorte, opcoes.offset) : null;
     const selo = !c ? null : c.ok
       ? h('span', { class: 'conf-ok', title: `Recontagem independente a partir do CSV original: ${c.linhas.toLocaleString('pt-BR')} linhas de medição; pontos e pontos acima de cada elemento iguais aos da análise.${c.voltas.length ? ` O km volta ${c.voltas.length} vez(es) no arquivo.` : ''}` }, ui.icone('check'), 'Conferido')
       : h('button', { class: 'conf-erro', onclick: () => mostrarDivergencias(c) }, `⚠ ${c.divergencias.length} divergência(s)`);
@@ -706,12 +706,15 @@
   /** Planilha (CSV para o Excel) com todos os pontos e o cálculo de cada um, para conferir na mão. */
   function baixarConferencia() {
     const r = resultado;
-    const { pos, dados } = arquivo;
+    const { pos } = arquivo;
+    const dados = r.dados; // com o offset, se aplicado (mesmos valores do cartão e das tabelas)
     const lim = opcoes.limitePerda;
+    const off = opcoes.offset;
+    const comOffset = (b) => (off.aplicar && off.valor && off.bitola === b ? ` (com offset ${off.valor > 0 ? '+' : ''}${fmt(off.valor, 1)})` : '');
     const doPonto = new Array(pos.length);
     r.elementos.forEach((e) => { for (let i = e.i0; i <= e.i1; i++) doPonto[i] = e; });
     const num = (v, casas = 2) => (Number.isNaN(v) ? '' : v.toFixed(casas).replace('.', ','));
-    const linhas = ['KM;LOCALIZACAO;Linha;Bitola F;Bitola T;F - T;|F - T| (módulo);Acima do limite (1 = sim);Elemento;Tipo;EH / RH;Na estatística (1 = sim)'];
+    const linhas = [`KM;LOCALIZACAO;Linha;Bitola F${comOffset('bitF')};Bitola T${comOffset('bitT')};F - T;|F - T| (módulo);Acima do limite (1 = sim);Elemento;Tipo;EH / RH;Na estatística (1 = sim)`];
     for (let i = 0; i < pos.length; i++) {
       const e = doPonto[i] || {};
       const dif = B.difBitola(dados.bitF[i], dados.bitT[i]);
