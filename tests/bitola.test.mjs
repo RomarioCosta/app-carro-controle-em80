@@ -173,19 +173,38 @@ test('desvio padrão em 1 m marca a variação rápida', () => {
   assert.ok(r.geral.pctVariacao > 0 && r.geral.pctVariacao < 0.5, `var = ${r.geral.pctVariacao}`);
 });
 
-test('offset: aplicado numa bitola e melhor valor que zera a perda', () => {
-  const a = B.lerCSV(gerarCSV());
-  const ajustado = B.dadosComOffset(a.dados, { bitola: 'bitT', valor: 3 });
-  assert.equal(ajustado.bitT[0], 6);
-  assert.equal(a.dados.bitT[0], 3); // original não muda
-  assert.equal(B.dadosComOffset(a.dados, { bitola: 'bitT', valor: 0 }), a.dados);
-  const antes = B.perdaTotal(a.dados, 2);
-  assert.equal(antes.perdas, 200);
-  const m = B.melhorOffset(a.dados, 'bitT', 2);
-  assert.equal(m.valor, 1);
-  assert.equal(m.perdas, 0);
-  const r = B.analisar(a, { offset: { bitola: 'bitT', valor: 1.5, aplicar: true } });
-  assert.equal(r.geral.perdas, 0);
+/** CSV sintético com a Bitola T deslocada (erro sistemático entre os sensores). */
+function comDesvioT(texto, desvio) {
+  const linhas = texto.split('\r\n');
+  const cab = linhas.find((l) => l.startsWith('H;')).split(';').map((x) => x.trim());
+  const iT = cab.indexOf('Bitola T');
+  return linhas.map((l) => {
+    if (!l.startsWith('D;')) return l;
+    const c = l.split(';'); const v = Number(c[iT]); if (Number.isFinite(v)) c[iT] = `${(v - desvio).toFixed(2).padStart(8)}`; return c.join(';');
+  }).join('\r\n');
+}
+
+test('offset por elemento: mediana de F − T tira o erro sistemático e mantém o defeito real', () => {
+  const texto = comDesvioT(gerarCSV(), 2.5); // F − T = +2,5 em todo lugar; +5,5 nos 50 m com perda real
+  const a = B.lerCSV(texto);
+  const sem = B.analisar(a);
+  assert.ok(sem.geral.pctPerda > 99, String(sem.geral.pctPerda)); // tudo acima de 2 mm
+  sem.elementos.forEach((e) => assert.equal(e.difMediana, 2.5));
+  const com = B.analisar(a, { offsetElemento: true });
+  assert.equal(com.offsetElemento, true);
+  assert.equal(com.geral.perdas, 200); // só os 50 m com perda real (5,5 − 2,5 = 3 > 2)
+  assert.ok(com.semOffset.geral.pctPerda > 99);
+  const t02 = com.elementos.find((e) => e.sigla === 'T02');
+  assert.equal(t02.perdas, 200);
+  assert.ok(t02.semOffset.pctPerda > 99);
+  // mediana: os 200 pontos de defeito não mudam o offset do elemento
+  assert.equal(B.offsetDoElemento(a.dados, t02.i0, t02.i1).valor, 2.5);
+  // |F − T| ≥ 10 mm fica fora da mediana; elemento sem leitura: offset 0
+  assert.deepEqual(j(B.offsetDoElemento({ bitF: [20, 1, 1, 1], bitT: [0, 0, 0, 0] }, 0, 3)), { valor: 1, pontos: 3 });
+  assert.deepEqual(j(B.offsetDoElemento({ bitF: [NaN], bitT: [1] }, 0, 0)), { valor: 0, pontos: 0 });
+  // sem desvio: offset 0 e o mesmo resultado
+  const b = B.lerCSV(gerarCSV());
+  assert.equal(B.analisar(b, { offsetElemento: true }).geral.perdas, B.analisar(b).geral.perdas);
 });
 
 test('curvatura + planta: limites medidos, nomes da planta e RH fora da estatística', () => {
@@ -277,10 +296,6 @@ test('perda: % = pontos acima ÷ total de pontos; geral = tangentes + curvas; re
   assert.equal(B.analisar(a, { limiteElemento: 20 }).tangentes.comPerda, 0);
   assert.equal(B.elementoPerdeu(10, 10), false); // exatamente 10% não perdeu
   assert.equal(B.elementoPerdeu(10.01, 10), true);
-  const m = B.melhorOffset(a.dados, 'bitT', 2);
-  const depois = B.avaliarPerda(B.dadosComOffset(a.dados, { bitola: 'bitT', valor: m.valor }), 2);
-  assert.ok(Math.abs(depois.pct - m.pct) < 1e-9);
-  assert.equal(depois.perdas, 0);
 });
 
 test('só curvatura com planta: elementos iguais, com EH/RH e elemento da planta pelo km', () => {
@@ -464,16 +479,14 @@ test('aviso de arquivo alterado (números multiplicados ao salvar no Excel)', ()
   assert.ok(!B.lerCSV(gerarCSV()).avisos.some((a) => a.includes('Excel')));
 });
 
-test('dupla checagem com offset aplicado: confere com o mesmo offset (sem falsa divergência)', () => {
-  const texto = gerarCSV();
+test('dupla checagem com offset por elemento: confere com o mesmo offset (sem falsa divergência)', () => {
+  const texto = comDesvioT(gerarCSV(), 2.5);
   const a = B.lerCSV(texto);
-  for (const offset of [{ bitola: 'bitF', valor: 5, aplicar: true }, { bitola: 'bitT', valor: -4, aplicar: true }]) {
-    const r = B.analisar(a, { offset });
-    const c = B.conferir(texto, r, 2, null, offset);
-    assert.equal(c.ok, true, JSON.stringify(c.divergencias.slice(0, 2)));
-    // sem informar o offset, a recontagem acusaria diferença
-    assert.equal(B.conferir(texto, r, 2).ok, false);
-  }
+  const r = B.analisar(a, { offsetElemento: true });
+  const c = B.conferir(texto, r, 2);
+  assert.equal(c.ok, true, JSON.stringify(c.divergencias.slice(0, 2)));
+  // a mesma recontagem sem offset acusaria diferença
+  assert.equal(B.conferir(texto, { ...r, offsetElemento: false }, 2).ok, false);
 });
 
 test('formato novo sem linhas de evento: trechos da coluna EX viram eventos INICIO/FIM EX', () => {
