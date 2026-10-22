@@ -218,6 +218,27 @@
       return { pos: km === null || loc === null ? NaN : km * 1000 + loc, codigo: String(c[13] || '').trim(), texto: String(c[14] || '').trim() };
     }).filter((e) => !Number.isNaN(e.pos) && e.texto);
 
+    // Formato novo do carro: sem linhas "E"; os trechos marcados na coluna EX (código ≠ 0) viram eventos
+    // "INICIO EX n" / "FIM EX n" (o mesmo que aparece na coluna EX do Offboard).
+    const iEx = cab.indexOf('ex');
+    if (iEx >= 0) {
+      let ini = -1; let cod = 0; let ultimo = -1;
+      const fechar = () => {
+        if (ini < 0) return;
+        evs.push({ pos: posF[ini], codigo: String(cod), texto: `INICIO EX ${cod}`, ex: true });
+        evs.push({ pos: posF[ultimo], codigo: String(cod), texto: `FIM EX ${cod}`, ex: true });
+        ini = -1;
+      };
+      manter.forEach((iBruto, k) => {
+        const v = num(brutos[iBruto][iEx]);
+        const c = v === null ? 0 : Math.round(v);
+        if (c && ini >= 0 && c === cod && k - ultimo <= 4) { ultimo = k; return; }
+        if (c) { fechar(); ini = k; cod = c; ultimo = k; return; }
+        if (ini >= 0 && k - ultimo > 4) fechar();
+      });
+      fechar();
+    }
+
     return { meta, pos: posF, dados, eventos: evs, avisos, linhaIdx, linhasValores };
   };
 
