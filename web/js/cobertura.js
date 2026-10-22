@@ -198,37 +198,28 @@
 
   /* ---------------- Alertas de geometria ---------------- */
 
-  /** Parâmetros de geometria (definidos em js/limites.js: sem bitola, sem alinhamento e sem variação de bitola). */
-  Object.defineProperty(C, 'PARAMETROS_GEOMETRIA', { get: () => (App.limites ? App.limites.GEOMETRIA : ['emp2', 'nl5', 'emp10', 'sup']) });
+  /** Parâmetros de geometria com limite (sem bitola, sem alinhamento e sem variação de bitola). */
+  C.PARAMETROS_GEOMETRIA = ['emp2', 'nl5', 'emp10', 'sup'];
+  C.NOMES_GEOMETRIA = { emp2: 'EMP_2 (empeno em 2 m)', nl5: 'NLmax_5 (nivelamento)', emp10: 'EMP_10 (empeno em 10 m)', sup: 'SUPerABS (superelevação)' };
 
   /**
    * Trechos que passam dos limites, por arquivo e parâmetro, no km da geometria.
-   * limites(id, 'C' | 'T') → [{ grau, nome, sup, inf }] (níveis da Tela do carro, ver App.limites.funcaoLimites).
-   * Elemento pelo km corrigido na geometria: curva usa o limite da curva; tangente e RH (pátio, AMV) o da tangente,
-   * como na Tela do carro. Amostras seguidas acima do limite (até 3 m de folga) viram um alerta só, com o maior valor
-   * e o maior nível. estatisticas (opcional) recebe, por parâmetro, o valor mais perto (ou acima) do limite.
-   * Retorna [{ arquivo, idArquivo, id, param, linha, ini, fim, kmArq, valor, limite, grau, nivel, eh, elemento, tipo }].
+   * limites(id, 'C' | 'T') → [{ grau, nome, sup, inf }] (níveis de alerta da Tela do carro), ou [] sem limite.
+   * Amostras seguidas acima do limite (até 3 m de folga) viram um alerta só, com o maior valor e o maior nível.
+   * Retorna [{ arquivo, id, param, linha, ini, fim, kmArq, valor, limite, grau, nivel, eh, elemento, tipo }].
    */
-  C.alertasGeometria = (planta, ramal, arquivos, limites, estatisticas = null) => {
+  C.alertasGeometria = (planta, ramal, arquivos, limites) => {
     const out = [];
-    const nome = (id) => (App.limites ? App.limites.nomeCompleto(id) : id);
     arquivos.filter((a) => a.resumo.ramal === ramal).forEach((a) => {
       const r = a.resumo;
       const { pos, aj, linha, linhas } = r.amostras;
       const rc = a.recorte;
       const porLinha = {};
       const elsDe = (l) => { if (!porLinha[l]) porLinha[l] = B().elementosDaPlanta(planta, ramal, l); return porLinha[l]; };
-      const ehsDe = {};
       const elemento = (els, y) => {
         let lo = 0; let hi = els.length - 1;
         while (lo <= hi) { const m = (lo + hi) >> 1; if (els[m].fim < y) lo = m + 1; else if (els[m].ini > y) hi = m - 1; else return els[m]; }
         return null;
-      };
-      // nome do RH: o EH logo à frente no km
-      const nomeRh = (l, y) => {
-        if (!ehsDe[l]) ehsDe[l] = C.ehs(planta, ramal, l);
-        const prox = ehsDe[l].find((e) => e.ini >= y);
-        return prox ? `RH antes do ${prox.nome}` : 'RH';
       };
       C.PARAMETROS_GEOMETRIA.forEach((id) => {
         const v = r.geometria && r.geometria[id];
@@ -243,27 +234,15 @@
           const y = x + aj[k];
           const l = linhas[linha[k]];
           const el = elemento(elsDe(l), y);
-          const tipo = el ? el.tipo : 'RH';
-          const niveis = limites(id, tipo === 'C' ? 'C' : 'T') || [];
-          // maior nível ultrapassado
+          if (!el) continue; // fora de tangente/curva (circuito): sem limite
+          const niveis = limites(id, el.tipo === 'C' ? 'C' : 'T') || [];
           let g = null;
-          niveis.forEach((n) => { if (((n.sup !== null && n.sup !== undefined && val > n.sup) || (n.inf !== null && n.inf !== undefined && val < n.inf)) && (!g || n.grau > g.grau)) g = n; });
-          if (estatisticas) {
-            const ref = niveis.find((n) => n.grau === 2) || niveis[0];
-            const lim = ref ? (val >= 0 ? ref.sup : ref.inf) : null;
-            const razao = lim ? val / lim : null;
-            const e = estatisticas[id] || (estatisticas[id] = { pontos: 0, maior: null });
-            e.pontos++;
-            if (razao !== null && (!e.maior || razao > e.maior.razao)) e.maior = { valor: val, limite: lim, razao, ini: y, arquivo: a.nome, tipo };
-          }
+          niveis.forEach((n) => { if (n && ((n.sup !== null && n.sup !== undefined && val > n.sup) || (n.inf !== null && n.inf !== undefined && val < n.inf)) && (!g || n.grau > g.grau)) g = n; });
           if (!g) { if (atual && Math.abs(y - atual.ultimo) > 3) fechar(); continue; }
           if (atual && (atual.linha !== l || Math.abs(y - atual.ultimo) > 3)) fechar();
           const limite = val > 0 ? g.sup : g.inf;
           if (!atual) {
-            atual = {
-              arquivo: a.nome, idArquivo: a.id, id, param: nome(id), linha: l, ini: y, fim: y, kmArq: x, valor: val, limite, grau: g.grau, nivel: g.nome,
-              eh: el ? (el.nomeEh || `EH ${el.eh}`) : nomeRh(l, y), elemento: el ? `${tipo}${String(el.num || '').padStart(2, '0')}` : 'RH', tipo, ultimo: y
-            };
+            atual = { arquivo: a.nome, idArquivo: a.id, id, param: C.NOMES_GEOMETRIA[id], linha: l, ini: y, fim: y, kmArq: x, valor: val, limite, grau: g.grau, nivel: g.nome, eh: el.nomeEh || `EH ${el.eh}`, elemento: `${el.tipo === 'C' ? 'C' : 'T'}${String(el.num || '').padStart(2, '0')}`, tipo: el.tipo, ultimo: y };
           } else {
             atual.ini = Math.min(atual.ini, y); atual.fim = Math.max(atual.fim, y); atual.ultimo = y;
             if (Math.abs(val) > Math.abs(atual.valor)) { atual.valor = val; atual.limite = limite; atual.kmArq = x; }
@@ -298,110 +277,6 @@
 
   /* ---------------- Montagem: buracos e sobreposições ---------------- */
 
-  /* ---------------- Validação por EH completo ---------------- */
-
-  /** EHs de um ramal e linha, em ordem de km: [{ nome, sede, ini, fim }] (do início do 1º ao fim do último elemento). */
-  C.ehs = (planta, ramal, linha) => {
-    const out = [];
-    C.necessario(planta, ramal, linha, { incluirRH: false }).forEach((t) => {
-      const u = out[out.length - 1];
-      if (u && u.nome === t.eh) u.fim = Math.max(u.fim, t.fim); else out.push({ nome: t.eh, sede: t.sede, ini: t.ini, fim: t.fim });
-    });
-    return out;
-  };
-  const ehNoKm = (ehs, y) => {
-    let lo = 0; let hi = ehs.length - 1;
-    while (lo <= hi) { const m = (lo + hi) >> 1; if (ehs[m].fim < y) lo = m + 1; else if (ehs[m].ini > y) hi = m - 1; else return m; }
-    return -1;
-  };
-
-  /** Folgas para um EH contar como completo: buraco na ponta até 10 m; buraco no meio até 30 m (salto pequeno do km). */
-  C.FOLGA_EH = { ponta: 10, meio: 30 };
-
-  /** O intervalo [ini, fim] está coberto por iv (lista de intervalos), dentro das folgas? */
-  C.ehCoberto = (eh, iv) => {
-    const faltas = C.subtrair([[eh.ini, eh.fim]], iv);
-    return faltas.every(([a, b]) => {
-      const ponta = Math.abs(a - eh.ini) < 0.01 || Math.abs(b - eh.fim) < 0.01;
-      return b - a <= (ponta ? C.FOLGA_EH.ponta : C.FOLGA_EH.meio);
-    });
-  };
-
-  /**
-   * Validação de um arquivo por EH completo. O arquivo só vale por EH inteiro: se o carro para (ou dá erro) no meio
-   * de um EH, o arquivo vale até o fim da RH anterior (= início desse EH); se começa no meio de um EH, vale a partir
-   * do fim desse EH. erroKm (km do arquivo): ponto onde o carro deu erro; o que vem depois dele não vale.
-   * Retorna { ehs: [{ nome, linha, sede, ini, fim, pct, completo }], sugestao: { de, ate, geoIni, geoFim, cortadoFim, cortadoIni, depois } | null }.
-   */
-  C.validacaoDoArquivo = (planta, r, erroKm = null) => {
-    if (!r.ramal) return { ehs: [], sugestao: null };
-    const { pos, aj, linha, linhas } = r.amostras;
-    const n = pos.length;
-    if (!n) return { ehs: [], sugestao: null };
-    const ehsPorLinha = {};
-    const ehsDe = (l) => { if (!ehsPorLinha[l]) ehsPorLinha[l] = C.ehs(planta, r.ramal, l); return ehsPorLinha[l]; };
-    // até onde o arquivo vale: antes do erro do carro (na ordem do arquivo)
-    let kFim = n - 1;
-    if (erroKm !== null && erroKm !== undefined) {
-      let melhor = -1; let d = Infinity;
-      for (let k = 0; k < n; k++) { const x = Math.abs(pos[k] - erroKm); if (x < d) { d = x; melhor = k; } }
-      if (melhor >= 0 && d <= 50) kFim = melhor;
-    }
-    // EH de cada amostra e cobertura do arquivo em cada EH
-    const rot = new Array(n).fill(null); // "linha|índice do EH" ou null (RH / fora)
-    const cobre = new Map();
-    for (let k = 0; k <= kFim; k++) {
-      const l = linhas[linha[k]]; const y = pos[k] + aj[k];
-      const e = ehNoKm(ehsDe(l), y);
-      if (e < 0) continue;
-      const chave = `${l}|${e}`;
-      rot[k] = chave;
-      if (!cobre.has(chave)) cobre.set(chave, []);
-      cobre.get(chave).push([y, y]);
-    }
-    const ehs = [];
-    const completo = new Map();
-    cobre.forEach((pts, chave) => {
-      const [l, e] = chave.split('|'); const eh = ehsDe(l)[Number(e)];
-      const iv = C.uniao(pts, 3);
-      const ok = C.ehCoberto(eh, iv);
-      completo.set(chave, ok);
-      ehs.push({ nome: eh.nome, linha: l, sede: eh.sede, ini: eh.ini, fim: eh.fim, pct: Math.min(100, (C.extensao(C.interseccao(iv, [[eh.ini, eh.fim]])) / (eh.fim - eh.ini)) * 100), completo: ok });
-    });
-    ehs.sort((a, b) => a.linha.localeCompare(b.linha) || a.ini - b.ini);
-    // trecho validado, na ordem do arquivo: do 1º EH completo até antes do 1º EH incompleto depois dele
-    const kPrimeiro = rot.findIndex((c, k) => k <= kFim && c && completo.get(c));
-    if (kPrimeiro < 0) return { ehs, sugestao: null };
-    // início: depois do último ponto de EH incompleto antes do 1º completo (as RH ficam)
-    let kIni = 0;
-    for (let k = kPrimeiro - 1; k >= 0; k--) if (rot[k] && !completo.get(rot[k])) { kIni = k + 1; break; }
-    // fim: antes do 1º ponto de EH incompleto depois do 1º completo
-    let kF = kFim; let cortadoFim = null;
-    for (let k = kPrimeiro; k <= kFim; k++) {
-      if (rot[k] && !completo.get(rot[k])) {
-        kF = k - 1;
-        const [l, e] = rot[k].split('|'); cortadoFim = { ...ehsDe(l)[Number(e)], linha: l, kmArq: pos[k] };
-        break;
-      }
-    }
-    // pontas de RH sem EH: o arquivo pode terminar no meio da RH (vale até ali)
-    let de = Infinity; let ate = -Infinity; let gIni = Infinity; let gFim = -Infinity;
-    for (let k = kIni; k <= kF; k++) { de = Math.min(de, pos[k]); ate = Math.max(ate, pos[k]); const y = pos[k] + aj[k]; gIni = Math.min(gIni, y); gFim = Math.max(gFim, y); }
-    let cortadoIni = null;
-    if (kIni > 0) { const c = rot.slice(0, kIni).reverse().find((x) => x && !completo.get(x)); if (c) { const [l, e] = c.split('|'); cortadoIni = { ...ehsDe(l)[Number(e)], linha: l }; } }
-    // EHs completos depois do corte (ficam de fora com um recorte só)
-    const depois = new Set();
-    for (let k = kF + 1; k <= kFim; k++) if (rot[k] && completo.get(rot[k])) depois.add(rot[k]);
-    const inteiro = kIni === 0 && kF === n - 1;
-    return {
-      ehs,
-      sugestao: inteiro ? { inteiro: true, de: null, ate: null } : {
-        de: Math.round(de * 100) / 100, ate: Math.round(ate * 100) / 100, geoIni: gIni, geoFim: gFim,
-        cortadoFim, cortadoIni, erro: kFim < n - 1, depois: [...depois].map((c) => { const [l, e] = c.split('|'); return ehsDe(l)[Number(e)].nome; })
-      }
-    };
-  };
-
   /**
    * arquivos: [{ id, nome, resumo, recorte }]. Retorna por linha do ramal:
    * { linha, necessario (m), coberto (m), pct, sedes: [{ sede, necessario, coberto, pct, buracos, arquivos }],
@@ -413,20 +288,7 @@
     return linhas.map((linha) => {
       const nec = C.necessario(planta, ramal, linha, { incluirRH, rhMax });
       const necU = C.uniao(nec.map((t) => [t.ini, t.fim]), 0.5);
-      const ehs = C.ehs(planta, ramal, linha);
-      // EH só conta como medido quando um arquivo cobre o EH inteiro; pedaço de EH não vale (fica como "EH incompleto")
-      const parciais = new Map(); // índice do EH → [{ arquivo, pct }]
-      const doArquivo = cob.map((c) => {
-        let iv = C.interseccao(c.porLinha[linha] || [], necU);
-        ehs.forEach((eh, k) => {
-          const dentro = C.interseccao(iv, [[eh.ini, eh.fim]]);
-          if (!dentro.length || C.ehCoberto(eh, dentro)) return;
-          if (!parciais.has(k)) parciais.set(k, []);
-          parciais.get(k).push({ arquivo: c.a.nome, pct: (C.extensao(dentro) / (eh.fim - eh.ini)) * 100 });
-          iv = C.subtrair(iv, [[eh.ini, eh.fim]]);
-        });
-        return { a: c.a, iv };
-      }).filter((c) => c.iv.length);
+      const doArquivo = cob.map((c) => ({ a: c.a, iv: C.interseccao(c.porLinha[linha] || [], necU) })).filter((c) => c.iv.length);
       const cobertos = C.uniao(doArquivo.flatMap((c) => c.iv), toleranciaBuraco);
       const buracosBrutos = C.subtrair(necU, cobertos).filter((x) => x[1] - x[0] > toleranciaBuraco);
       const ondeEsta = (p) => nec.find((t) => p >= t.ini && p <= t.fim) || nec.reduce((m, t) => (Math.abs((t.ini + t.fim) / 2 - p) < Math.abs((m.ini + m.fim) / 2 - p) ? t : m), nec[0]);
@@ -470,12 +332,7 @@
         return { km, de: ant.sede, para: s.sede, coberta, situacao, arquivos: arqs };
       }).filter(Boolean);
       const necT = C.extensao(necU); const cobT = C.extensao(C.interseccao(necU, cobertos));
-      // EH incompleto: só tem pedaço de arquivo e nenhum arquivo cobre o EH inteiro
-      const incompletos = [...parciais.entries()].filter(([k]) => !C.ehCoberto(ehs[k], cobertos))
-        .map(([k, l]) => ({ ...ehs[k], arquivos: l.map((x) => x.arquivo), pct: Math.max(...l.map((x) => x.pct)) }));
-      buracos.forEach((b) => { b.ehIncompleto = incompletos.some((e) => b.ini < e.fim && b.fim > e.ini); });
-      sedes.forEach((s) => { s.incompletos = incompletos.filter((e) => e.sede === s.sede); });
-      return { linha, necessario: necT, coberto: cobT, pct: necT ? (cobT / necT) * 100 : 0, sedes, buracos, sobreposicoes, fronteiras, incompletos };
+      return { linha, necessario: necT, coberto: cobT, pct: necT ? (cobT / necT) * 100 : 0, sedes, buracos, sobreposicoes, fronteiras };
     });
   };
 

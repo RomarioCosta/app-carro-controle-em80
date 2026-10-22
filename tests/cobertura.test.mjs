@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 const ctx = { console, Intl, localStorage: { getItem: () => null, setItem() {}, removeItem() {} } };
 ctx.window = ctx; ctx.window.App = {};
 vm.createContext(ctx);
-['util.js', 'bitola.js', 'limites.js', 'cobertura.js'].forEach((f) => vm.runInContext(readFileSync(new URL(`../web/js/${f}`, import.meta.url), 'utf8'), ctx));
+['util.js', 'bitola.js', 'cobertura.js'].forEach((f) => vm.runInContext(readFileSync(new URL(`../web/js/${f}`, import.meta.url), 'utf8'), ctx));
 const C = ctx.App.cobertura;
 const j = (x) => JSON.parse(JSON.stringify(x));
 
@@ -50,24 +50,20 @@ test('GV1 e GV2 se complementam: sem buraco e divisa ok', () => {
   assert.equal(Math.round(l.pct), 100);
   assert.equal(l.buracos.length, 0);
   assert.equal(l.fronteiras[0].situacao, 'ok');
-  // 5500–5600: pedaço do EH 5 no gv1 não vale (o gv2 tem o EH 5 inteiro), então não há sobreposição
-  assert.equal(l.sobreposicoes.length, 0);
-  assert.equal(l.incompletos.length, 0);
+  assert.equal(l.sobreposicoes.length, 1); // 5500–5600 medido 2×
+  assert.ok(Math.abs(l.sobreposicoes[0].fim - l.sobreposicoes[0].ini - 100) < 2);
 });
 
 test('buraco entre os arquivos aparece com o km, o EH e os vizinhos', () => {
-  const [l] = C.montar(planta, 'LT', [arq('gv1', 0, 5300), arq('gv1b', 5450, 9800)]);
+  const [l] = C.montar(planta, 'LT', [arq('gv1', 0, 5300), arq('gv2', 5450, 9800)]);
   assert.equal(l.buracos.length, 1);
   const b = l.buracos[0];
-  // o gv1 parou no meio do EH 4 (4400–5400): o EH 4 inteiro fica sem medição (EH incompleto)
-  assert.ok(Math.abs(b.ini - 4400) < 2 && Math.abs(b.fim - 5450) < 2, `${b.ini} ${b.fim}`);
-  assert.ok(b.ehIncompleto);
+  assert.ok(Math.abs(b.ini - 5300) < 2 && Math.abs(b.fim - 5450) < 2);
+  assert.equal(b.eh, 'EH 4');
   assert.deepEqual(j(b.antes), ['gv1']);
-  assert.deepEqual(j(b.depois), ['gv1b']);
-  assert.equal(l.incompletos.length, 1);
-  assert.equal(l.incompletos[0].nome, 'EH 4');
-  assert.equal(Math.round(l.incompletos[0].pct), 90);
+  assert.deepEqual(j(b.depois), ['gv2']);
   assert.equal(l.fronteiras[0].situacao, 'buraco');
+  assert.ok(Math.round(l.necessario - l.coberto) >= 145);
 });
 
 test('recorte do arquivo tira o trecho da cobertura', () => {
@@ -115,51 +111,4 @@ test('alertas de geometria: trechos acima do limite, agrupados, com o maior nív
   assert.equal(al[1].limite, -10);
   // recorte tira o primeiro
   assert.equal(C.alertasGeometria(planta, 'LT', [{ id: 'a', nome: 'a', resumo: r, recorte: { de: 1000, ate: null } }], lim).length, 1);
-});
-
-test('validação por EH completo: parou no meio do EH, vale até o fim da RH anterior', () => {
-  // arquivo de 0 a 5300: EH 0–3 inteiros, parou no EH 4 (4400–5400)
-  const a = arq('gv1', 0, 5300);
-  const v = C.validacaoDoArquivo(planta, a.resumo);
-  assert.equal(v.ehs.filter((e) => e.completo).length, 4);
-  assert.equal(v.ehs.find((e) => e.nome === 'EH 4').completo, false);
-  assert.equal(v.sugestao.cortadoFim.nome, 'EH 4');
-  assert.ok(v.sugestao.ate >= 4398 && v.sugestao.ate < 4400, String(v.sugestao.ate)); // até o fim da RH-4 (início do EH 4)
-  assert.equal(v.sugestao.de, 0);
-  // começou no meio do EH 1 (1100–2100): vale a partir do fim do EH 1 (início da RH seguinte)
-  const b = C.validacaoDoArquivo(planta, arq('x', 1500, 9800).resumo);
-  assert.equal(b.sugestao.cortadoIni.nome, 'EH 1');
-  assert.ok(b.sugestao.de > 2100 && b.sugestao.de <= 2102, String(b.sugestao.de));
-  // arquivo decrescente (9800 → 5300): para no meio do EH 4, vale de 5400 (fim do EH 4) até 9800
-  const c = C.validacaoDoArquivo(planta, arq('y', 9800, 5300).resumo);
-  assert.equal(c.sugestao.cortadoFim.nome, 'EH 4');
-  assert.ok(c.sugestao.de > 5400 && c.sugestao.de <= 5402 && c.sugestao.ate === 9800, `${c.sugestao.de} ${c.sugestao.ate}`);
-  // erro do carro no km 3500 (EH 3, 3300–4300): vale até o início do EH 3
-  const e = C.validacaoDoArquivo(planta, arq('z', 0, 9800).resumo, 3500);
-  assert.equal(e.sugestao.cortadoFim.nome, 'EH 3');
-  assert.ok(e.sugestao.ate >= 3298 && e.sugestao.ate < 3300);
-  // arquivo só com EH inteiros: nada a cortar
-  assert.ok(C.validacaoDoArquivo(planta, arq('w', 0, 9800).resumo).sugestao.inteiro);
-});
-
-test('limites centralizados: tabela EFVM 2026, RH com limite da tangente e maior valor por parâmetro', () => {
-  const Lm = ctx.App.limites;
-  assert.deepEqual(j(Lm.GEOMETRIA), ['emp2', 'nl5', 'emp10', 'sup']);
-  assert.equal(Lm.niveis('emp2', 'C', 68)[0].sup, 10);
-  assert.equal(Lm.niveis('emp2', 'T', 68)[0].sup, 19);
-  assert.equal(Lm.niveis('sup', 'C', 68).length, 0); // superelevação: só na tangente
-  assert.equal(Lm.niveis('emp2', 'C', 15)[0].sup, 18);
-  const r = resumo('a', 0, 3000);
-  const n = r.amostras.pos.length;
-  const emp2 = new Float32Array(n).fill(2);
-  for (let k = 1040; k <= 1050; k++) emp2[k] = 25; // RH entre 1000 e 1100: vale o limite da tangente (19)
-  r.geometria = { emp2 };
-  const estat = {};
-  const al = C.alertasGeometria(planta, 'LT', [{ id: 'a', nome: 'a', resumo: r, recorte: null }], Lm.funcaoLimites(68), estat);
-  assert.equal(al.length, 1);
-  assert.equal(al[0].tipo, 'RH');
-  assert.equal(al[0].limite, 19);
-  assert.match(al[0].eh, /RH antes do EH 1/);
-  assert.equal(estat.emp2.maior.valor, 25);
-  assert.ok(Math.abs(estat.emp2.maior.razao - 25 / 19) < 1e-6);
 });
