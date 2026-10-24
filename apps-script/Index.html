@@ -1119,10 +1119,10 @@ window.App = window.App || {};
 
 (function (App) {
   App.config = {
-    versao: '2026.10.22',
+    versao: '2026.10.24',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-91ee4eadb1', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-34120d400e', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -2997,7 +2997,7 @@ window.App = window.App || {};
       const tipo = c[0].trim();
       if (tipo === 'H' && !cab) cab = c.map((x) => U.chaveTitulo(x));
       else if (tipo === 'D') brutos.push(c);
-      else if (tipo === 'E') eventos.push(c);
+      else if (tipo === 'E') { c.antesDe = brutos.length; eventos.push(c); } // antesDe: linha "D" seguinte
     });
 
     if (!cab) throw new Error('Cabeçalho (linha "H") não encontrado. Confira se é o arquivo gerado pelo carro controle.');
@@ -3073,10 +3073,19 @@ window.App = window.App || {};
     Object.keys(dados).forEach((k) => { dados[k] = filtrar(dados[k]); });
     const linhaIdx = Uint16Array.from(manter, (i) => linhaIdxBruto[i]);
 
+    // i: ponto gravado junto com o evento (o mais próximo no km entre a linha "D" anterior e a seguinte)
+    const pontoDoEvento = (antesDe, p) => {
+      let lo = 0; let hi = manter.length;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (manter[m] < antesDe) lo = m + 1; else hi = m; }
+      const cands = [lo - 1, lo].filter((k) => k >= 0 && k < manter.length);
+      if (!cands.length) return undefined;
+      return cands.reduce((a, b) => (Math.abs(posF[b] - p) < Math.abs(posF[a] - p) ? b : a));
+    };
     const evs = eventos.map((c) => {
       const km = num(c[7]);
       const loc = num(c[9]);
-      return { pos: km === null || loc === null ? NaN : km * 1000 + loc, codigo: String(c[13] || '').trim(), texto: String(c[14] || '').trim() };
+      const p = km === null || loc === null ? NaN : km * 1000 + loc;
+      return { pos: p, i: pontoDoEvento(c.antesDe, p), codigo: String(c[13] || '').trim(), texto: String(c[14] || '').trim() };
     }).filter((e) => !Number.isNaN(e.pos) && e.texto);
 
     // Formato novo do carro: sem linhas "E"; os trechos marcados na coluna EX (código ≠ 0) viram eventos
@@ -3086,8 +3095,8 @@ window.App = window.App || {};
       let ini = -1; let cod = 0; let ultimo = -1;
       const fechar = () => {
         if (ini < 0) return;
-        evs.push({ pos: posF[ini], codigo: String(cod), texto: `INICIO EX ${cod}`, ex: true });
-        evs.push({ pos: posF[ultimo], codigo: String(cod), texto: `FIM EX ${cod}`, ex: true });
+        evs.push({ pos: posF[ini], i: ini, codigo: String(cod), texto: `INICIO EX ${cod}`, ex: true });
+        evs.push({ pos: posF[ultimo], i: ultimo, codigo: String(cod), texto: `FIM EX ${cod}`, ex: true });
         ini = -1;
       };
       manter.forEach((iBruto, k) => {
@@ -3671,6 +3680,93 @@ window.App = window.App || {};
   };
 
   /**
+   * Saltos e voltas do km que podem ser compensados (botão "Compensar" da Montagem).
+   * Um único passo fora do normal, com o km andando normal nos 8 pontos seguintes (pontos parados não atrapalham).
+   *  Δ = x[i] − (x[i−1] + s·e)  (s = sentido do arquivo; e = espaçamento)
+   *  |Δ| ≤ margem (2 m): dentro da margem de erro, não entra.  |Δ| > maxSalto (300 m): não é acerto de km.
+   * O erro do odômetro vem se acumulando desde o último acerto do km (outro salto/volta ou início do arquivo):
+   * a compensação usa TODOS os pontos desde ali (N = disponíveis), para cada ponto mudar o mínimo possível.
+   *  % por ponto = |Δ| / (distância percorrida desde o último acerto).  Cabe quando % por ponto ≤ passoMax (1%).
+   */
+  B.COMPENSACAO = { margem: 2, passoMax: 0.01, maxSalto: 300 };
+  B.saltosCompensaveis = (pos, opcoes = {}) => {
+    const o = { ...B.COMPENSACAO, ...opcoes };
+    const n = pos.length;
+    if (n < 10) return [];
+    const esp = B.espacamento(pos) || 0.25;
+    const s = pos[n - 1] < pos[0] ? -1 : 1;
+    const desvio = (i) => Math.abs(pos[i] - pos[i - 1] - s * esp);
+    const normal = (i) => desvio(i) <= 0.6 * esp + 0.01;
+    const parado = (i) => pos[i] === pos[i - 1];
+    // qualquer pulo acima de 1 m (ou acima da margem, se ela for menor) é um acerto do km: a compensação não passa dele
+    const limiteQuebra = Math.min(1, o.margem);
+    const dist = B.distanciaPercorrida(pos, esp);
+    const out = [];
+    let quebra = 0; // ponto depois do último acerto do km
+    for (let i = 1; i < n; i++) {
+      if (normal(i) || parado(i)) continue;
+      const delta = pos[i] - (pos[i - 1] + s * esp);
+      let segue = true;
+      for (let k = i + 1; k <= Math.min(n - 1, i + 8); k++) if (!normal(k) && !parado(k)) segue = false;
+      if (segue && Math.abs(delta) > o.margem && Math.abs(delta) <= o.maxSalto) {
+        const disponiveis = i - quebra;
+        const extensao = dist[i - 1] - dist[quebra] + esp; // distância percorrida (carro parado não conta)
+        const pct = Math.abs(delta) / extensao;
+        out.push({
+          i, de: pos[i - 1], km: pos[i], desde: pos[quebra], delta, tipo: delta * s > 0 ? 'salto' : 'volta',
+          pontosFaltando: Math.round(Math.abs(delta) / esp), N: disponiveis, disponiveis, extensao, pct,
+          cabe: pct <= o.passoMax + 1e-12, porPonto: delta / disponiveis,
+          chave: `${Math.round(pos[i - 1] * 100) / 100}>${Math.round(pos[i] * 100) / 100}`
+        });
+      }
+      if (desvio(i) > limiteQuebra) quebra = i;
+    }
+    return out;
+  };
+
+  /**
+   * Compensações pedidas pelo usuário (chaves). Acima do máximo por ponto (1%) a compensação é "forçada":
+   * o usuário decidiu compensar mesmo assim (o app avisa quanto cada ponto muda).
+   */
+  B.compensacoesPedidas = (lista, chaves) => lista.filter((c) => chaves.includes(c.chave) && c.disponiveis > 0)
+    .map((c) => (c.cabe ? c : { ...c, forcado: true }));
+
+  /**
+   * Aplica as compensações: a diferença Δ é espalhada pelos N pontos desde o último acerto,
+   * proporcional à distância percorrida (ponto parado recebe o mesmo que o vizinho):
+   *  x'[j] = x[j] + Δ · (d[j] − d₀) / (d[i−1] − d₀),  j = i − N … i − 1  (d₀ = um espaçamento antes do 1º ponto)
+   * O último ponto antes do pulo recebe Δ inteiro e o km fica contínuo; o km depois do pulo não muda.
+   */
+  B.compensarPos = (pos, lista) => {
+    const p = Float64Array.from(pos);
+    if (!lista.length) return p;
+    const esp = B.espacamento(pos) || 0.25;
+    const d = B.distanciaPercorrida(pos, esp);
+    lista.forEach(({ i, N, delta }) => {
+      const ini = Math.max(0, i - N);
+      const d0 = d[ini] - esp;
+      const total = d[i - 1] - d0;
+      for (let j = ini; j < i; j++) p[j] += (delta * (d[j] - d0)) / total;
+    });
+    return p;
+  };
+
+  /**
+   * Arquivo com o km compensado. Guarda o km original de cada ponto (posArq): o recorte e os alertas
+   * da Montagem usam o km do arquivo, e os eventos andam junto com o ponto onde foram gravados.
+   */
+  B.compensarArquivo = (arquivo, lista) => {
+    if (!lista.length) return arquivo;
+    const posArq = arquivo.posArq || arquivo.pos;
+    const pos = B.compensarPos(posArq, lista);
+    const eventos = (arquivo.eventos || []).map((e) => {
+      if (!Number.isInteger(e.i)) return e;
+      return { ...e, posArq: e.posArq ?? e.pos, pos: (e.posArq ?? e.pos) + (pos[e.i] - posArq[e.i]) };
+    });
+    return { ...arquivo, pos, posArq, eventos, compensados: lista.length };
+  };
+
+  /**
    * Correção do km ponto a ponto. O odômetro do carro escorrega aos poucos (dezenas de metros por km)
    * e o km é acertado à mão em campo (saltos). Uma correção única para o arquivo todo não serve.
    * 1. O arquivo é dividido onde o km salta (correção manual).
@@ -3680,65 +3776,6 @@ window.App = window.App || {};
    * 4. Entre duas curvas casadas, a correção é interpolada; antes da primeira e depois da última, fica constante.
    * Retorna { ajustes: Float64Array, ancoras: [{ i, ajuste }], casadas, curvas, min, max }.
    */
-  /**
-   * Saltos e voltas do km que podem ser compensados (botão "Compensar" da Montagem).
-   * Um único passo fora do normal, com o km andando normal nos 8 pontos seguintes.
-   *  Δ = x[i] − (x[i−1] + s·e)  (s = sentido do arquivo; e = espaçamento)
-   *  |Δ| ≤ margem (2 m): dentro da margem de erro, não entra.  |Δ| > maxSalto (300 m): não é acerto de km.
-   *  N = ⌈|Δ| / (passoMax · e)⌉ pontos antes do salto recebem a compensação (passoMax = 1% do espaçamento).
-   *  Cabe quando há N pontos antes do salto, depois da quebra anterior (outro salto/volta ou início do arquivo).
-   */
-  B.COMPENSACAO = { margem: 2, passoMax: 0.01, maxSalto: 300 };
-  B.saltosCompensaveis = (pos, opcoes = {}) => {
-    const o = { ...B.COMPENSACAO, ...opcoes };
-    const n = pos.length;
-    if (n < 10) return [];
-    const esp = B.espacamento(pos) || 0.25;
-    const s = pos[n - 1] < pos[0] ? -1 : 1;
-    const normal = (i) => Math.abs(pos[i] - pos[i - 1] - s * esp) <= 0.6 * esp + 0.01;
-    const out = [];
-    let quebra = 0; // ponto depois da última quebra do km
-    for (let i = 1; i < n; i++) {
-      if (normal(i)) continue;
-      const delta = pos[i] - (pos[i - 1] + s * esp);
-      let segue = true;
-      for (let k = i + 1; k <= Math.min(n - 1, i + 8); k++) if (!normal(k)) segue = false;
-      if (segue && Math.abs(delta) > o.margem && Math.abs(delta) <= o.maxSalto) {
-        const N = Math.ceil(Math.abs(delta) / (o.passoMax * esp));
-        const disponiveis = i - quebra;
-        out.push({
-          i, de: pos[i - 1], km: pos[i], delta, tipo: delta * s > 0 ? 'salto' : 'volta',
-          pontosFaltando: Math.round(Math.abs(delta) / esp), N, disponiveis, cabe: N <= disponiveis,
-          porPonto: delta / N, chave: `${Math.round(pos[i - 1] * 100) / 100}>${Math.round(pos[i] * 100) / 100}`
-        });
-      }
-      if (Math.abs(pos[i] - pos[i - 1] - s * esp) > 1) quebra = i;
-    }
-    return out;
-  };
-
-  /**
-   * Compensações pedidas pelo usuário (chaves). Quando não cabe dentro do máximo por ponto,
-   * o usuário pode compensar mesmo assim: usa todos os pontos disponíveis antes do pulo (mais de 1% por ponto).
-   */
-  B.compensacoesPedidas = (lista, chaves) => lista.filter((c) => chaves.includes(c.chave) && c.disponiveis > 0)
-    .map((c) => (c.cabe ? c : { ...c, N: c.disponiveis, porPonto: c.delta / c.disponiveis, forcado: true }));
-
-  /**
-   * Aplica as compensações: os N pontos antes do salto ganham Δ/N cada um, acumulado.
-   *  x'[j] = x[j] + Δ · k / N,  com k = 1 … N  (j = i − N … i − 1)
-   * O último ponto antes do salto recebe Δ inteiro e o km fica contínuo; o km depois do salto não muda.
-   */
-  B.compensarPos = (pos, lista) => {
-    const p = Float64Array.from(pos);
-    lista.forEach(({ i, N, delta }) => {
-      const ini = Math.max(0, i - N);
-      const total = i - ini;
-      for (let j = ini; j < i; j++) p[j] += (delta * (j - ini + 1)) / total;
-    });
-    return p;
-  };
-
   B.ajusteVariavel = (pos, curv, els, opcoes = {}) => {
     const o = { ...B.PADRAO, ...opcoes };
     const n = pos.length;
@@ -4194,17 +4231,21 @@ window.App = window.App || {};
   B.recortar = (arquivo, de, ate) => {
     if ((de === null || de === undefined) && (ate === null || ate === undefined)) return arquivo;
     const dentro = (p) => (de === null || de === undefined || p >= de) && (ate === null || ate === undefined || p <= ate);
+    // o recorte é sempre no km do arquivo (o mesmo da Montagem), mesmo com o km compensado
+    const posArq = arquivo.posArq || arquivo.pos;
     const manter = [];
-    arquivo.pos.forEach((p, i) => { if (dentro(p)) manter.push(i); });
+    posArq.forEach((p, i) => { if (dentro(p)) manter.push(i); });
     const filtrar = (arr) => Float64Array.from(manter, (i) => arr[i]);
     const dados = {};
     Object.keys(arquivo.dados).forEach((k) => { dados[k] = filtrar(arquivo.dados[k]); });
     return {
       ...arquivo,
       pos: filtrar(arquivo.pos),
+      posArq: arquivo.posArq ? filtrar(arquivo.posArq) : undefined,
+      idx: Uint32Array.from(manter, (i) => (arquivo.idx ? arquivo.idx[i] : i)), // ponto no arquivo inteiro
       dados,
       linhaIdx: arquivo.linhaIdx ? Uint16Array.from(manter, (i) => arquivo.linhaIdx[i]) : arquivo.linhaIdx,
-      eventos: (arquivo.eventos || []).filter((e) => dentro(e.pos)),
+      eventos: (arquivo.eventos || []).filter((e) => dentro(e.posArq ?? e.pos)).map((e) => ({ ...e, i: undefined })),
       recorte: { de: de ?? null, ate: ate ?? null, descartados: arquivo.pos.length - manter.length }
     };
   };
@@ -4511,7 +4552,7 @@ window.App = window.App || {};
       kmIni: pos[0], kmFim: pos[n - 1],
       correcao: { min: aj.min, max: aj.max, casadas: aj.casadas, curvas: aj.curvas },
       espacamento: esp,
-      compensaveis: compensaveis.map(({ i, de, km, delta, tipo, pontosFaltando, N, disponiveis, cabe, porPonto, chave, tratado }) => ({ i, de, km, delta, tipo, pontosFaltando, N, disponiveis, cabe, porPonto, chave, tratado })),
+      compensaveis: compensaveis.map(({ i, de, km, desde, delta, tipo, pontosFaltando, N, disponiveis, extensao, pct, cabe, porPonto, chave, tratado }) => ({ i, de, km, desde, delta, tipo, pontosFaltando, N, disponiveis, extensao, pct, cabe, porPonto, chave, tratado })),
       amostras,
       geometria,
       inconsistencias
@@ -4538,7 +4579,7 @@ window.App = window.App || {};
    * Trechos que passam dos limites, por arquivo e parâmetro, no km da geometria.
    * limites(id, 'C' | 'T') → [{ grau, nome, sup, inf }] (níveis de alerta da Tela do carro), ou [] sem limite.
    * Amostras seguidas acima do limite (até 3 m de folga) viram um alerta só, com o maior valor e o maior nível.
-   * Retorna [{ arquivo, id, param, linha, ini, fim, kmArq, valor, limite, grau, nivel, eh, elemento, tipo }].
+   * Retorna [{ arquivo, id, param, linha, ini, fim, kmArq, iArq, valor, limite, grau, nivel, eh, elemento, tipo }].
    */
   C.alertasGeometria = (planta, ramal, arquivos, limites) => {
     const out = [];
@@ -4546,6 +4587,9 @@ window.App = window.App || {};
       const r = a.resumo;
       const { pos, aj, linha, linhas } = r.amostras;
       const rc = a.recorte;
+      // amostra k = ponto k × passo do arquivo (a última é o último ponto)
+      const passo = Math.max(1, Math.round(1 / (r.espacamento || 0.25)));
+      const pontoDa = (k) => (r.pontos ? Math.min(k * passo, r.pontos - 1) : k * passo);
       const porLinha = {};
       const elsDe = (l) => { if (!porLinha[l]) porLinha[l] = B().elementosDaPlanta(planta, ramal, l); return porLinha[l]; };
       const elemento = (els, y) => {
@@ -4574,10 +4618,10 @@ window.App = window.App || {};
           if (atual && (atual.linha !== l || Math.abs(y - atual.ultimo) > 3)) fechar();
           const limite = val > 0 ? g.sup : g.inf;
           if (!atual) {
-            atual = { arquivo: a.nome, idArquivo: a.id, id, param: C.NOMES_GEOMETRIA[id], linha: l, ini: y, fim: y, kmArq: x, valor: val, limite, grau: g.grau, nivel: g.nome, eh: el.nomeEh || `EH ${el.eh}`, elemento: `${el.tipo === 'C' ? 'C' : 'T'}${String(el.num || '').padStart(2, '0')}`, tipo: el.tipo, ultimo: y };
+            atual = { arquivo: a.nome, idArquivo: a.id, id, param: C.NOMES_GEOMETRIA[id], linha: l, ini: y, fim: y, kmArq: x, iArq: pontoDa(k), valor: val, limite, grau: g.grau, nivel: g.nome, eh: el.nomeEh || `EH ${el.eh}`, elemento: `${el.tipo === 'C' ? 'C' : 'T'}${String(el.num || '').padStart(2, '0')}`, tipo: el.tipo, ultimo: y };
           } else {
             atual.ini = Math.min(atual.ini, y); atual.fim = Math.max(atual.fim, y); atual.ultimo = y;
-            if (Math.abs(val) > Math.abs(atual.valor)) { atual.valor = val; atual.limite = limite; atual.kmArq = x; }
+            if (Math.abs(val) > Math.abs(atual.valor)) { atual.valor = val; atual.limite = limite; atual.kmArq = x; atual.iArq = pontoDa(k); }
             if (g.grau > atual.grau) { atual.grau = g.grau; atual.nivel = g.nome; }
           }
         }
@@ -5196,7 +5240,7 @@ window.App = window.App || {};
     try {
       const salvo = await store.get(CHAVE);
       if (v !== versaoArquivo) return;
-      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [] });
+      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [], regras: salvo.regras || null });
     } catch (e) { /* sem arquivo salvo */ }
   }
 
@@ -5256,8 +5300,9 @@ window.App = window.App || {};
   /** Trecho analisado (km inicial e final, em metros): descarta o resto do arquivo sem editar o CSV. */
   let recorte = { de: null, ate: null };
   let arquivoCompleto = null;
-  /** Saltos/voltas do km compensados na Montagem (chaves de B.saltosCompensaveis). */
+  /** Saltos/voltas do km compensados na Montagem (chaves de B.saltosCompensaveis) e as regras usadas lá. */
   let compensar = [];
+  let regrasComp = null;
 
   function aplicarRecorte() {
     arquivo = B.recortar(arquivoCompleto, recorte.de, recorte.ate);
@@ -5268,16 +5313,17 @@ window.App = window.App || {};
     }
   }
 
-  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [] }) {
+  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [], regras = null }) {
     versaoArquivo++;
     compensar = [...comp];
+    regrasComp = regras;
     cacheAjuste.clear(); cacheConferencia.clear();
     try {
       arquivoCompleto = B.lerCSV(texto);
       if (compensar.length) {
-        // mesmo km compensado da Montagem: os pontos antes do salto/volta recebem a diferença aos poucos
-        const lista = B.compensacoesPedidas(B.saltosCompensaveis(arquivoCompleto.pos), compensar);
-        if (lista.length) arquivoCompleto = { ...arquivoCompleto, pos: B.compensarPos(arquivoCompleto.pos, lista), compensados: lista.length };
+        // mesmo km compensado da Montagem (mesmas regras): os pontos antes do salto/volta recebem a diferença aos poucos
+        const lista = B.compensacoesPedidas(B.saltosCompensaveis(arquivoCompleto.pos, regrasComp || {}), compensar);
+        arquivoCompleto = B.compensarArquivo(arquivoCompleto, lista);
       }
       recorte = trecho ? { de: trecho.de ?? null, ate: trecho.ate ?? null } : { de: null, ate: null };
       aplicarRecorte();
@@ -5298,7 +5344,7 @@ window.App = window.App || {};
     }
     zoom = null;
     recalcular();
-    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar }).catch(() => {});
+    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar, regras: regrasComp }).catch(() => {});
   }
 
   async function mudarRecorte(de, ate) {
@@ -5475,6 +5521,7 @@ window.App = window.App || {};
       onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) lerArquivo(f); }
     });
     const meta = arquivo && arquivo.meta;
+    const posArq = arquivoCompleto ? (arquivoCompleto.posArq || arquivoCompleto.pos) : null;
     ui.trocar(secoes.arquivo, h('section', { class: 'cartao' },
       h('h2', { text: 'Arquivo' }),
       ui.campo('Arquivo CSV gerado pelo carro controle', input),
@@ -5493,7 +5540,7 @@ window.App = window.App || {};
         h('div', { class: 'grade-2 trecho-analisado' },
           ['de', 'ate'].map((lado) => ui.campo(lado === 'de' ? 'Analisar a partir do km' : 'Analisar até o km', h('input', {
             type: 'text', inputmode: 'decimal', name: `recorte-${lado}`,
-            placeholder: lado === 'de' ? `início do arquivo (${B.fmtKm(Math.min(arquivoCompleto.pos[0], arquivoCompleto.pos[arquivoCompleto.pos.length - 1]))})` : `fim do arquivo (${B.fmtKm(Math.max(arquivoCompleto.pos[0], arquivoCompleto.pos[arquivoCompleto.pos.length - 1]))})`,
+            placeholder: lado === 'de' ? `início do arquivo (${B.fmtKm(Math.min(posArq[0], posArq[posArq.length - 1]))})` : `fim do arquivo (${B.fmtKm(Math.max(posArq[0], posArq[posArq.length - 1]))})`,
             value: recorte[lado] === null ? '' : B.fmtKm(recorte[lado]),
             onchange: (e) => {
               const v = B.kmParaMetros(e.target.value);
@@ -5502,6 +5549,7 @@ window.App = window.App || {};
             }
           })))),
         arquivo.recorte && arquivo.recorte.descartados ? h('p', { class: 'sub', text: `${arquivo.recorte.descartados.toLocaleString('pt-BR')} pontos fora do trecho analisado foram descartados (o arquivo não é alterado).` }) : null,
+        arquivoCompleto.compensados ? h('p', { class: 'sub', text: `Km compensado em ${arquivoCompleto.compensados} salto(s)/volta(s) na Montagem: gráficos, tabelas e laudo usam o km compensado; o trecho analisado é no km do arquivo.` }) : null,
         h('div', { class: 'linha-acoes' },
           h('button', { class: 'btn btn-primario', onclick: abrirLaudo }, ui.icone('documento'), 'Gerar laudo (PDF)')),
         h('button', {
@@ -6239,7 +6287,7 @@ window.App = window.App || {};
     estado: () => ({ arquivo, resultado, nomeArquivo, opcoes }),
     textoDoArquivo,
     /** Abre um arquivo vindo de outra tela (Montagem / Tela do carro), com o trecho e as compensações dela. */
-    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [] } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp }),
+    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [], regras = null } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp, regras }),
     planta: async () => { try { return await store.get(CHAVE_PLANTA); } catch (e) { return null; } }
   };
 })(window.App);
@@ -6602,9 +6650,29 @@ window.App = window.App || {};
     let melhor = 0; let d = Infinity;
     arquivo.pos.forEach((p, i) => { const x = Math.abs(p - metros); if (x < d) { d = x; melhor = i; } });
     if (d > 500) ui.toast(`O km mais próximo no arquivo é ${App.bitola.fmtKm(arquivo.pos[melhor])}.`, 'info');
-    revelado = prep.dist[melhor];
+    mostrarPonto(melhor);
+  }
+
+  /**
+   * Vai para um ponto do arquivo inteiro (ex.: alerta da Montagem). Pelo ponto, e não pelo km:
+   * com o km compensado ou com o km voltando, o km do arquivo pode cair em outro lugar.
+   */
+  function irParaPonto(iArq) {
+    if (!prep) return;
+    const idx = arquivo.idx; // recortado: ponto no arquivo inteiro de cada ponto
+    let k = iArq;
+    if (idx) {
+      let lo = 0; let hi = idx.length - 1;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (idx[m] < iArq) lo = m + 1; else hi = m; }
+      k = lo;
+    }
+    mostrarPonto(Math.max(0, Math.min(prep.n - 1, k)));
+  }
+
+  function mostrarPonto(i) {
+    revelado = prep.dist[i];
     topo = revelado - janela;
-    cursorI = melhor;
+    cursorI = i;
     desenhar();
   }
 
@@ -6957,6 +7025,7 @@ window.App = window.App || {};
     velocidade: () => velocidade,
     VELOCIDADES,
     irParaKm: (t) => { if (prep) irParaKm(t); },
+    irParaPonto,
     _limitesPadrao: limitesPadrao, _PARAMETROS: PARAMETROS, _VELOCIDADES: VELOCIDADES
   };
 })(window.App);
@@ -7005,6 +7074,19 @@ window.App = window.App || {};
           arquivos = salvos.map((a) => ({ ...a, compensar: a.compensar || [], resumo: C().normalizarResumo(a.resumo) }));
           // arquivos adicionados antes desta versão não têm o CSV guardado nem o cálculo dos saltos/voltas
           for (const a of arquivos) a.antigo = !a.resumo.espacamento || !(await store.get(CHAVE_CSV(a.id)).catch(() => null));
+          // compensações feitas na regra anterior (só nos pontos logo antes do pulo): refaz com a regra atual
+          const refazer = arquivos.filter((a) => !a.antigo && (a.compensar || []).length && a.resumo.compensaveis.some((c) => c.extensao === undefined));
+          for (const a of refazer) {
+            try {
+              const texto = await lerCsv(a.id);
+              if (!texto || !planta) continue;
+              const rg = regras();
+              a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar, compensacao: rg });
+              a.compensar = a.compensar.filter((ch) => a.resumo.compensaveis.some((c) => c.chave === ch));
+              a.regras = rg;
+            } catch (e) { /* fica como estava; o botão Compensar/Desfazer recalcula */ }
+          }
+          if (refazer.length) await gravar();
         } catch (e) { arquivos = []; }
       })();
     }
@@ -7045,13 +7127,14 @@ window.App = window.App || {};
       try {
         const { nome, texto } = await App.analise.textoDoArquivo(f);
         const arq = B().lerCSV(texto);
-        const resumo = C().resumirArquivo(arq, planta, nome, { compensacao: regras() });
+        const rg = regras();
+        const resumo = C().resumirArquivo(arq, planta, nome, { compensacao: rg });
         const existente = arquivos.findIndex((a) => a.nome === nome && (a.ciclo || '') === ciclo());
         const anterior = existente >= 0 ? arquivos[existente] : null;
         // o mesmo arquivo adicionado de novo mantém o recorte e as compensações que ainda existem nele
         const compensar = anterior ? (anterior.compensar || []).filter((ch) => resumo.compensaveis.some((c) => c.chave === ch)) : [];
-        const final = compensar.length ? C().resumirArquivo(arq, planta, nome, { compensar, compensacao: regras() }) : resumo;
-        const item = { id: anterior ? anterior.id : `${Date.now()}-${k}`, nome, ciclo: ciclo(), adicionadoEm: U.agora(), recorte: anterior ? anterior.recorte : null, compensar, resumo: final };
+        const final = compensar.length ? C().resumirArquivo(arq, planta, nome, { compensar, compensacao: rg }) : resumo;
+        const item = { id: anterior ? anterior.id : `${Date.now()}-${k}`, nome, ciclo: ciclo(), adicionadoEm: U.agora(), recorte: anterior ? anterior.recorte : null, compensar, regras: rg, resumo: final };
         await guardarCsv(item.id, texto);
         if (existente >= 0) arquivos[existente] = item; else arquivos.push(item);
         ok++;
@@ -7095,25 +7178,61 @@ window.App = window.App || {};
     ui.toast(`Recalculando ${a.nome}…`, 'info', 3000);
     await new Promise((r) => setTimeout(r, 30));
     try {
-      a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: lista, compensacao: regras() });
-      a.compensar = lista;
+      const rg = regras();
+      a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: lista, compensacao: rg });
+      a.compensar = lista.filter((ch) => a.resumo.compensaveis.some((c) => c.chave === ch));
+      a.regras = rg;
       await gravar();
-      ui.toast(compensar ? 'Compensado: a diferença foi distribuída nos pontos anteriores.' : 'Compensação desfeita.', 'ok');
+      ui.toast(compensar ? 'Compensado: a diferença foi distribuída nos pontos desde o último acerto do km.' : 'Compensação desfeita.', 'ok');
     } catch (e) { ui.toast(`Não foi possível recalcular: ${e.message}`, 'erro', 7000); }
     render();
   }
 
-  /** Roda o arquivo na Tela do carro (Offboard), com o recorte e as compensações dele. km = ir direto para este km. */
-  async function abrirNaTela(a, km = null) {
+  /** Regras mudaram: recalcula todos os arquivos guardados, para a Montagem e a Tela do carro usarem as mesmas regras. */
+  async function recalcularTodos() {
+    const rg = regras();
+    const lista = arquivos.filter((a) => !a.antigo);
+    if (!lista.length) return;
+    processando = true;
+    render();
+    let feitos = 0; const perdidas = [];
+    for (const a of lista) {
+      ui.toast(`Recalculando ${feitos + 1}/${lista.length}: ${a.nome}…`, 'info', 3000);
+      await new Promise((r) => setTimeout(r, 30));
+      try {
+        const texto = await lerCsv(a.id);
+        if (!texto) continue;
+        a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar || [], compensacao: rg });
+        const mantidas = (a.compensar || []).filter((ch) => a.resumo.compensaveis.some((c) => c.chave === ch));
+        if (mantidas.length < (a.compensar || []).length) perdidas.push(a.nome);
+        a.compensar = mantidas;
+        a.regras = rg;
+        feitos++;
+      } catch (e) { ui.toast(`${a.nome}: ${e.message}`, 'erro', 7000); }
+    }
+    processando = false;
+    await gravar();
+    ui.toast(perdidas.length
+      ? `${feitos} arquivo(s) recalculados. Pelas regras novas, compensações deixaram de valer em: ${perdidas.join(', ')}.`
+      : `${feitos} arquivo(s) recalculados com as regras novas.`, perdidas.length ? 'erro' : 'ok', perdidas.length ? 9000 : 4000);
+    render();
+  }
+
+  /**
+   * Roda o arquivo na Tela do carro (Offboard), com o recorte, as compensações e as regras dele.
+   * alvo = { i } (ponto do arquivo, exato mesmo com o km compensado) ou { km } (km do arquivo).
+   */
+  async function abrirNaTela(a, alvo = null) {
     const texto = await lerCsv(a.id).catch(() => null);
     if (!texto) { semCsv(); return false; }
     window.dispatchEvent(new CustomEvent('em80:checklist-aba', { detail: 'tela' }));
     ui.toast(`Abrindo ${a.nome} na Tela do carro…`, 'info', 2500);
     await new Promise((r) => setTimeout(r, 30));
-    App.analise.abrirTexto(texto, a.nome, { recorte: a.recorte, compensar: a.compensar || [] });
+    App.analise.abrirTexto(texto, a.nome, { recorte: a.recorte, compensar: a.compensar || [], regras: a.regras || regras() });
     atual = a.id;
     if (App.telaCarro.aoMostrar) App.telaCarro.aoMostrar();
-    if (km !== null) App.telaCarro.irParaKm(String(Math.round(km) / 1000).replace('.', ','));
+    if (alvo && Number.isInteger(alvo.i)) App.telaCarro.irParaPonto(alvo.i);
+    else if (alvo && alvo.km !== undefined && alvo.km !== null) App.telaCarro.irParaKm(String(Math.round(alvo.km) / 1000).replace('.', ','));
     return true;
   }
   let atual = null; // arquivo da Montagem rodando na Tela do carro
@@ -7307,21 +7426,25 @@ window.App = window.App || {};
   function listaCompensaveis(a) {
     const r = a.resumo;
     const esp = r.espacamento || 0.25;
-    const rg = regras();
+    const rg = a.regras || regras(); // regras com que o arquivo foi calculado
     return h('div', { class: 'pilha mt-comp' },
       h('strong', { text: 'Saltos e voltas do km' }),
       r.compensaveis.map((c) => {
-        const precisaria = (Math.abs(c.delta) / (c.disponiveis * esp)) * 100;
+        // a compensação usa todos os pontos desde o último acerto (resumos de versões anteriores guardavam outro N)
+        const ext = c.extensao ?? c.disponiveis * esp;
+        const pct = (Math.abs(c.delta) / ext) * 100;
+        const porPonto = c.delta / c.disponiveis;
+        const cabe = pct <= rg.passoMax * 100 + 1e-10;
+        const desde = c.desde !== undefined ? `desde ${km(c.desde)}` : 'desde o início do arquivo ou o pulo anterior';
+        const ganha = c.tipo === 'salto' ? 'ganha' : 'perde';
         return h('div', { class: `mt-comp-item ${c.tratado ? 'mt-comp-feito' : ''}` },
           h('div', null, h('strong', { text: `Km ${c.tipo === 'salto' ? 'salta' : 'volta'} de ${km(c.de)} para ${km(c.km)}` }),
             h('span', { class: 'mt-sub', text: c.tipo === 'salto' ? ` · buraco de ${n2(Math.abs(c.delta))} m (${n0(c.pontosFaltando)} pontos)` : ` · sobreposição de ${n2(Math.abs(c.delta))} m (${n0(c.pontosFaltando)} pontos)` })),
-          c.cabe
-            ? h('div', { class: 'mt-sub', text: `Compensar: os ${n0(c.N)} pontos antes (${n0(c.N * esp)} m) ${c.tipo === 'salto' ? 'ganham' : 'perdem'} ${n2(Math.abs(c.porPonto), 4)} m cada um, acumulando até ${n2(Math.abs(c.delta))} m no último ponto. O km depois não muda.` })
-            : h('div', { class: 'mt-atencao-txt', text: `Dentro de ${n2(rg.passoMax * 100, 1)}% por ponto não cabe: seriam ${n0(c.N)} pontos, mas só há ${n0(c.disponiveis)} antes (${n0(c.disponiveis * esp)} m, desde o início do arquivo ou o pulo anterior). Compensando nesses ${n0(c.disponiveis)} pontos, cada um ${c.tipo === 'salto' ? 'ganha' : 'perde'} ${n2(Math.abs(c.delta) / c.disponiveis, 4)} m (${n2(precisaria, 1)}% do espaçamento).` }),
+          h('div', { class: cabe ? 'mt-sub' : 'mt-atencao-txt', text: `Compensar: a diferença é espalhada nos ${n0(c.disponiveis)} pontos desde o último acerto do km (${desde}, ${mTxt(ext)} antes do pulo). Cada ponto ${ganha} ${n2(Math.abs(porPonto), 4)} m a mais que o anterior (${n2(pct, 2)}% do espaçamento), até ${n2(Math.abs(c.delta))} m no último ponto antes do pulo. O km depois do pulo não muda.${cabe ? '' : ` Passa do máximo de ${n2(rg.passoMax * 100, 1)}% por ponto: confira se é mesmo acerto de km (e não passada repetida ou arquivo faltando).`}` }),
           h('div', { class: 'linha-acoes' },
-            c.tratado ? h('span', { class: 'mt-selo mt-ok', text: c.cabe ? '✓ Compensado' : `✓ Compensado (${n2(precisaria, 1)}% por ponto)` }) : null,
-            h('button', { class: `btn ${c.tratado ? 'btn-fantasma' : c.cabe ? 'btn-primario' : 'btn-secundario'} btn-pequeno`, onclick: () => mudarCompensacao(a, c.chave, !c.tratado) },
-              c.tratado ? 'Desfazer' : c.cabe ? 'Compensar' : `Compensar mesmo assim (${n2(precisaria, 1)}% por ponto)`)));
+            c.tratado ? h('span', { class: 'mt-selo mt-ok', text: cabe ? '✓ Compensado' : `✓ Compensado (${n2(pct, 1)}% por ponto)` }) : null,
+            h('button', { class: `btn ${c.tratado ? 'btn-fantasma' : cabe ? 'btn-primario' : 'btn-secundario'} btn-pequeno`, disabled: processando || null, onclick: () => mudarCompensacao(a, c.chave, !c.tratado) },
+              c.tratado ? 'Desfazer' : cabe ? 'Compensar' : `Compensar mesmo assim (${n2(pct, 1)}% por ponto)`)));
       }));
   }
 
@@ -7330,17 +7453,18 @@ window.App = window.App || {};
     const salvar = (campo, v) => {
       const atual = U.pref.get('montagem:compensacao', {}) || {};
       U.pref.set('montagem:compensacao', { ...atual, [campo]: v });
-      ui.toast('Regra salva. Vale para os arquivos adicionados ou recalculados daqui em diante.', 'ok', 5000);
+      ui.toast('Regra salva. Recalculando os arquivos da Montagem…', 'ok', 3000);
+      recalcularTodos();
     };
     const campoNum = (rotulo, valor, aoMudar, ajuda) => ui.campo(rotulo, h('input', {
       type: 'text', inputmode: 'decimal', value: String(valor).replace('.', ','),
       onchange: (e) => { const v = U.numero(e.target.value); if (v === null || v <= 0) { ui.toast('Valor inválido.', 'erro'); return; } aoMudar(v); }
     }), { ajuda });
     return h('details', { class: 'cartao detalhes' },
-      h('summary', null, h('strong', { text: 'Regras da compensação do km' }), h('span', { class: 'sub', text: ` · até ${n2(rg.margem, 1)} m não mexe · máx. ${n2(rg.passoMax * 100, 1)}% por ponto` })),
+      h('summary', null, h('strong', { text: 'Regras da compensação do km' }), h('span', { class: 'sub', text: ` · até ${n2(rg.margem, 1)} m não mexe · espalha desde o último acerto · alerta acima de ${n2(rg.passoMax * 100, 1)}% por ponto` })),
       h('div', { class: 'grade-3', style: { marginTop: '12px' } },
         campoNum('Margem de erro (m)', rg.margem, (v) => salvar('margem', v), 'Salto ou volta até este valor não é compensado.'),
-        campoNum('Máximo por ponto (% do espaçamento)', n2(rg.passoMax * 100, 1), (v) => salvar('passoMax', v / 100), '1% de 0,25 m = 0,0025 m por ponto.'),
+        campoNum('Máximo por ponto (% do espaçamento)', n2(rg.passoMax * 100, 1), (v) => salvar('passoMax', v / 100), 'Acima disso o app pede confirmação. 1% de 0,25 m = 0,0025 m por ponto.'),
         campoNum('Maior salto/volta (m)', rg.maxSalto, (v) => salvar('maxSalto', v), 'Acima disso é passada repetida ou falta de arquivo: use o recorte.')));
   }
 
@@ -7357,7 +7481,7 @@ window.App = window.App || {};
     const NOME_NIVEL = { 1: 'Alerta', 2: 'Restrição', 3: 'Interdição' };
     const sel = (rotulo, valor, opcoes, aoMudar) => ui.campo(rotulo, h('select', { onchange: (e) => aoMudar(e.target.value) },
       opcoes.map(([v, t]) => h('option', { value: String(v), selected: String(v) === String(valor) || null, text: t }))));
-    const linhas = vis.slice(0, 500).map((x) => h('tr', { tabindex: 0, title: 'Rodar na Tela do carro neste km', onclick: () => { const a = arquivos.find((y) => y.id === x.idArquivo); if (a) abrirNaTela(a, x.kmArq); } },
+    const linhas = vis.slice(0, 500).map((x) => h('tr', { tabindex: 0, title: 'Rodar na Tela do carro neste km', onclick: () => { const a = arquivos.find((y) => y.id === x.idArquivo); if (a) abrirNaTela(a, { i: x.iArq, km: x.kmArq }); } },
       h('td', null, h('span', { class: `mt-selo mt-nivel-${x.grau}`, text: x.nivel })),
       h('td', { text: x.param }),
       h('td', { text: `L${x.linha}` }),

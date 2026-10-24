@@ -353,9 +353,29 @@
     let melhor = 0; let d = Infinity;
     arquivo.pos.forEach((p, i) => { const x = Math.abs(p - metros); if (x < d) { d = x; melhor = i; } });
     if (d > 500) ui.toast(`O km mais próximo no arquivo é ${App.bitola.fmtKm(arquivo.pos[melhor])}.`, 'info');
-    revelado = prep.dist[melhor];
+    mostrarPonto(melhor);
+  }
+
+  /**
+   * Vai para um ponto do arquivo inteiro (ex.: alerta da Montagem). Pelo ponto, e não pelo km:
+   * com o km compensado ou com o km voltando, o km do arquivo pode cair em outro lugar.
+   */
+  function irParaPonto(iArq) {
+    if (!prep) return;
+    const idx = arquivo.idx; // recortado: ponto no arquivo inteiro de cada ponto
+    let k = iArq;
+    if (idx) {
+      let lo = 0; let hi = idx.length - 1;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (idx[m] < iArq) lo = m + 1; else hi = m; }
+      k = lo;
+    }
+    mostrarPonto(Math.max(0, Math.min(prep.n - 1, k)));
+  }
+
+  function mostrarPonto(i) {
+    revelado = prep.dist[i];
     topo = revelado - janela;
-    cursorI = melhor;
+    cursorI = i;
     desenhar();
   }
 
@@ -708,6 +728,7 @@
     velocidade: () => velocidade,
     VELOCIDADES,
     irParaKm: (t) => { if (prep) irParaKm(t); },
+    irParaPonto,
     _limitesPadrao: limitesPadrao, _PARAMETROS: PARAMETROS, _VELOCIDADES: VELOCIDADES
   };
 })(window.App);
