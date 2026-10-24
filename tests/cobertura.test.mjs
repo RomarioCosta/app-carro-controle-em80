@@ -106,6 +106,9 @@ test('alertas de geometria: trechos acima do limite, agrupados, com o maior nív
   assert.equal(al.length, 2);
   assert.equal(al[0].nivel, 'Interdição');
   assert.equal(al[0].valor, 40);
+  assert.equal(al[0].kmArq, 105);
+  // ponto do arquivo onde está o maior valor (amostra 105 × 4 pontos de 0,25 m): a Tela do carro vai direto nele
+  assert.equal(C.alertasGeometria(planta, 'LT', [{ id: 'a', nome: 'a', resumo: { ...r, espacamento: 0.25, pontos: n * 4 }, recorte: null }], lim)[0].iArq, 420);
   assert.equal(Math.round(al[0].fim - al[0].ini), 10);
   assert.equal(al[1].tipo, 'C');
   assert.equal(al[1].limite, -10);

@@ -494,37 +494,99 @@ test('formato novo sem linhas de evento: trechos da coluna EX viram eventos INIC
   assert.equal(ex[1].pos, a.pos[138]);
 });
 
-test('compensação de salto/volta do km por pontos (botão da Montagem)', () => {
-  // 20.000 pontos a cada 0,25 m; no ponto 12.000 o km salta 13 m (buraco)
+test('compensação de salto/volta do km: espalha desde o último acerto (botão da Montagem)', () => {
+  // 20.000 pontos a cada 0,25 m; no ponto 12.000 o km salta 13 m (buraco); 3.000 m desde o início do arquivo
   const pos = Float64Array.from({ length: 20000 }, (_, i) => 240000 + i * 0.25 + (i >= 12000 ? 13 : 0));
   const [c] = B.saltosCompensaveis(pos);
   assert.equal(c.tipo, 'salto');
   assert.equal(Math.round(c.delta), 13);
   assert.equal(c.pontosFaltando, 52); // 13 / 0,25
-  assert.equal(c.N, 5200); // 13 / (1% de 0,25) = 13 / 0,0025
+  assert.equal(c.N, 12000); // todos os pontos desde o início do arquivo
+  assert.equal(c.desde, 240000);
+  assert.ok(Math.abs(c.pct - 13 / 3000) < 1e-12); // 0,43% do espaçamento por ponto
   assert.ok(c.cabe);
-  assert.ok(Math.abs(c.porPonto - 0.0025) < 1e-9);
   const p = B.compensarPos(pos, [c]);
-  assert.equal(p[12000 - 5201], pos[12000 - 5201]); // antes da janela: não muda
-  assert.ok(Math.abs(p[12000 - 5200] - pos[12000 - 5200] - 0.0025) < 1e-9); // 1º ponto: +0,0025
+  assert.ok(Math.abs(p[0] - pos[0] - 13 / 12000) < 1e-9); // 1º ponto: uma parcela
+  assert.ok(Math.abs(p[5999] - pos[5999] - 6.5) < 1e-9); // metade do caminho: metade da diferença
   assert.ok(Math.abs(p[11999] - pos[11999] - 13) < 1e-9); // último ponto antes do salto: +13 m
   assert.equal(p[12000], pos[12000]); // depois do salto: não muda
-  // passo entre vizinhos: 0,25 → 0,2525 (no máximo 1% a mais)
-  assert.ok(Math.abs(p[11000] - p[10999] - 0.2525) < 1e-9);
+  assert.ok(Math.abs(p[11000] - p[10999] - (0.25 + 13 / 12000)) < 1e-9); // cada passo muda o mínimo possível
   assert.ok(Math.abs(p[12000] - p[11999] - 0.25) < 1e-9); // km contínuo no salto
-  // volta de 55 m (sobreposição): desconta aos poucos; com 1% precisa de 22.000 pontos → não cabe em 12.000
+  // volta de 55 m com 3.000 m antes: 1,83% por ponto → passa do máximo de 1%
   const volta = Float64Array.from({ length: 20000 }, (_, i) => 47000 + i * 0.25 - (i >= 12000 ? 55 : 0));
   const [v] = B.saltosCompensaveis(volta);
   assert.equal(v.tipo, 'volta');
-  assert.equal(v.N, 22000);
+  assert.equal(v.N, 12000);
   assert.equal(v.cabe, false);
-  // com 3% por ponto cabe
-  const [v3] = B.saltosCompensaveis(volta, { passoMax: 0.03 });
-  assert.ok(v3.cabe);
-  const pv = B.compensarPos(volta, [v3]);
+  // com 2% por ponto cabe
+  const [v2] = B.saltosCompensaveis(volta, { passoMax: 0.02 });
+  assert.ok(v2.cabe);
+  const pv = B.compensarPos(volta, [v2]);
   assert.ok(Math.abs(pv[12000] - pv[11999] - 0.25) < 1e-9);
   // até 2 m: dentro da margem, não entra
   assert.equal(B.saltosCompensaveis(Float64Array.from({ length: 2000 }, (_, i) => i * 0.25 + (i >= 1000 ? 1.5 : 0))).length, 0);
+});
+
+test('compensação: 20+100 → 20+150 depois de 15 km sem acerto muda cada ponto o mínimo', () => {
+  const pos = Float64Array.from({ length: 80000 }, (_, i) => 5100 + i * 0.25 + (i >= 60000 ? 50 : 0));
+  const [c] = B.saltosCompensaveis(pos);
+  assert.equal(c.N, 60000);
+  assert.ok(c.cabe);
+  const p = B.compensarPos(pos, [c]);
+  // 1 km antes do salto o km muda 50 × 14/15 ≈ 46,7 m; o passo entre vizinhos muda só 0,33%
+  assert.ok(Math.abs((p[1] - p[0]) - 0.25 * (1 + 50 / 15000)) < 1e-9);
+  assert.ok(Math.abs(p[59999] + 0.25 - p[60000]) < 1e-9);
+});
+
+test('compensação: carro parado logo depois ou dentro do trecho', () => {
+  // 7 pontos parados logo depois do salto: o salto continua compensável
+  const parado = Float64Array.from({ length: 20000 }, (_, i) => { const k = i < 12003 ? i : Math.max(12003, i - 7); return k * 0.25 + (i >= 12000 ? 50 : 0); });
+  assert.equal(B.saltosCompensaveis(parado).length, 1);
+  // pontos parados dentro do trecho compensado recebem a mesma correção (pela distância, e não pela contagem)
+  const p2 = Float64Array.from({ length: 20000 }, (_, i) => { const k = i < 5000 ? i : Math.max(5000, i - 9); return k * 0.25 + (i >= 12000 ? 13 : 0); });
+  const [c] = B.saltosCompensaveis(p2);
+  const p = B.compensarPos(p2, [c]);
+  for (let i = 5001; i < 5010; i++) assert.equal(p[i], p[5000]);
+  assert.ok(Math.abs(p[12000] - p[11999] - 0.25) < 1e-9);
+});
+
+test('compensação: dois pulos seguidos não se sobrepõem (mesmo com margem menor que 1 m)', () => {
+  const pos = Float64Array.from({ length: 20000 }, (_, i) => i * 0.25 + (i >= 10000 ? 0.8 : 0) + (i >= 10100 ? 0.8 : 0));
+  const [a, b] = B.saltosCompensaveis(pos, { margem: 0.5 });
+  assert.equal(a.N, 10000);
+  assert.equal(b.N, 100); // o segundo começa no primeiro (acerto do km)
+  const p = B.compensarPos(pos, [a, b]);
+  assert.ok(Math.abs(p[10000] - p[9999] - (0.25 + 0.8 / 100)) < 1e-9); // o 1º ponto do 2º trecho já recebe uma parcela
+  assert.ok(Math.abs(p[10100] - p[10099] - 0.25) < 1e-9);
+  assert.ok(Math.abs(p[10000] - pos[10000] - 0.8 / 100) < 1e-9);
+});
+
+test('arquivo compensado: eventos andam com o ponto e o recorte usa o km do arquivo', () => {
+  const texto = gerarCSV({ salto: 20 }); // decrescente; no ponto 2400 o km pula 20 m
+  const a = B.lerCSV(texto);
+  const amv = a.eventos.find((e) => e.texto === 'INICIO AMV');
+  assert.equal(a.pos[amv.i], amv.pos);
+  const [c] = B.saltosCompensaveis(a.pos);
+  assert.equal(c.tipo, 'salto');
+  const comp = B.compensarArquivo(a, B.compensacoesPedidas([c], [c.chave]));
+  assert.equal(comp.posArq, a.pos);
+  const amvC = comp.eventos.find((e) => e.texto === 'INICIO AMV');
+  assert.equal(amvC.posArq, amv.pos);
+  assert.ok(Math.abs(amvC.pos - comp.pos[amv.i]) < 1e-9); // o evento fica no mesmo ponto
+  assert.notEqual(amvC.pos, amv.pos);
+  // recorte até o km do arquivo do último ponto antes do pulo: mesmos 2.400 pontos com ou sem compensação
+  const ate = a.pos[2399];
+  const r0 = B.recortar(a, ate, null); const r1 = B.recortar(comp, ate, null);
+  assert.equal(r0.pos.length, 2400);
+  assert.equal(r1.pos.length, 2400);
+  assert.equal(r1.idx[0], 0);
+  assert.equal(r1.eventos.length, r0.eventos.length);
+  const r2 = B.recortar(comp, null, a.pos[3000]);
+  assert.equal(r2.idx[0], 3000); // ponto no arquivo inteiro (para ir ao alerta da Montagem)
+  // a conferência recorta pelo km do CSV: com o km compensado continua batendo
+  const res = B.analisar(r1);
+  const conf = B.conferir(texto, res, 2, { de: ate, ate: null });
+  assert.equal(conf.ok, true, JSON.stringify(conf.divergencias));
 });
 
 test('compensar mesmo assim: usa todos os pontos antes do pulo', () => {

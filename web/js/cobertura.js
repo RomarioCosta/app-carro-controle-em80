@@ -179,7 +179,7 @@
       kmIni: pos[0], kmFim: pos[n - 1],
       correcao: { min: aj.min, max: aj.max, casadas: aj.casadas, curvas: aj.curvas },
       espacamento: esp,
-      compensaveis: compensaveis.map(({ i, de, km, delta, tipo, pontosFaltando, N, disponiveis, cabe, porPonto, chave, tratado }) => ({ i, de, km, delta, tipo, pontosFaltando, N, disponiveis, cabe, porPonto, chave, tratado })),
+      compensaveis: compensaveis.map(({ i, de, km, desde, delta, tipo, pontosFaltando, N, disponiveis, extensao, pct, cabe, porPonto, chave, tratado }) => ({ i, de, km, desde, delta, tipo, pontosFaltando, N, disponiveis, extensao, pct, cabe, porPonto, chave, tratado })),
       amostras,
       geometria,
       inconsistencias
@@ -206,7 +206,7 @@
    * Trechos que passam dos limites, por arquivo e parâmetro, no km da geometria.
    * limites(id, 'C' | 'T') → [{ grau, nome, sup, inf }] (níveis de alerta da Tela do carro), ou [] sem limite.
    * Amostras seguidas acima do limite (até 3 m de folga) viram um alerta só, com o maior valor e o maior nível.
-   * Retorna [{ arquivo, id, param, linha, ini, fim, kmArq, valor, limite, grau, nivel, eh, elemento, tipo }].
+   * Retorna [{ arquivo, id, param, linha, ini, fim, kmArq, iArq, valor, limite, grau, nivel, eh, elemento, tipo }].
    */
   C.alertasGeometria = (planta, ramal, arquivos, limites) => {
     const out = [];
@@ -214,6 +214,9 @@
       const r = a.resumo;
       const { pos, aj, linha, linhas } = r.amostras;
       const rc = a.recorte;
+      // amostra k = ponto k × passo do arquivo (a última é o último ponto)
+      const passo = Math.max(1, Math.round(1 / (r.espacamento || 0.25)));
+      const pontoDa = (k) => (r.pontos ? Math.min(k * passo, r.pontos - 1) : k * passo);
       const porLinha = {};
       const elsDe = (l) => { if (!porLinha[l]) porLinha[l] = B().elementosDaPlanta(planta, ramal, l); return porLinha[l]; };
       const elemento = (els, y) => {
@@ -242,10 +245,10 @@
           if (atual && (atual.linha !== l || Math.abs(y - atual.ultimo) > 3)) fechar();
           const limite = val > 0 ? g.sup : g.inf;
           if (!atual) {
-            atual = { arquivo: a.nome, idArquivo: a.id, id, param: C.NOMES_GEOMETRIA[id], linha: l, ini: y, fim: y, kmArq: x, valor: val, limite, grau: g.grau, nivel: g.nome, eh: el.nomeEh || `EH ${el.eh}`, elemento: `${el.tipo === 'C' ? 'C' : 'T'}${String(el.num || '').padStart(2, '0')}`, tipo: el.tipo, ultimo: y };
+            atual = { arquivo: a.nome, idArquivo: a.id, id, param: C.NOMES_GEOMETRIA[id], linha: l, ini: y, fim: y, kmArq: x, iArq: pontoDa(k), valor: val, limite, grau: g.grau, nivel: g.nome, eh: el.nomeEh || `EH ${el.eh}`, elemento: `${el.tipo === 'C' ? 'C' : 'T'}${String(el.num || '').padStart(2, '0')}`, tipo: el.tipo, ultimo: y };
           } else {
             atual.ini = Math.min(atual.ini, y); atual.fim = Math.max(atual.fim, y); atual.ultimo = y;
-            if (Math.abs(val) > Math.abs(atual.valor)) { atual.valor = val; atual.limite = limite; atual.kmArq = x; }
+            if (Math.abs(val) > Math.abs(atual.valor)) { atual.valor = val; atual.limite = limite; atual.kmArq = x; atual.iArq = pontoDa(k); }
             if (g.grau > atual.grau) { atual.grau = g.grau; atual.nivel = g.nome; }
           }
         }

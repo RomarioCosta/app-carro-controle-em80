@@ -54,7 +54,7 @@
     try {
       const salvo = await store.get(CHAVE);
       if (v !== versaoArquivo) return;
-      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [] });
+      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [], regras: salvo.regras || null });
     } catch (e) { /* sem arquivo salvo */ }
   }
 
@@ -114,8 +114,9 @@
   /** Trecho analisado (km inicial e final, em metros): descarta o resto do arquivo sem editar o CSV. */
   let recorte = { de: null, ate: null };
   let arquivoCompleto = null;
-  /** Saltos/voltas do km compensados na Montagem (chaves de B.saltosCompensaveis). */
+  /** Saltos/voltas do km compensados na Montagem (chaves de B.saltosCompensaveis) e as regras usadas lá. */
   let compensar = [];
+  let regrasComp = null;
 
   function aplicarRecorte() {
     arquivo = B.recortar(arquivoCompleto, recorte.de, recorte.ate);
@@ -126,16 +127,17 @@
     }
   }
 
-  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [] }) {
+  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [], regras = null }) {
     versaoArquivo++;
     compensar = [...comp];
+    regrasComp = regras;
     cacheAjuste.clear(); cacheConferencia.clear();
     try {
       arquivoCompleto = B.lerCSV(texto);
       if (compensar.length) {
-        // mesmo km compensado da Montagem: os pontos antes do salto/volta recebem a diferença aos poucos
-        const lista = B.compensacoesPedidas(B.saltosCompensaveis(arquivoCompleto.pos), compensar);
-        if (lista.length) arquivoCompleto = { ...arquivoCompleto, pos: B.compensarPos(arquivoCompleto.pos, lista), compensados: lista.length };
+        // mesmo km compensado da Montagem (mesmas regras): os pontos antes do salto/volta recebem a diferença aos poucos
+        const lista = B.compensacoesPedidas(B.saltosCompensaveis(arquivoCompleto.pos, regrasComp || {}), compensar);
+        arquivoCompleto = B.compensarArquivo(arquivoCompleto, lista);
       }
       recorte = trecho ? { de: trecho.de ?? null, ate: trecho.ate ?? null } : { de: null, ate: null };
       aplicarRecorte();
@@ -156,7 +158,7 @@
     }
     zoom = null;
     recalcular();
-    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar }).catch(() => {});
+    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar, regras: regrasComp }).catch(() => {});
   }
 
   async function mudarRecorte(de, ate) {
@@ -333,6 +335,7 @@
       onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) lerArquivo(f); }
     });
     const meta = arquivo && arquivo.meta;
+    const posArq = arquivoCompleto ? (arquivoCompleto.posArq || arquivoCompleto.pos) : null;
     ui.trocar(secoes.arquivo, h('section', { class: 'cartao' },
       h('h2', { text: 'Arquivo' }),
       ui.campo('Arquivo CSV gerado pelo carro controle', input),
@@ -351,7 +354,7 @@
         h('div', { class: 'grade-2 trecho-analisado' },
           ['de', 'ate'].map((lado) => ui.campo(lado === 'de' ? 'Analisar a partir do km' : 'Analisar até o km', h('input', {
             type: 'text', inputmode: 'decimal', name: `recorte-${lado}`,
-            placeholder: lado === 'de' ? `início do arquivo (${B.fmtKm(Math.min(arquivoCompleto.pos[0], arquivoCompleto.pos[arquivoCompleto.pos.length - 1]))})` : `fim do arquivo (${B.fmtKm(Math.max(arquivoCompleto.pos[0], arquivoCompleto.pos[arquivoCompleto.pos.length - 1]))})`,
+            placeholder: lado === 'de' ? `início do arquivo (${B.fmtKm(Math.min(posArq[0], posArq[posArq.length - 1]))})` : `fim do arquivo (${B.fmtKm(Math.max(posArq[0], posArq[posArq.length - 1]))})`,
             value: recorte[lado] === null ? '' : B.fmtKm(recorte[lado]),
             onchange: (e) => {
               const v = B.kmParaMetros(e.target.value);
@@ -360,6 +363,7 @@
             }
           })))),
         arquivo.recorte && arquivo.recorte.descartados ? h('p', { class: 'sub', text: `${arquivo.recorte.descartados.toLocaleString('pt-BR')} pontos fora do trecho analisado foram descartados (o arquivo não é alterado).` }) : null,
+        arquivoCompleto.compensados ? h('p', { class: 'sub', text: `Km compensado em ${arquivoCompleto.compensados} salto(s)/volta(s) na Montagem: gráficos, tabelas e laudo usam o km compensado; o trecho analisado é no km do arquivo.` }) : null,
         h('div', { class: 'linha-acoes' },
           h('button', { class: 'btn btn-primario', onclick: abrirLaudo }, ui.icone('documento'), 'Gerar laudo (PDF)')),
         h('button', {
@@ -1097,7 +1101,7 @@
     estado: () => ({ arquivo, resultado, nomeArquivo, opcoes }),
     textoDoArquivo,
     /** Abre um arquivo vindo de outra tela (Montagem / Tela do carro), com o trecho e as compensações dela. */
-    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [] } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp }),
+    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [], regras = null } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp, regras }),
     planta: async () => { try { return await store.get(CHAVE_PLANTA); } catch (e) { return null; } }
   };
 })(window.App);

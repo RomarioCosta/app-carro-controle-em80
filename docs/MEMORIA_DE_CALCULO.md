@@ -437,93 +437,76 @@ Falta = metros que precisam ser medidos − metros medidos
 
 O operador acerta o km do sistema quando passa pela placa. No arquivo, isso aparece como um **pulo** do km entre dois pontos seguidos:
 
-- **Km salta** (ex.: 314+621 → 314+634): o sistema estava **atrasado**. Fica um **buraco** de 13 m sem medição, mas a via não tem buraco: o km é que estava errado.
+- **Km salta** (ex.: 20+100 → 20+150): o sistema estava **atrasado**. Fica um **buraco** de 50 m sem medição, mas a via não tem buraco: o km é que estava errado.
 - **Km volta** (ex.: 47+055 → 47+000): o sistema estava **adiantado**. Fica uma **sobreposição** de 55 m, mas o carro não passou duas vezes: de novo, o km estava errado.
 
-O erro não aconteceu de uma vez: o odômetro foi errando aos poucos. Por isso a correção é espalhada **pelos pontos anteriores ao pulo**, um pouquinho em cada ponto.
+O erro não aconteceu de uma vez: o odômetro foi errando aos poucos **desde o último acerto do km** (o pulo anterior ou o início do arquivo). Por isso a correção é espalhada por **todos os pontos desde o último acerto**, um pouquinho em cada ponto. Assim cada ponto muda **o mínimo possível**, e o local de um defeito não "anda" de uma vez.
 
-### 16.2 A regra, por pontos
+### 16.2 A regra
 
 1. **Até 2 m não mexe.** Está dentro da margem de erro.
-2. **Quantos pontos faltam ou sobram:**
+2. **Trecho da compensação:** todos os pontos desde o último acerto do km até o ponto antes do pulo. Último acerto = o pulo anterior (qualquer pulo acima de 1 m, compensado ou não) ou o início do arquivo.
+3. **Quanto cada ponto muda:**
 
 ```
-pontos do pulo = tamanho do pulo ÷ espaçamento
+% por ponto = tamanho do pulo ÷ extensão do trecho (desde o último acerto)
+km novo = km do arquivo + tamanho do pulo × (distância percorrida desde o último acerto ÷ extensão do trecho)
 ```
 
-3. **Quantos pontos recebem a compensação.** Cada ponto pode mudar no máximo **1% do espaçamento** (1% de 0,25 m = **0,0025 m**):
-
-```
-pontos da compensação = tamanho do pulo ÷ 0,0025
-```
-
-4. **Cada ponto ganha (salto) ou perde (volta) 0,0025 m a mais que o anterior.** O acréscimo vai **acumulando** até chegar ao tamanho do pulo no último ponto antes dele:
-
-```
-km novo do ponto k = km do arquivo + k × (tamanho do pulo ÷ pontos da compensação)
-k = 1 no primeiro ponto da compensação … até o último ponto antes do pulo
-```
-
-5. **O km depois do pulo não muda**, porque é o da placa. Com isso o km fica contínuo: sem buraco e sem sobreposição.
-6. **E quando não cabe?** Se não houver pontos suficientes antes do pulo (início do arquivo ou outro pulo no caminho), o app avisa e mostra quanto cada ponto teria que mudar. O botão vira **"Compensar mesmo assim (x% por ponto)"**: usa todos os pontos que existem antes do pulo, e cada ponto muda mais que 1%. A decisão é sua.
-7. **Pulos maiores que 300 m** não são acerto de km: é passada repetida ou falta de arquivo. Use o recorte.
+   A correção cresce aos poucos: perto do último acerto é quase zero; no último ponto antes do pulo é o pulo inteiro. É pela **distância percorrida**, então pontos com o carro parado recebem a mesma correção.
+4. **O km depois do pulo não muda**, porque é o da placa. O km fica contínuo: sem buraco e sem sobreposição.
+5. **Máximo por ponto (1% do espaçamento).** Se o % por ponto passar de 1%, o pulo é grande demais para o trecho: pode ser passada repetida ou arquivo faltando, e não acerto de km. O app avisa e o botão vira **"Compensar mesmo assim (x% por ponto)"**. A decisão é sua.
+6. **Pulos maiores que 300 m** não são acerto de km: é passada repetida ou falta de arquivo. Use o recorte.
+7. **Carro parado logo depois do pulo** não impede o pulo de ser reconhecido.
 8. **Nada é automático.** Cada pulo tem o botão **Compensar** e, depois, **Desfazer**. O CSV nunca é alterado.
 
-Os três valores (2 m, 1% e 300 m) podem ser mudados em **"Regras da compensação do km"**, na Montagem.
+Os três valores (2 m, 1% e 300 m) podem ser mudados em **"Regras da compensação do km"**, na Montagem. Ao mudar uma regra, todos os arquivos da Montagem são recalculados na hora, e a Tela do carro e a Análise passam a usar as mesmas regras de cada arquivo.
 
-### 16.3 Exemplo 1: salto de 13 m (buraco)
+### 16.3 Exemplo 1: salto de 50 m depois de 15 km sem acerto
+
+O carro sai do km 5+100 e, no km 20+100, o operador acerta o km para 20+150.
 
 | Conta | Resultado |
 |---|---|
-| Pontos do buraco | 13 ÷ 0,25 = **52 pontos** |
-| Pontos da compensação | 13 ÷ 0,0025 = **5.200 pontos** (5.200 × 0,25 = 1.300 m) |
-| Cada ponto | ganha **0,0025 m** a mais que o anterior |
+| Pontos do buraco | 50 ÷ 0,25 = **200 pontos** |
+| Trecho da compensação | 5+100 → 20+100 = **15.000 m** (60.000 pontos) |
+| % por ponto | 50 ÷ 15.000 = **0,33%** do espaçamento (dentro de 1%) |
+| Cada ponto | ganha 50 ÷ 60.000 = **0,00083 m** a mais que o anterior |
 
 | Ponto | Km do arquivo | Ganha | Km novo |
 |---|---|---|---|
-| 1º da compensação | 313+321,00 | 0,0025 m | 313+321,0025 |
-| 2º | 313+321,25 | 0,0050 m | 313+321,2550 |
-| 1.000º | 313+570,75 | 2,5 m | 313+573,25 |
-| 2.600º (metade) | 313+970,75 | 6,5 m | 313+977,25 |
-| 5.200º (último antes do salto) | 314+620,75 | **13 m** | **314+633,75** |
-| 1º depois do salto | 314+634,00 | 0 | 314+634,00 (não muda) |
+| 1º do trecho | 5+100,00 | 0,0008 m | 5+100,00 |
+| 3 km depois | 8+100,00 | 10 m | 8+110,00 |
+| metade | 12+600,00 | 25 m | 12+625,00 |
+| último antes do salto | 20+099,75 | **50 m** | **20+149,75** |
+| 1º depois do salto | 20+150,00 | 0 | 20+150,00 (não muda) |
 
-- **Antes de compensar:** do último ponto para o seguinte, o km pulava 13,25 m.
-- **Depois:** o passo é de 0,25 m, sem buraco.
-- **Entre um ponto e o vizinho**, a distância passou de 0,25 m para **0,2525 m** (só 1% a mais). É essa mudança pequena que garante que nenhum ponto fique "longe" do vizinho.
+- **Entre um ponto e o vizinho**, a distância passa de 0,25 m para 0,25083 m (só 0,33% a mais).
+- **Por que não concentrar perto do pulo?** Com a regra antiga (só os pontos logo antes do pulo, a 1% cada), os 5 km antes do salto recebiam toda a correção e os 10 km anteriores nenhuma. Como o odômetro erra aos poucos desde o último acerto, espalhar pelo trecho todo é o mais fiel e muda menos cada ponto.
 
 ### 16.4 Exemplo 2: volta de 5 m (sobreposição)
+
+O sistema marcava 324+634 quando o carro passou pela placa 324+629. O último acerto foi 4 km antes.
 
 | Conta | Resultado |
 |---|---|
 | Pontos da sobreposição | 5 ÷ 0,25 = **20 pontos** |
-| Pontos da compensação | 5 ÷ 0,0025 = **2.000 pontos** (500 m) |
-| Cada ponto | perde **0,0025 m** a mais que o anterior; o último antes da volta perde **5 m** |
+| % por ponto | 5 ÷ 4.000 = **0,125%** |
+| Último ponto antes da volta | perde **5 m**: fica em 324+628,75 |
 
-**Exemplo.** O sistema marcava 324+634 quando o carro passou pela placa 324+629.
-- Depois da compensação, o último ponto antes da volta fica em 324+628,75.
-- O ponto seguinte (324+629) continua igual, e a sobreposição some.
-- Entre vizinhos, a distância passa de 0,25 m para **0,2475 m**.
+O ponto seguinte (324+629) continua igual, e a sobreposição some. Entre vizinhos, a distância passa de 0,25 m para 0,2497 m.
 
-### 16.5 Exemplo 3: volta de 55 m que não cabe
-
-| Conta | Resultado |
-|---|---|
-| Pontos da compensação | 55 ÷ 0,0025 = **22.000 pontos** (5,5 km) |
-| Pontos que existem antes da volta | 12.000 (3 km) |
-| % por ponto que seria preciso | 55 ÷ 3.000 m ≈ 1,8% |
-
-Resultado: com 1% não cabe. O botão mostra **"Compensar mesmo assim (1,8% por ponto)"**.
-
-- Se usar o botão, os 12.000 pontos anteriores perdem cada um 55 ÷ 12.000 = **0,0046 m** a mais que o anterior.
-- A distância entre vizinhos passa de 0,25 m para 0,2454 m.
+### 16.5 Exemplo 3: volta de 55 m que passa de 1%
 
 **Seu caso real (RFA_CS, volta de 47+055 para 47+000).** O arquivo começa em 45+429, então há cerca de 1.626 m (6.500 pontos) antes da volta.
 
 | Conta | Resultado |
 |---|---|
-| Quanto cada ponto perde | 55 ÷ 6.500 ≈ **0,0085 m** (3,4% do espaçamento) |
-| Distância entre vizinhos | passa de 0,25 m para cerca de 0,2415 m |
+| % por ponto | 55 ÷ 1.626 ≈ **3,4%** do espaçamento: passa de 1% |
+| Botão | **"Compensar mesmo assim (3,4% por ponto)"** |
+| Distância entre vizinhos | se compensar, passa de 0,25 m para cerca de 0,2415 m |
+
+Uma volta de 55 m em 1,6 km é muito para erro de odômetro: vale conferir se não é passada repetida (recorte) antes de compensar.
 
 ### 16.6 Onde a compensação vale
 
@@ -531,7 +514,15 @@ A compensação vale para:
 - a cobertura e os buracos da Montagem;
 - os alertas de geometria;
 - a correção pela geometria (item 7, refeita sobre o km compensado);
-- o arquivo rodando na Tela do carro.
+- o arquivo rodando na Tela do carro;
+- a Análise do arquivo e o laudo, quando o arquivo é aberto pela Montagem (a Análise avisa: "Km compensado em N salto(s)/volta(s)").
+
+### 16.7 O que continua no km do arquivo
+
+Para o km compensado não levar a um lugar errado:
+- **Recorte** ("Usar a partir do km / Até o km" na Montagem e "Analisar a partir do km" na Análise): é sempre no **km do arquivo**, o mesmo que aparece na tela do carro durante a inspeção. O mesmo recorte pega os mesmos pontos na Montagem, na Tela do carro, na Análise e na conferência.
+- **Alerta de geometria → Tela do carro:** o alerta guarda o **ponto do arquivo** onde está o maior valor. A Tela vai direto nesse ponto, e não procura pelo km (que mudou com a compensação ou pode se repetir numa volta).
+- **Eventos** (AMV, travador, EX…): ficam presos ao ponto em que foram gravados e andam junto com ele.
 
 ---
 

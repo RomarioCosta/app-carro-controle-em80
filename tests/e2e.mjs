@@ -695,13 +695,13 @@ async function main() {
       await page.reload();
       await page.getByRole('heading', { name: 'Montagem dos dados' }).waitFor();
       await page.locator('.mt-arquivo summary', { hasText: 'recortado' }).waitFor();
-      // salto de 3 m no km: botão Compensar (1.200 pontos × 0,0025 m)
+      // salto de 3 m no km: botão Compensar (espalha nos 2.400 pontos desde o início do arquivo)
       await page.locator('input[name="arquivo-montagem"]').setInputFiles([{ name: 'SALTO.csv', mimeType: 'text/csv', buffer: Buffer.from(gerarCSV({ salto: 3 }), 'latin1') }]);
       await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
       const salto = page.locator('.mt-arquivo', { hasText: 'SALTO.csv' });
       await salto.locator('summary').click();
       await salto.locator('.mt-comp-item', { hasText: 'buraco de 3,00 m (12 pontos)' }).waitFor();
-      assert.ok((await salto.locator('.mt-comp-item').textContent()).includes('1.200 pontos'));
+      assert.ok((await salto.locator('.mt-comp-item').textContent()).includes('2.400 pontos'));
       await salto.getByRole('button', { name: 'Compensar' }).click();
       await page.getByText('Compensado:').waitFor();
       await salto.locator('.mt-comp-item', { hasText: 'Compensado' }).waitFor();
