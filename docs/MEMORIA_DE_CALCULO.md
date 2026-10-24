@@ -523,6 +523,7 @@ Para o km compensado não levar a um lugar errado:
 - **Recorte** ("Usar a partir do km / Até o km" na Montagem e "Analisar a partir do km" na Análise): é sempre no **km do arquivo**, o mesmo que aparece na tela do carro durante a inspeção. O mesmo recorte pega os mesmos pontos na Montagem, na Tela do carro, na Análise e na conferência.
 - **Alerta de geometria → Tela do carro:** o alerta guarda o **ponto do arquivo** onde está o maior valor. A Tela vai direto nesse ponto, e não procura pelo km (que mudou com a compensação ou pode se repetir numa volta).
 - **Eventos** (AMV, travador, EX…): ficam presos ao ponto em que foram gravados e andam junto com ele.
+- **Salto ou volta fora do recorte** (um dos lados do pulo ficou fora do trecho usado): sai da lista de compensação. Ex.: arquivo que começa em 326+807 e salta de 326+987 para 327+000 na primeira placa; com "Usar a partir do km" = 327+000, o salto deixa de aparecer.
 
 ---
 

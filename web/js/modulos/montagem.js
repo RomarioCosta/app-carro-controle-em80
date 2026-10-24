@@ -27,6 +27,9 @@
   const ciclo = () => U.pref.get('montagem:ciclo', (App.OM && App.OM.cicloAtivo()) || '');
   const doCiclo = () => arquivos.filter((a) => (a.ciclo || '') === ciclo());
   const aba = () => U.pref.get('montagem:aba', 'cobertura');
+  /** Saltos/voltas dentro do trecho usado: os dois lados do pulo (km do arquivo) ficam dentro do recorte. */
+  const dentroRecorte = (rc, x) => !rc || ((rc.de === null || rc.de === undefined || x >= rc.de) && (rc.ate === null || rc.ate === undefined || x <= rc.ate));
+  const compensaveisUsados = (a) => a.resumo.compensaveis.filter((c) => dentroRecorte(a.recorte, c.de) && dentroRecorte(a.recorte, c.km));
   /** Regras da compensação de km (editáveis): margem em m e máximo por ponto em fração do espaçamento. */
   const regras = () => ({ ...B().COMPENSACAO, ...(U.pref.get('montagem:compensacao', {}) || {}) });
 
@@ -366,7 +369,7 @@
             h('span', { class: `mt-ponto ${erros ? 'mt-erro' : alertas ? 'mt-alerta' : 'mt-ok'}` }),
             h('strong', { text: a.nome }),
             h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}` }),
-            a.antigo ? h('span', { class: 'mt-cont', text: 'adicionar de novo' }) : r.compensaveis.some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${r.compensaveis.filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
+            a.antigo ? h('span', { class: 'mt-cont', text: 'adicionar de novo' }) : compensaveisUsados(a).some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${compensaveisUsados(a).filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
               : avisos.length ? h('span', { class: 'mt-cont', text: `${avisos.length} aviso(s)` }) : null),
           h('div', { class: 'pilha mt-arquivo-corpo' },
             h('p', { class: 'mt-sub', text: `Caiu em: ${ondeCaiu || '—'} · correção do km pela geometria ${Math.round(r.correcao.min)} a ${Math.round(r.correcao.max)} m · ${r.correcao.casadas}/${r.correcao.curvas} curvas casadas` }),
@@ -392,9 +395,12 @@
     const r = a.resumo;
     const esp = r.espacamento || 0.25;
     const rg = a.regras || regras(); // regras com que o arquivo foi calculado
+    const usados = compensaveisUsados(a);
+    const fora = r.compensaveis.length - usados.length;
     return h('div', { class: 'pilha mt-comp' },
       h('strong', { text: 'Saltos e voltas do km' }),
-      r.compensaveis.map((c) => {
+      fora ? h('span', { class: 'mt-sub', text: `${fora} salto(s)/volta(s) fora do trecho usado (recorte): não precisam de compensação.` }) : null,
+      usados.map((c) => {
         // a compensação usa todos os pontos desde o último acerto (resumos de versões anteriores guardavam outro N)
         const ext = c.extensao ?? c.disponiveis * esp;
         const pct = (Math.abs(c.delta) / ext) * 100;
