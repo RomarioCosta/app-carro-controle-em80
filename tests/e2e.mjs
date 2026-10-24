@@ -705,6 +705,14 @@ async function main() {
       await salto.getByRole('button', { name: 'Compensar' }).click();
       await page.getByText('Compensado:').waitFor();
       await salto.locator('.mt-comp-item', { hasText: 'Compensado' }).waitFor();
+      // recorte que deixa o salto de fora (só o lado depois do pulo): sai da lista de compensação
+      await salto.getByLabel('Até o km').fill('1+898');
+      await salto.getByLabel('Até o km').dispatchEvent('change');
+      await salto.getByText('1 salto(s)/volta(s) fora do trecho usado').waitFor();
+      assert.equal(await salto.locator('.mt-comp-item').count(), 0);
+      await salto.getByLabel('Até o km').fill('');
+      await salto.getByLabel('Até o km').dispatchEvent('change');
+      await salto.locator('.mt-comp-item', { hasText: 'Compensado' }).waitFor();
       // alertas de geometria (sem bitola e sem alinhamento)
       await page.getByRole('tab', { name: 'Alertas de geometria' }).click();
       await page.locator('h2', { hasText: 'Alertas de geometria' }).waitFor();
