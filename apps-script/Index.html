@@ -1136,7 +1136,7 @@ window.App = window.App || {};
     versao: '2026.10.25',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-f6c3372a58', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-981322f74a', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -1537,13 +1537,18 @@ window.App = window.App || {};
     }
   }
 
-  /** Sincroniza agora. Chamadas simultâneas reaproveitam a mesma execução. */
+  /**
+   * Sincroniza agora. Chamadas simultâneas reaproveitam a mesma execução; um pedido que chega
+   * durante um envio (ex.: registro salvo nesse meio-tempo) roda de novo logo que ele termina,
+   * em vez de esperar a próxima tentativa automática.
+   */
+  let deNovo = false;
   function sincronizar({ forcar = false } = {}) {
-    if (!emAndamento) {
-      emAndamento = executar(forcar).finally(() => {
-        emAndamento = null;
-      });
-    }
+    if (emAndamento) { deNovo = true; return emAndamento; }
+    emAndamento = executar(forcar).finally(() => {
+      emAndamento = null;
+      if (deNovo) { deNovo = false; sincronizar({ forcar }); }
+    });
     return emAndamento;
   }
 
