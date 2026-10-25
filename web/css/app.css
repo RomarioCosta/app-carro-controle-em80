@@ -722,6 +722,20 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 @media (min-width: 900px) { .grade-4 { grid-template-columns: repeat(4, 1fr); } }
 .ev-pdf .ev-graficos { grid-template-columns: 1fr 1fr; }
 
+/* Eventos: histórico recolhível, filtro por data e clique no gráfico */
+.ev-historico > summary.ev-hist-cab { cursor: pointer; list-style: none; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.ev-historico > summary.ev-hist-cab::-webkit-details-marker { display: none; }
+.ev-historico > summary.ev-hist-cab::before { content: '▸'; display: inline-block; width: 1em; color: var(--texto2); transition: transform .15s; }
+.ev-historico[open] > summary.ev-hist-cab::before { transform: rotate(90deg); }
+.ev-historico > summary h2 { margin: 0; display: inline; }
+.ev-historico[open] > summary { margin-bottom: 12px; }
+.ev-hist-filtro { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin-bottom: 12px; }
+.ev-hist-filtro .campo { margin: 0; min-width: 180px; }
+.ev-graf-cab { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.ev-graf-cab h3 { margin: 0; }
+.graf-alvo-clicavel { cursor: pointer; }
+.graf-sel { fill: var(--serie-real); opacity: .14; }
+
 /* Marcos nos gráficos por km (travador – TRAV) */
 .graf-marco-faixa { fill: #8e44ad; opacity: .14; }
 .graf-marco-simbolo { fill: #8e44ad; }

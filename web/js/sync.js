@@ -136,13 +136,18 @@
     }
   }
 
-  /** Sincroniza agora. Chamadas simultâneas reaproveitam a mesma execução. */
+  /**
+   * Sincroniza agora. Chamadas simultâneas reaproveitam a mesma execução; um pedido que chega
+   * durante um envio (ex.: registro salvo nesse meio-tempo) roda de novo logo que ele termina,
+   * em vez de esperar a próxima tentativa automática.
+   */
+  let deNovo = false;
   function sincronizar({ forcar = false } = {}) {
-    if (!emAndamento) {
-      emAndamento = executar(forcar).finally(() => {
-        emAndamento = null;
-      });
-    }
+    if (emAndamento) { deNovo = true; return emAndamento; }
+    emAndamento = executar(forcar).finally(() => {
+      emAndamento = null;
+      if (deNovo) { deNovo = false; sincronizar({ forcar }); }
+    });
     return emAndamento;
   }
 

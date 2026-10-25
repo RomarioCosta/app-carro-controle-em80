@@ -152,3 +152,40 @@ test('listas: do dia, atrasadas e todas', () => {
   assert.deepEqual(j(l.atrasadas.map((o) => o.nOrdem)), ['2']);
   assert.equal(l.todas.length, 4);
 });
+
+test('sincronização: registro salvo durante um envio é enviado logo que o envio termina', async () => {
+  const ctx = { console, Intl, setTimeout, clearTimeout, setInterval: () => 0, localStorage: { getItem: () => null, setItem() {}, removeItem() {} } };
+  ctx.window = ctx;
+  ctx.navigator = { onLine: true };
+  ctx.document = { dispatchEvent() {}, addEventListener() {} };
+  ctx.CustomEvent = class { constructor(t, o) { this.type = t; this.detail = o && o.detail; } };
+  const banco = {};
+  const enviados = [];
+  let liberar;
+  const store = {
+    get: async (k) => banco[k],
+    atualizar: async (k, fn) => { banco[k] = fn(banco[k]); }
+  };
+  const api = {
+    configurado: () => true,
+    chamar: async (acao, dados) => {
+      enviados.push(dados.itens.map((i) => i.key));
+      if (enviados.length === 1) await new Promise((r) => { liberar = r; }); // 1º envio demora
+      return { resultados: dados.itens.map((i) => ({ key: i.key, ok: true })) };
+    }
+  };
+  ctx.App = { store, api };
+  vm.createContext(ctx);
+  ['util.js', 'sync.js'].forEach((f) => vm.runInContext(readFileSync(new URL(`../web/js/${f}`, import.meta.url), 'utf8'), ctx));
+  const { sync } = ctx.App;
+  await sync.enfileirar('rotaDia', 'a', { id: 'a' });
+  const primeiro = sync.sincronizar();
+  await new Promise((r) => setTimeout(r, 10));
+  await sync.enfileirar('rotaDia', 'b', { id: 'b' }); // salvo durante o envio
+  sync.sincronizar();
+  liberar();
+  await primeiro;
+  for (let k = 0; k < 50 && enviados.length < 2; k++) await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(j(enviados), [['rotaDia:a'], ['rotaDia:b']]);
+  assert.equal(Object.keys(banco.fila).length, 0);
+});

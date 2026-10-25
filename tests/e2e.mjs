@@ -306,6 +306,58 @@ async function main() {
       await page.screenshot({ path: `${SAIDA}04-eventos-painel.png`, fullPage: true });
     });
 
+    await passo('eventos: impacto em minutos, filtro do histórico (gráfico e data) e Excel', async () => {
+      const d = isoLocal(hoje);
+      const ontem = isoLocal(new Date(hoje.getTime() - 86400000));
+      await page.selectOption('select[name="categoria"]', 'Falha de equipamento');
+      await page.selectOption('select[name="equipamento"]', 'Applanix');
+      await page.fill('input[name="parte"]', 'POS/TG');
+      await page.fill('input[name="inicio"]', `${d}T15:00`);
+      await page.fill('input[name="fim"]', `${d}T15:40`);
+      await page.getByRole('button', { name: 'Adicionar impacto' }).click();
+      await page.fill('input[name="impOms0"]', '2');
+      await page.fill('input[name="impValor0"]', '45');
+      await page.selectOption('select[name="impUnidade0"]', 'min');
+      await page.getByRole('button', { name: 'Salvar evento' }).click();
+      await page.getByText(/Evento EV-\d{6}-\w{4} salvo\./).last().waitFor();
+      const hist = page.locator('details.ev-historico');
+      await hist.locator('.item', { hasText: 'Applanix' }).getByText(/: 2 OMs perdidas · 45 min/).waitFor();
+      // a unidade escolhida fica como padrão do próximo impacto
+      await page.getByRole('button', { name: 'Adicionar impacto' }).click();
+      assert.equal(await page.inputValue('select[name="impUnidade0"]'), 'min');
+      await page.locator('button[aria-label="Remover impacto 1"]').click();
+      // gráfico: linha por dia ou acumulada
+      const painel = page.locator('.cartao', { has: page.getByRole('heading', { name: 'Painel de eventos' }) });
+      await painel.getByRole('button', { name: 'Por dia', exact: true }).click();
+      await painel.getByText(/Impacto no tempo por dia \(h\)/).waitFor();
+      await painel.getByRole('button', { name: 'Acumulado', exact: true }).click();
+      await painel.getByText(/Impacto no tempo acumulado no período \(h\)/).waitFor();
+      // tocar no dia de hoje no gráfico filtra o histórico
+      await painel.locator('.graf-alvo-clicavel').last().click();
+      const txtFiltro = await hist.getByText(/\d+ evento\(s\) em /).textContent();
+      assert.equal(await hist.locator('.item').count(), Number(txtFiltro.match(/(\d+) evento/)[1]));
+      await hist.locator('.item', { hasText: 'Applanix' }).waitFor();
+      assert.equal(await painel.locator('.graf-sel').count(), 1);
+      await page.waitForTimeout(400); // o foco não pode ir para o campo de data (abriria o calendário no celular)
+      assert.notEqual(await page.evaluate(() => document.activeElement && document.activeElement.getAttribute('name')), 'filtroData');
+      await hist.getByRole('button', { name: 'Limpar filtro' }).click();
+      assert.equal(await painel.locator('.graf-sel').count(), 0);
+      // campo de data: ontem só tem o impacto do atraso da equipe
+      await hist.locator('input[name="filtroData"]').fill(ontem);
+      await hist.getByText(/1 evento\(s\) em /).waitFor();
+      await hist.locator('.item', { hasText: 'Manutenção liberou o carro com atraso' }).waitFor();
+      await hist.getByRole('button', { name: 'Limpar filtro' }).click();
+      // recolher o histórico
+      await hist.locator('summary').click();
+      assert.equal(await hist.evaluate((el) => el.open), false);
+      await hist.locator('summary').click();
+      // Excel
+      const [download] = await Promise.all([page.waitForEvent('download'), painel.getByRole('button', { name: 'Exportar Excel' }).click()]);
+      assert.match(download.suggestedFilename(), /^Eventos EM80 \d{2}-\d{2}-\d{4} a \d{2}-\d{2}-\d{4}\.xlsx$/);
+      await download.saveAs(`${SAIDA}05-eventos.xlsx`);
+      await page.screenshot({ path: `${SAIDA}05-eventos-filtro.png`, fullPage: true });
+    });
+
     await passo('produção: importa planilha do SAP (ciclo digitado)', async () => {
       await page.getByRole('navigation').getByRole('button', { name: 'Produção' }).click();
       await page.getByRole('heading', { name: 'Produção de OMs' }).waitFor();
@@ -705,6 +757,14 @@ async function main() {
       await salto.getByRole('button', { name: 'Compensar' }).click();
       await page.getByText('Compensado:').waitFor();
       await salto.locator('.mt-comp-item', { hasText: 'Compensado' }).waitFor();
+      // recorte que deixa o salto de fora (só o lado depois do pulo): sai da lista de compensação
+      await salto.getByLabel('Até o km').fill('1+898');
+      await salto.getByLabel('Até o km').dispatchEvent('change');
+      await salto.getByText('1 salto(s)/volta(s) fora do trecho usado').waitFor();
+      assert.equal(await salto.locator('.mt-comp-item').count(), 0);
+      await salto.getByLabel('Até o km').fill('');
+      await salto.getByLabel('Até o km').dispatchEvent('change');
+      await salto.locator('.mt-comp-item', { hasText: 'Compensado' }).waitFor();
       // alertas de geometria (sem bitola e sem alinhamento)
       await page.getByRole('tab', { name: 'Alertas de geometria' }).click();
       await page.locator('h2', { hasText: 'Alertas de geometria' }).waitFor();
@@ -747,9 +807,13 @@ async function main() {
       // ponto de atenção pelo esquema
       await page.getByRole('button', { name: 'Ponto de atenção' }).click();
       await page.locator('.esq-alvo[data-trecho="TST:EH:11@1"]').click();
+      // a janela põe o foco no 1º campo logo depois de abrir: espera, para o foco não cair no meio do preenchimento
+      await page.waitForFunction(() => document.activeElement && document.activeElement.matches('.modal input[list="tipos-ponto"]'));
       await page.locator('.modal input[list="tipos-ponto"]').fill('Subst. TR');
       await page.locator('.modal input[placeholder^="Ex.: 08:30"]').fill('08:30 a 13:00');
       await page.locator('.modal textarea').fill('TR2 - substituição de trilho');
+      assert.equal(await page.locator('.modal input[list="tipos-ponto"]').inputValue(), 'Subst. TR');
+      assert.equal(await page.locator('.modal textarea').inputValue(), 'TR2 - substituição de trilho');
       await page.locator('.modal').getByRole('button', { name: 'Salvar' }).click();
       await page.getByText('Ponto de atenção salvo.').waitFor();
       await page.locator('.esq-ponto').first().waitFor();
