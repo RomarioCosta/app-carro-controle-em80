@@ -12,17 +12,31 @@ Uma tela para **ver a via em planta** com os dados do carro controle, mostrando:
 
 ## Fontes de dados
 
+O desenho vem da **trajetória medida pela IMU** (unidade inercial) do carro, e não do GPS. A IMU mede a rotação do carro (rumo/guinada, rolagem, arfagem). Juntando isso com a distância do odômetro, sai a trajetória em **coordenadas locais (x, y, em metros)**, relativas ao início do arquivo. Essas não são coordenadas geográficas (lat/long), mas é exatamente o que um desenho tipo AutoCAD precisa.
+
 | Fonte | Para que serve | Observação |
 |---|---|---|
-| `10000/R` (curvatura) | Raio, ângulo central, início/fim da curva, espirais | É a fonte **mais precisa** para a geometria. O app já usa essa coluna para achar tangentes e curvas (memória de cálculo, item 4). |
-| `Lat` / `Long` (coordenadas) | Desenho da via em planta, na posição real | Precisão do GPS: alguns metros. Serve para o desenho, **não** para medir o raio. |
+| IMU: rumo (heading) ou taxa de guinada | Trajetória em planta (x, y), ângulo central | Canal a confirmar no export do Offboard. |
+| `10000/R` (curvatura, já vem no CSV) | Raio, início/fim da curva, espirais e também a trajetória | A curvatura do carro já vem da IMU com o odômetro. Se o rumo não vier no arquivo, a trajetória pode ser montada só com ela (fórmulas abaixo). |
+| IMU: rolagem / `SUPerABS` | Superelevação | Já vem no CSV. |
 | Geometria de projeto (planilha) | Comparar o medido com o projeto | Raio, km inicial e km final de cada elemento. |
+| `Lat` / `Long` (GPS) | **Opcional**: girar e posicionar o desenho no mapa | Todos os arquivos têm. No GV1 vieram sem a vírgula decimal (`-188.762.504.586.032` = −18,876…). O mapa de fundo é opcional. |
 
-**Atenção ao formato das coordenadas.** No arquivo do GV1 (14/08/2026), Lat/Long aparecem como `-188.762.504.586.032`, com pontos no lugar dos separadores e sem a vírgula decimal. O valor certo é −18,876…. Antes de desenhar, é preciso:
+### Trajetória a partir da IMU (coordenadas locais)
 
-- confirmar esse formato em outros arquivos;
-- confirmar a frequência das coordenadas (se vêm em todo ponto ou de tempos em tempos);
-- tratar a leitura no `lerCSV`.
+Com o rumo θ de cada ponto (direto da IMU, ou calculado pela curvatura) e `ds` = distância entre pontos (0,25 m):
+
+```
+θ(s) = θ0 + Σ (c ÷ 10000) × ds        (rumo, em rad; c = 10000/R; só se a IMU não der o rumo)
+x(s) = Σ cos θ × ds
+y(s) = Σ sin θ × ds
+```
+
+- **Início:** x = 0, y = 0 e θ0 = 0. A trajetória é **relativa**: dá a forma exata da via, só que sem posição no mapa.
+- **Com o GPS** (opcional): o desenho é girado e encaixado na posição real usando dois pontos distantes.
+- **Erro acumulado:** pequenos erros de rumo se somam ao longo de quilômetros. Para curvas isoladas não faz diferença. Para trechos longos, o desenho é corrigido trecho a trecho, pelas tangentes e pela geometria de projeto.
+
+**Exemplo.** Curva circular de raio 500 m (c = 20) com 400 m: o rumo gira 0,8 rad (45,8°) do início ao fim. A trajetória (x, y) descreve um arco de 400 m que, no desenho, une as duas tangentes com esse ângulo entre elas.
 
 ## Cálculos previstos
 
@@ -54,18 +68,19 @@ T = 500 × tan(22,9°) = 211 m
 3. **Etiqueta de cada curva**: número, R, Δ, desenvolvimento, T, comprimento das espirais e superelevação.
 4. **Comparação com a geometria de projeto**: raio e km medidos × projeto, destacando onde passa de uma tolerância.
 5. **Exportação DXF**, que abre no AutoCAD, com camadas separadas para tangentes, curvas, espirais, pontos notáveis e textos.
-6. **Fundo de mapa (satélite)** opcional. Precisa de internet; o desenho sozinho funciona offline.
+6. **Fundo de mapa (satélite):** opcional. Precisa de internet; o desenho sozinho funciona offline.
 
 ## Etapas sugeridas
 
 1. **Tabela de curvas**: R, Δ, TE/EC/CE/ET, espirais e desenvolvimento, por EH. É só cálculo, sem desenho, e já é útil sozinha, inclusive no laudo.
-2. **Leitura das coordenadas**: corrigir o formato de Lat/Long e validar com um arquivo real.
-3. **Planta da via** (desenho em SVG, com marcações e etiquetas).
+2. **Trajetória pela IMU**: (x, y) locais pelo rumo da IMU ou pela curvatura, validada com a geometria de projeto.
+3. **Planta da via** (desenho em SVG, com marcações e etiquetas). Lat/Long e mapa de fundo são opcionais.
 4. **Comparação com o projeto** (geometria).
 5. **Exportação DXF**.
 
 ## Para começar, falta
 
-- Um arquivo do carro com Lat/Long preenchidos em todo o trecho (uns 10 minutos de medição bastam), para confirmar o formato e a frequência.
-- Definir se o fundo de mapa é necessário.
+- Ver no Offboard quais **canais da IMU** podem ser exportados no CSV: rumo/heading, taxa de guinada (yaw rate), rolagem, arfagem. Se algum vier com coordenadas próprias da IMU, precisa saber a unidade e o referencial (metros locais, graus, origem).
+- Um arquivo de exemplo com esses canais (uns 10 minutos de medição bastam), para validar.
+- O mapa de fundo é **opcional** (decidido em 25/10/2026).
 - Definir as tolerâncias da comparação com o projeto (ex.: diferença de raio, de km, de Δ).
