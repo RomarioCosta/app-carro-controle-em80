@@ -805,9 +805,13 @@ async function main() {
       // ponto de atenção pelo esquema
       await page.getByRole('button', { name: 'Ponto de atenção' }).click();
       await page.locator('.esq-alvo[data-trecho="TST:EH:11@1"]').click();
+      // Tab fecha a lista de sugestões do tipo (no Chromium automatizado ela pode segurar o texto do campo seguinte)
       await page.locator('.modal input[list="tipos-ponto"]').fill('Subst. TR');
+      await page.locator('.modal input[list="tipos-ponto"]').press('Tab');
       await page.locator('.modal input[placeholder^="Ex.: 08:30"]').fill('08:30 a 13:00');
       await page.locator('.modal textarea').fill('TR2 - substituição de trilho');
+      assert.equal(await page.locator('.modal input[list="tipos-ponto"]').inputValue(), 'Subst. TR');
+      assert.equal(await page.locator('.modal textarea').inputValue(), 'TR2 - substituição de trilho');
       await page.locator('.modal').getByRole('button', { name: 'Salvar' }).click();
       await page.getByText('Ponto de atenção salvo.').waitFor();
       await page.locator('.esq-ponto').first().waitFor();
