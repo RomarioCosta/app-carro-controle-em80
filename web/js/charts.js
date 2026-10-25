@@ -448,6 +448,7 @@
    * Barras (eixo da esquerda) com linha (eixo da direita), por categoria no eixo X.
    * serie: [{ rotulo, barra, linha, dica }]; op: { nomeBarra, nomeLinha, fmtBarra, fmtLinha, titulo }
    */
+  /** op.selecionado = índice destacado; op.aoClicar(d, i) = clique numa coluna. */
   function barrasLinha(serie, op = {}) {
     const W = 560; const H = 200;
     const m = { t: 16, r: 40, b: 34, l: 36 };
@@ -476,6 +477,7 @@
     const pontos = [];
     serie.forEach((d, i) => {
       const cx = m.l + banda * i + banda / 2;
+      if (i === op.selecionado) svg.appendChild(s('rect', { class: 'graf-sel', x: m.l + banda * i, y: m.t, width: banda, height: ih }));
       if (d.barra) {
         const topo = yB(d.barra);
         svg.appendChild(s('rect', { class: 'graf-barra', x: cx - larg / 2, y: topo, width: larg, height: m.t + ih - topo, rx: Math.min(3, larg / 2) }));
@@ -489,14 +491,15 @@
       pontos.forEach(([x, y]) => svg.appendChild(s('circle', { class: 'graf-ponto-2', cx: x, cy: y, r: 1.8 })));
     }
     serie.forEach((d, i) => {
-      const alvo = s('rect', { x: m.l + banda * i, y: m.t, width: banda, height: ih + m.b, class: 'graf-alvo' });
+      const alvo = s('rect', { x: m.l + banda * i, y: m.t, width: banda, height: ih + m.b, class: `graf-alvo${op.aoClicar ? ' graf-alvo-clicavel' : ''}` });
       const mostrar = () => {
         const r = caixa.getBoundingClientRect(); const esc = r.width / W;
-        tip.mostrar([d.dica || d.rotulo, `${op.nomeBarra}: ${fmtB(d.barra || 0)}`, `${op.nomeLinha}: ${fmtL(d.linha || 0)}`], (m.l + banda * i + banda / 2) * esc, Math.min(yB(d.barra || 0), yL(d.linha || 0)) * esc);
+        tip.mostrar([d.dica || d.rotulo, `${op.nomeBarra}: ${fmtB(d.barra || 0)}`, `${op.nomeLinha}: ${fmtL(d.linha || 0)}`, op.dicaClique || null].filter(Boolean), (m.l + banda * i + banda / 2) * esc, Math.min(yB(d.barra || 0), yL(d.linha || 0)) * esc);
       };
       alvo.addEventListener('pointerenter', mostrar);
       alvo.addEventListener('pointerdown', mostrar);
       alvo.addEventListener('pointerleave', () => tip.esconder());
+      if (op.aoClicar) alvo.addEventListener('click', () => { tip.esconder(); op.aoClicar(d, i); });
       svg.appendChild(alvo);
     });
     caixa.insertBefore(svg, caixa.firstChild);

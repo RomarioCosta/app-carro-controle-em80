@@ -12,10 +12,10 @@
 
 (function (App) {
   App.config = {
-    versao: '2026.10.24',
+    versao: '2026.10.25',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-1585c823be', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-f6c3372a58', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -41,10 +41,10 @@
       },
       {
         id: 'aplanix',
-        titulo: 'Aplanix',
+        titulo: 'Applanix',
         itens: [
-          { tipo: 'sn', id: 'aplanix_conexao', texto: 'O sistema Aplanix apresentou dificuldades para conectar?', problemaEm: 'Sim' },
-          { tipo: 'sn', id: 'aplanix_falha', texto: 'O sistema Aplanix apresentou falhas ou desconectou durante a inspeção?', problemaEm: 'Sim' },
+          { tipo: 'sn', id: 'aplanix_conexao', texto: 'O sistema Applanix apresentou dificuldades para conectar?', problemaEm: 'Sim' },
+          { tipo: 'sn', id: 'aplanix_falha', texto: 'O sistema Applanix apresentou falhas ou desconectou durante a inspeção?', problemaEm: 'Sim' },
           { tipo: 'sn', id: 'aplanix_leds', texto: 'Os LEDs do POS/TG apresentaram alguma instabilidade?', problemaEm: 'Sim' },
           { tipo: 'sn', id: 'aplanix_nivelamento', texto: 'Os parâmetros de nivelamento apresentaram alguma perturbação inesperada?', problemaEm: 'Sim' }
         ]
@@ -61,7 +61,7 @@
     ],
 
     /** Equipamentos do Registro de Eventos. "Outro" abre um campo de texto. */
-    equipamentos: ['OGMS', 'KLD', 'Aplanix', 'M1', 'M2', 'M3', 'Outro'],
+    equipamentos: ['OGMS', 'KLD', 'Applanix', 'M1', 'M2', 'M3', 'Outro'],
     /** Tipos de evento. "Falha de equipamento" pede o equipamento; os outros, uma descrição. */
     categoriasEvento: ['Falha de equipamento', 'Atraso da equipe', 'Liberação do carro / da via', 'Chuva', 'Interdição / interrupção', 'Outro']
   };

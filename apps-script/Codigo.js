@@ -461,8 +461,8 @@ function gravarEvento_(d, tabela) {
     return {
       eventoId: d.id, codigo: d.codigo || '', categoria: d.categoria || '', data: i.data,
       omsPerdidas: i.oms === '' || i.oms === null || i.oms === undefined ? '' : Number(i.oms),
-      impactoValor: valor, impactoUnidade: i.unidade === 'd' ? 'dias' : 'horas',
-      impactoHoras: valor === '' ? '' : valor * (i.unidade === 'd' ? 24 : 1)
+      impactoValor: valor, impactoUnidade: i.unidade === 'd' ? 'dias' : i.unidade === 'min' ? 'minutos' : 'horas',
+      impactoHoras: valor === '' ? '' : valor * (i.unidade === 'd' ? 24 : i.unidade === 'min' ? 1 / 60 : 1)
     };
   }));
 }

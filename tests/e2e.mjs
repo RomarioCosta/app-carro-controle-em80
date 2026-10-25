@@ -306,6 +306,56 @@ async function main() {
       await page.screenshot({ path: `${SAIDA}04-eventos-painel.png`, fullPage: true });
     });
 
+    await passo('eventos: impacto em minutos, filtro do histórico (gráfico e data) e Excel', async () => {
+      const d = isoLocal(hoje);
+      const ontem = isoLocal(new Date(hoje.getTime() - 86400000));
+      await page.selectOption('select[name="categoria"]', 'Falha de equipamento');
+      await page.selectOption('select[name="equipamento"]', 'Applanix');
+      await page.fill('input[name="parte"]', 'POS/TG');
+      await page.fill('input[name="inicio"]', `${d}T15:00`);
+      await page.fill('input[name="fim"]', `${d}T15:40`);
+      await page.getByRole('button', { name: 'Adicionar impacto' }).click();
+      await page.fill('input[name="impOms0"]', '2');
+      await page.fill('input[name="impValor0"]', '45');
+      await page.selectOption('select[name="impUnidade0"]', 'min');
+      await page.getByRole('button', { name: 'Salvar evento' }).click();
+      await page.getByText(/Evento EV-\d{6}-\w{4} salvo\./).last().waitFor();
+      const hist = page.locator('details.ev-historico');
+      await hist.locator('.item', { hasText: 'Applanix' }).getByText(/: 2 OMs perdidas · 45 min/).waitFor();
+      // a unidade escolhida fica como padrão do próximo impacto
+      await page.getByRole('button', { name: 'Adicionar impacto' }).click();
+      assert.equal(await page.inputValue('select[name="impUnidade0"]'), 'min');
+      await page.locator('button[aria-label="Remover impacto 1"]').click();
+      // gráfico: linha por dia ou acumulada
+      const painel = page.locator('.cartao', { has: page.getByRole('heading', { name: 'Painel de eventos' }) });
+      await painel.getByRole('button', { name: 'Por dia', exact: true }).click();
+      await painel.getByText(/Impacto no tempo por dia \(h\)/).waitFor();
+      await painel.getByRole('button', { name: 'Acumulado', exact: true }).click();
+      await painel.getByText(/Impacto no tempo acumulado no período \(h\)/).waitFor();
+      // tocar no dia de hoje no gráfico filtra o histórico
+      await painel.locator('.graf-alvo-clicavel').last().click();
+      const txtFiltro = await hist.getByText(/\d+ evento\(s\) em /).textContent();
+      assert.equal(await hist.locator('.item').count(), Number(txtFiltro.match(/(\d+) evento/)[1]));
+      await hist.locator('.item', { hasText: 'Applanix' }).waitFor();
+      assert.equal(await painel.locator('.graf-sel').count(), 1);
+      await hist.getByRole('button', { name: 'Limpar filtro' }).click();
+      assert.equal(await painel.locator('.graf-sel').count(), 0);
+      // campo de data: ontem só tem o impacto do atraso da equipe
+      await hist.locator('input[name="filtroData"]').fill(ontem);
+      await hist.getByText(/1 evento\(s\) em /).waitFor();
+      await hist.locator('.item', { hasText: 'Manutenção liberou o carro com atraso' }).waitFor();
+      await hist.getByRole('button', { name: 'Limpar filtro' }).click();
+      // recolher o histórico
+      await hist.locator('summary').click();
+      assert.equal(await hist.evaluate((el) => el.open), false);
+      await hist.locator('summary').click();
+      // Excel
+      const [download] = await Promise.all([page.waitForEvent('download'), painel.getByRole('button', { name: 'Exportar Excel' }).click()]);
+      assert.match(download.suggestedFilename(), /^Eventos EM80 \d{2}-\d{2}-\d{4} a \d{2}-\d{2}-\d{4}\.xlsx$/);
+      await download.saveAs(`${SAIDA}05-eventos.xlsx`);
+      await page.screenshot({ path: `${SAIDA}05-eventos-filtro.png`, fullPage: true });
+    });
+
     await passo('produção: importa planilha do SAP (ciclo digitado)', async () => {
       await page.getByRole('navigation').getByRole('button', { name: 'Produção' }).click();
       await page.getByRole('heading', { name: 'Produção de OMs' }).waitFor();

@@ -1,7 +1,7 @@
 /*
  * Módulo 2 – Registro de Eventos: falhas de equipamento e outros eventos que afetam a inspeção
  * (atraso da equipe, liberação do carro, chuva…), com o impacto em OMs perdidas e em tempo.
- * Painel com gráficos e exportação em PDF.
+ * Painel com gráficos, histórico com filtro por data e exportação em PDF e Excel.
  */
 'use strict';
 
@@ -10,24 +10,30 @@
   const { h } = ui;
   const COLECAO = 'eventos';
   const FALHA = 'Falha de equipamento';
-  const UNIDADES = { h: 'horas', d: 'dias' };
+  const UNIDADES = { min: 'minutos', h: 'horas', d: 'dias' };
+  const unidadeDe = (u) => (u === 'd' || u === 'min' ? u : 'h');
+  /** Nome antigo do equipamento (antes da correção para Applanix). */
+  const NOMES_ANTIGOS = { Aplanix: 'Applanix' };
 
   let raiz;
   let formCartao;
   let painelEl;
   let abertosEl;
-  let recentesEl;
   let lista = []; // todos os eventos do aparelho (inclusive excluídos)
   let pendentes = new Map();
   let editando = null; // evento em edição (ou null)
   let f = {}; // campos do formulário
   let periodo = U.pref.get('eventos:periodo', '30d');
+  let linhaGrafico = U.pref.get('eventos:linha', 'acumulado'); // linha do gráfico: 'diario' ou 'acumulado'
+  let filtroHist = null; // { de, ate, rotulo }: histórico só desses dias (campo de data ou clique no gráfico)
+  let historicoEl;
+  let historicoAberto = U.pref.get('eventos:historicoAberto', true);
 
   const vazio = () => ({
     categoria: FALHA, equipamento: '', outro: '', parte: '', descricao: '',
     inicio: '', fim: '', impactos: [], observacao: ''
   });
-  const impactoVazio = (data = '') => ({ data, oms: '', valor: '', unidade: 'h' });
+  const impactoVazio = (data = '') => ({ data, oms: '', valor: '', unidade: unidadeDe(U.pref.get('eventos:unidade', 'h')) });
 
   /* ---------------- Identificação e valores ---------------- */
 
@@ -45,7 +51,7 @@
   const ehFalha = (ev) => categoriaDe(ev) === FALHA;
   const titulo = (ev) => (ehFalha(ev) ? [ev.equipamento, ev.parte] : [categoriaDe(ev), ev.descricao]).filter(Boolean).join(' · ');
   const num = (v) => (v === '' || v === null || v === undefined || Number.isNaN(Number(v)) ? 0 : Number(v));
-  const horasImpacto = (i) => num(i.valor) * (i.unidade === 'd' ? 24 : 1);
+  const horasImpacto = (i) => num(i.valor) * ({ d: 24, min: 1 / 60 }[i.unidade] || 1);
   /**
    * Impactos do evento, um por dia: [{ data, oms, valor, unidade }].
    * Eventos antigos (um impacto só, nos campos omsPerdidas/impactoValor/dataImpacto) viram um item.
@@ -55,18 +61,21 @@
     if (!lista && ev.impactosJson) { try { lista = JSON.parse(ev.impactosJson); } catch (e) { lista = null; } }
     if (!Array.isArray(lista)) {
       lista = num(ev.omsPerdidas) || num(ev.impactoValor)
-        ? [{ data: diaImpactoAntigo(ev), oms: ev.omsPerdidas, valor: ev.impactoValor, unidade: ev.impactoUnidade === 'd' ? 'd' : 'h' }]
+        ? [{ data: diaImpactoAntigo(ev), oms: ev.omsPerdidas, valor: ev.impactoValor, unidade: unidadeDe(ev.impactoUnidade) }]
         : [];
     }
     const inicio = String(ev.inicio || '').slice(0, 10);
-    return lista.map((i) => ({ data: U.ehData(String(i.data || '').slice(0, 10)) ? String(i.data).slice(0, 10) : inicio, oms: i.oms, valor: i.valor, unidade: i.unidade === 'd' ? 'd' : 'h' }))
+    return lista.map((i) => ({ data: U.ehData(String(i.data || '').slice(0, 10)) ? String(i.data).slice(0, 10) : inicio, oms: i.oms, valor: i.valor, unidade: unidadeDe(i.unidade) }))
       .sort((a, b) => a.data.localeCompare(b.data));
   }
   const omsDe = (ev, filtro = () => true) => impactosDe(ev).filter(filtro).reduce((t, i) => t + num(i.oms), 0);
   const horasDe = (ev, filtro = () => true) => impactosDe(ev).filter(filtro).reduce((t, i) => t + horasImpacto(i), 0);
-  const fmtTempo = (i) => `${fmtN(i.valor, 1)} ${i.unidade === 'd' ? (num(i.valor) === 1 ? 'dia' : 'dias') : 'h'}`;
+  const fmtTempo = (i) => `${fmtN(i.valor, 1)} ${i.unidade === 'd' ? (num(i.valor) === 1 ? 'dia' : 'dias') : i.unidade === 'min' ? 'min' : 'h'}`;
   const fmtN = (v, casas = 0) => Number(v || 0).toLocaleString('pt-BR', { maximumFractionDigits: casas, minimumFractionDigits: 0 });
-  const fmtHoras = (hh) => (hh >= 24 ? `${fmtN(hh, 1)} h (${fmtN(hh / 24, 1)} dia${hh / 24 >= 2 ? 's' : ''})` : `${fmtN(hh, 1)} h`);
+  const fmtHoras = (hh) => {
+    if (hh > 0 && hh < 1) return `${fmtN(hh * 60)} min`;
+    return hh >= 24 ? `${fmtN(hh, 1)} h (${fmtN(hh / 24, 1)} dia${hh / 24 >= 2 ? 's' : ''})` : `${fmtN(hh, 1)} h`;
+  };
   /** Um texto por dia de impacto: "19/10: 92 OMs perdidas · 8 h". */
   const textoImpacto = (ev) => impactosDe(ev).map((i) => {
     const partes = [];
@@ -88,7 +97,10 @@
     formCartao = h('section', { class: 'cartao' });
     painelEl = h('section', { class: 'cartao' });
     abertosEl = h('div', { class: 'lista' });
-    recentesEl = h('div', { class: 'lista' });
+    historicoEl = h('details', {
+      class: 'cartao ev-historico', open: historicoAberto || null,
+      ontoggle: (e) => { historicoAberto = e.target.open; U.pref.set('eventos:historicoAberto', historicoAberto); }
+    });
     raiz.append(
       h('div', { class: 'tela-cab' },
         h('h1', { text: 'Registro de Eventos' }),
@@ -96,7 +108,7 @@
       formCartao,
       h('section', { class: 'cartao' }, h('h2', { text: 'Em aberto' }), abertosEl),
       painelEl,
-      h('section', { class: 'cartao' }, h('h2', { text: 'Recentes' }), recentesEl));
+      historicoEl);
     renderForm();
     setInterval(() => {
       if (raiz.offsetParent !== null) renderListas();
@@ -183,12 +195,12 @@
                 oninput: (e) => { imp.oms = e.target.value; }
               })),
               ui.campo('Impacto no tempo', h('input', {
-                type: 'number', name: `impValor${k}`, min: 0, step: 0.5, inputmode: 'decimal', value: imp.valor, placeholder: '0',
+                type: 'number', name: `impValor${k}`, min: 0, step: 'any', inputmode: 'decimal', value: imp.valor, placeholder: '0',
                 oninput: (e) => { imp.valor = e.target.value; }
               })),
               ui.campo('Unidade', h('select', {
                 name: `impUnidade${k}`, value: imp.unidade,
-                onchange: (e) => { imp.unidade = e.target.value; }
+                onchange: (e) => { imp.unidade = e.target.value; U.pref.set('eventos:unidade', imp.unidade); }
               }, Object.entries(UNIDADES).map(([v, t]) => h('option', { value: v, text: t }))))),
             h('button', {
               type: 'button', class: 'btn-icone', 'aria-label': `Remover impacto ${k + 1}`, title: 'Remover este dia',
@@ -268,7 +280,7 @@
     const falha = f.categoria === FALHA;
     const val = (v) => (String(v ?? '').trim() === '' ? '' : U.numero(v));
     const impactos = f.impactos
-      .map((i) => ({ data: i.data || String(inicio || '').slice(0, 10), oms: val(i.oms), valor: val(i.valor), unidade: i.unidade === 'd' ? 'd' : 'h' }))
+      .map((i) => ({ data: i.data || String(inicio || '').slice(0, 10), oms: val(i.oms), valor: val(i.valor), unidade: unidadeDe(i.unidade) }))
       .filter((i) => i.oms !== '' || i.valor !== '')
       .sort((a, b) => a.data.localeCompare(b.data));
     const totalOms = impactos.reduce((t, i) => t + num(i.oms), 0);
@@ -384,12 +396,50 @@
         h('button', { class: 'btn btn-secundario btn-pequeno', 'aria-label': `Excluir ${codigoDe(ev)}`, onclick: () => excluir(ev) }, ui.icone('lixo'), 'Excluir')));
   }
 
-  function renderListas() {
+  /** O evento aconteceu (ou teve impacto) entre as datas de e ate? */
+  function noIntervalo(ev, de, ate) {
+    const ini = String(ev.inicio || '').slice(0, 10);
+    const fim = String(ev.fim || U.agora()).slice(0, 10);
+    return (ini <= ate && fim >= de) || impactosDe(ev).some((i) => i.data >= de && i.data <= ate);
+  }
+
+  /** Filtra o histórico por um dia (ou mês, no gráfico por mês). Repetir o mesmo filtro limpa. */
+  function filtrarHistorico(de, ate, rotulo) {
+    filtroHist = de && !(filtroHist && filtroHist.de === de && filtroHist.ate === ate) ? { de, ate, rotulo } : null;
+    historicoAberto = true;
+    renderListas();
+    if (filtroHist) ui.rolarAte(historicoEl);
+  }
+
+  const LIMITE_HIST = 25;
+
+  function renderHistorico() {
     const todos = visiveis();
-    const abertos = todos.filter((e) => !e.fim);
-    const fechados = todos.filter((e) => e.fim).slice(0, 25);
+    const filtrados = filtroHist ? todos.filter((e) => noIntervalo(e, filtroHist.de, filtroHist.ate)) : todos.filter((e) => e.fim);
+    const mostrar = filtroHist ? filtrados : filtrados.slice(0, LIMITE_HIST);
+    const campoData = h('input', {
+      type: 'date', name: 'filtroData', 'aria-label': 'Filtrar pela data',
+      value: filtroHist && filtroHist.de === filtroHist.ate ? filtroHist.de : '',
+      onchange: (e) => { const d = e.target.value; filtroHist = null; if (U.ehData(d)) filtrarHistorico(d, d, U.fmtData(d)); else renderListas(); }
+    });
+    historicoEl.open = historicoAberto;
+    ui.trocar(historicoEl,
+      h('summary', { class: 'ev-hist-cab' },
+        h('h2', { text: 'Histórico de eventos' }),
+        h('span', { class: 'sub', text: filtroHist ? `${filtrados.length} evento(s) em ${filtroHist.rotulo}` : `${todos.filter((e) => e.fim).length} finalizado(s)` })),
+      h('div', { class: 'ev-hist-filtro' },
+        ui.campo('Filtrar pela data', campoData),
+        filtroHist ? h('button', { type: 'button', class: 'btn btn-secundario btn-pequeno', onclick: () => filtrarHistorico(null) }, ui.icone('x'), 'Limpar filtro') : null,
+        h('span', { class: 'sub', text: 'Ou toque num dia do gráfico do painel.' })),
+      h('div', { class: 'lista' }, mostrar.length ? mostrar.map((e) => cartaoEvento(e, !e.fim))
+        : h('p', { class: 'vazio', text: filtroHist ? `Nenhum evento em ${filtroHist.rotulo}.` : 'Nenhum evento finalizado ainda.' })),
+      !filtroHist && filtrados.length > LIMITE_HIST ? h('p', { class: 'sub', text: `Mostrando os ${LIMITE_HIST} mais recentes de ${filtrados.length}. Use o filtro por data para ver os outros.` }) : null);
+  }
+
+  function renderListas() {
+    const abertos = visiveis().filter((e) => !e.fim);
     ui.trocar(abertosEl, abertos.length ? abertos.map((e) => cartaoEvento(e, true)) : h('p', { class: 'vazio', text: 'Nenhum evento em aberto.' }));
-    ui.trocar(recentesEl, fechados.length ? fechados.map((e) => cartaoEvento(e, false)) : h('p', { class: 'vazio', text: 'Nenhum evento finalizado ainda.' }));
+    renderHistorico();
     renderPainel();
   }
 
@@ -426,7 +476,10 @@
     };
   }
 
-  /** Série por dia (até 62 dias) ou por mês: OMs perdidas (barras) e impacto em horas acumulado (linha). */
+  /**
+   * Série por dia (até 62 dias) ou por mês: OMs perdidas (barras) e impacto no tempo (linha),
+   * do dia ou acumulado no período (escolha do usuário). Em minutos quando o maior valor fica abaixo de 2 h.
+   */
   function seriePorData(evs) {
     const [de, ate] = intervalo();
     const dias = Math.round((U.parseData(ate) - U.parseData(de)) / 86400000) + 1;
@@ -440,17 +493,24 @@
       const x = mapa.get(k); if (!x) return;
       x.oms += num(i.oms); x.horas += horasImpacto(i); x.qtd++;
     }));
-    let acumulado = 0;
-    return chaves.map((k) => {
+    const acumulado = linhaGrafico === 'acumulado';
+    let soma = 0;
+    const horas = chaves.map((k) => { soma += mapa.get(k).horas; return acumulado ? soma : mapa.get(k).horas; });
+    const emMinutos = Math.max(0, ...horas) < 2;
+    const pontos = chaves.map((k, n) => {
       const x = mapa.get(k);
-      acumulado += x.horas;
+      const de2 = porMes ? `${k}-01` : k;
       return {
-        rotulo: porMes ? U.fmtMesAno(`${k}-01`) : U.fmtData(k).slice(0, 5),
-        dica: `${porMes ? U.fmtMesAno(`${k}-01`) : `${U.diaSemanaCurto(k)} ${U.fmtData(k)}`} · ${x.qtd} impacto(s) · impacto no ${porMes ? 'mês' : 'dia'}: ${fmtHoras(x.horas)}`,
+        chave: k, de: de2, ate: porMes ? U.fimMes(de2) : k,
+        rotulo: porMes ? U.fmtMesAno(de2) : U.fmtData(k).slice(0, 5),
+        rotuloLongo: porMes ? U.fmtMesAno(de2) : `${U.diaSemanaCurto(k)} ${U.fmtData(k)}`,
+        dica: `${porMes ? U.fmtMesAno(de2) : `${U.diaSemanaCurto(k)} ${U.fmtData(k)}`} · ${x.qtd} impacto(s) · impacto no ${porMes ? 'mês' : 'dia'}: ${fmtHoras(x.horas)}`,
         barra: x.oms,
-        linha: Math.round(acumulado * 10) / 10
+        horasDia: x.horas,
+        linha: emMinutos ? Math.round(horas[n] * 60) : Math.round(horas[n] * 10) / 10
       };
     });
+    return { pontos, porMes, emMinutos, acumulado };
   }
 
   function porGrupo(evs, chave, valor) {
@@ -459,7 +519,30 @@
     return [...mapa.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
   }
 
-  function graficos(evs) {
+  /** Gráfico de barras (OMs perdidas) e linha (impacto no tempo, do dia ou acumulado). */
+  function graficoPorData(evs, { interativo = true } = {}) {
+    const { charts } = App;
+    const sr = seriePorData(evs);
+    const un = sr.emMinutos ? 'min' : 'h';
+    const nomeLinha = `Impacto no tempo ${sr.acumulado ? 'acumulado no período' : `por ${sr.porMes ? 'mês' : 'dia'}`} (${un})`;
+    const sel = filtroHist ? sr.pontos.findIndex((p) => p.de === filtroHist.de && p.ate === filtroHist.ate) : -1;
+    return h('div', { class: 'laudo-grafico' },
+      h('div', { class: 'ev-graf-cab' },
+        h('h3', { text: `OMs perdidas e impacto no tempo ${sr.acumulado ? 'acumulado' : (sr.porMes ? 'por mês' : 'por dia')}` }),
+        interativo ? h('div', { class: 'seg seg-compacto', role: 'group', 'aria-label': 'Linha do gráfico' },
+          [['diario', sr.porMes ? 'Por mês' : 'Por dia'], ['acumulado', 'Acumulado']].map(([v, t]) => h('button', {
+            type: 'button', class: `seg-opcao${linhaGrafico === v ? ' ativo' : ''}`, 'aria-pressed': linhaGrafico === v ? 'true' : 'false',
+            onclick: () => { linhaGrafico = v; U.pref.set('eventos:linha', v); renderPainel(); }
+          }, t))) : null),
+      charts.barrasLinha(sr.pontos, {
+        nomeBarra: 'OMs perdidas', nomeLinha, fmtLinha: (v) => `${fmtN(v, sr.emMinutos ? 0 : 1)} ${un}`,
+        selecionado: sel,
+        aoClicar: interativo ? (p) => filtrarHistorico(p.de, p.ate, sr.porMes ? p.rotulo : p.rotuloLongo) : null,
+        dicaClique: interativo ? `Toque para ver os eventos ${sr.porMes ? 'do mês' : 'do dia'}` : null
+      }));
+  }
+
+  function graficos(evs, opcoes = {}) {
     const { charts } = App;
     const filtro = noPeriodo();
     const porTipoOms = porGrupo(evs, rotuloTipo, (e) => omsDe(e, filtro));
@@ -468,9 +551,7 @@
     const bloco = (t, g) => h('div', { class: 'laudo-grafico' }, h('h3', { text: t }), g);
     // barras com linha à esquerda; barras horizontais empilhadas à direita
     return [h('div', { class: 'ev-graf-esq' },
-      bloco('OMs perdidas e impacto no tempo acumulado', charts.barrasLinha(seriePorData(evs), {
-        nomeBarra: 'OMs perdidas', nomeLinha: 'Impacto acumulado (h)', fmtLinha: (v) => `${fmtN(v, 1)} h`
-      }))),
+      graficoPorData(evs, opcoes)),
     h('div', { class: 'ev-graf-dir' },
       porTipoOms.length ? bloco('OMs perdidas por tipo de evento', charts.barrasH(porTipoOms.map(([r, v]) => ({ rotulo: r, valor: v, texto: fmtN(v) })))) : null,
       porTipoHoras.length ? bloco('Impacto no tempo por tipo de evento', charts.barrasH(porTipoHoras.map(([r, v]) => ({ rotulo: r, valor: v, texto: fmtHoras(v) })), { classe: 'graf-barra-2' })) : null,
@@ -486,7 +567,9 @@
     ui.trocar(painelEl, h('div', { class: 'ev-painel' },
       h('div', { class: 'cartao-cab' },
         h('h2', { text: 'Painel de eventos' }),
-        h('button', { class: 'btn btn-secundario btn-pequeno', onclick: exportarPdf, disabled: !evs.length }, ui.icone('documento'), 'Exportar PDF')),
+        h('div', { class: 'linha-acoes' },
+          h('button', { class: 'btn btn-secundario btn-pequeno', onclick: exportarExcel, disabled: !evs.length }, ui.icone('documento'), 'Exportar Excel'),
+          h('button', { class: 'btn btn-secundario btn-pequeno', onclick: exportarPdf, disabled: !evs.length }, ui.icone('documento'), 'Exportar PDF'))),
       h('div', { class: 'ev-periodo' },
         h('div', { class: 'seg seg-compacto', role: 'group', 'aria-label': 'Período' },
           PERIODOS.map(([v, t]) => h('button', {
@@ -520,7 +603,7 @@
             ['Impacto no tempo', fmtHoras(r.horas), 'informado nos eventos'],
             ['Duração dos eventos', U.fmtDuracao(r.minutos) || '0min', 'do início ao fim']
           ].map(([t, v, sub]) => h('div', { class: 'laudo-kpi' }, h('span', { text: t }), h('strong', { text: v }), h('small', { text: sub }))))),
-      h('section', { class: 'laudo-secao' }, h('h2', { text: 'Gráficos' }), h('div', { class: 'ev-graficos' }, graficos(evs))),
+      h('section', { class: 'laudo-secao' }, h('h2', { text: 'Gráficos' }), h('div', { class: 'ev-graficos' }, graficos(evs, { interativo: false }))),
       h('section', { class: 'laudo-secao' }, h('h2', { text: 'Eventos do período' }),
         tabela(['Código', 'Tipo', 'Equipamento / descrição', 'Início', 'Fim', 'Duração', 'OMs perdidas', 'Impactos por dia', 'Observação'],
           evs.map((e) => [codigoDe(e), categoriaDe(e), ehFalha(e) ? [e.equipamento, e.parte].filter(Boolean).join(' · ') : e.descricao,
@@ -529,6 +612,163 @@
             e.observacao || '']))),
       null);
     imprimir(el, `Eventos EM80 ${U.fmtData(de).replace(/\//g, '-')} a ${U.fmtData(ate).replace(/\//g, '-')}`);
+  }
+
+  /* ---------------- Excel ---------------- */
+
+  /**
+   * Planilha do período do painel: Resumo (cartões, gráficos e totais por tipo e equipamento),
+   * Eventos, Impactos por dia e Por dia. Tabelas do Excel (filtro e zebrado) e gráficos nativos.
+   */
+  function montarExcel() {
+    const X = App.xlsx;
+    const evs = doPeriodo().slice().sort((a, b) => String(a.inicio).localeCompare(String(b.inicio)));
+    const r = resumo(evs);
+    const [de, ate] = intervalo();
+    const filtro = noPeriodo();
+    const c = (v, e) => ({ v, e });
+    const dur = (horas) => c(horas ? horas / 24 : null, 'duracao');
+    const descricao = (e) => (ehFalha(e) ? e.parte || '' : e.descricao || '');
+    const equipamento = (e) => (ehFalha(e) ? e.equipamento || '' : '');
+
+    /* Por dia (fonte do gráfico de barras e linha) */
+    const sr = seriePorData(evs);
+    const un = sr.emMinutos ? 'min' : 'h';
+    const fmtNum = sr.emMinutos ? 'inteiro' : 'decimal';
+    let acum = 0;
+    const linhasDia = sr.pontos.map((p) => {
+      acum += p.horasDia;
+      const conv = (hh) => (sr.emMinutos ? Math.round(hh * 60) : Math.round(hh * 100) / 100);
+      return [sr.porMes ? c(p.rotulo, 'texto') : c(X.serial(p.de), 'data'), c(p.barra, 'inteiro'), c(conv(p.horasDia), fmtNum), c(conv(acum), fmtNum)];
+    });
+    const cabDia = [sr.porMes ? 'Mês' : 'Data', 'OMs perdidas', `Impacto no ${sr.porMes ? 'mês' : 'dia'} (${un})`, `Impacto acumulado (${un})`];
+    const porDia = {
+      nome: 'Por dia', larguras: [14, 14, 22, 24], congelar: 1,
+      linhas: [cabDia, ...linhasDia],
+      tabelas: [{ ref: `A1:D${linhasDia.length + 1}`, nome: 'tbPorDia' }]
+    };
+
+    /* Eventos */
+    const cabEv = ['Código', 'Tipo', 'Equipamento', 'Parte / descrição', 'Início', 'Fim', 'Duração', 'OMs perdidas', 'Impacto no tempo', 'Impactos por dia', 'Observação', 'Situação'];
+    const linhasEv = evs.map((e) => [
+      c(codigoDe(e), 'texto'), c(categoriaDe(e), 'texto'), c(equipamento(e), 'texto'), c(descricao(e), 'quebra'),
+      c(X.serial(e.inicio), 'dataHora'), c(e.fim ? X.serial(e.fim) : null, 'dataHora'),
+      c((U.minutosEntre(e.inicio, e.fim || U.agora()) || 0) / 1440, 'duracao'),
+      c(omsDe(e) || null, 'inteiro'), dur(horasDe(e)),
+      c(textoImpacto(e).join('\n'), 'quebra'), c(e.observacao || '', 'quebra'), c(e.fim ? 'Finalizado' : 'Em aberto', 'texto')
+    ]);
+    const eventos = {
+      nome: 'Eventos', larguras: [17, 20, 13, 30, 16, 16, 10, 14, 17, 30, 42, 11], congelar: 1, paisagem: true,
+      linhas: [cabEv, ...linhasEv],
+      tabelas: [{ ref: `A1:L${linhasEv.length + 1}`, nome: 'tbEventos' }]
+    };
+
+    /* Impactos por dia (só os dias dentro do período) */
+    const imps = evs.flatMap((e) => impactosDe(e).filter(filtro).map((i) => ({ e, i }))).sort((a, b) => a.i.data.localeCompare(b.i.data));
+    const nomeUn = { min: 'minutos', h: 'horas', d: 'dias' };
+    const linhasImp = imps.map(({ e, i }) => [
+      c(X.serial(i.data), 'data'), c(codigoDe(e), 'texto'), c(categoriaDe(e), 'texto'), c([equipamento(e), descricao(e)].filter(Boolean).join(' · '), 'quebra'),
+      c(num(i.oms) || null, 'inteiro'), dur(horasImpacto(i)), c(num(i.valor) || null, 'decimal'), c(num(i.valor) ? nomeUn[i.unidade] : '', 'texto')
+    ]);
+    const cabImp = ['Data', 'Código', 'Tipo', 'Equipamento / descrição', 'OMs perdidas', 'Impacto no tempo', 'Valor informado', 'Unidade'];
+    const impactos = linhasImp.length ? {
+      nome: 'Impactos por dia', larguras: [12, 17, 20, 34, 14, 17, 16, 10], congelar: 1,
+      linhas: [cabImp, ...linhasImp],
+      tabelas: [{ ref: `A1:H${linhasImp.length + 1}`, nome: 'tbImpactos' }]
+    } : null;
+
+    /* Resumo */
+    const L = 12; // colunas A–L
+    const linhas = []; const mesclas = []; const alturas = {}; const graficos = []; const tabelas = [];
+    const pos = () => linhas.length;
+    const secao = (texto) => { const l = pos(); linhas.push([c(texto, 'secao'), ...Array.from({ length: L - 1 }, () => c(null, 'secao'))]); mesclas.push(`A${l + 1}:${X.letra(L - 1)}${l + 1}`); };
+    linhas.push([c('Eventos do carro controle EM80', 'titulo')]); mesclas.push(`A1:${X.letra(L - 1)}1`); alturas[0] = 22;
+    linhas.push([c(`Centro de Monitoramento de Ativos · Período: ${U.fmtData(de)} a ${U.fmtData(ate)} · Emitido em ${U.fmtDataHora(U.agora())}`, 'sub')]);
+    mesclas.push(`A2:${X.letra(L - 1)}2`);
+    linhas.push([]);
+    const cartoes = [
+      ['Eventos', c(r.qtd, 'cartaoInteiro'), `${evs.filter(ehFalha).length} falha(s) de equipamento`],
+      ['OMs perdidas', c(r.oms, 'cartaoInteiro'), 'informadas nos eventos'],
+      ['Impacto no tempo', c(r.horas / 24, 'cartaoDuracao'), 'informado nos eventos (h:min)'],
+      ['Duração dos eventos', c(r.minutos / 1440, 'cartaoDuracao'), 'do início ao fim (h:min)']
+    ];
+    const lc = pos();
+    linhas.push(cartoes.map(([t]) => c(t, 'cartaoRotulo')));
+    linhas.push(cartoes.map(([, v]) => v));
+    linhas.push(cartoes.map(([, , sub]) => c(sub, 'cartaoSub')));
+    alturas[lc] = 18; alturas[lc + 1] = 30; alturas[lc + 2] = 30;
+    linhas.push([]);
+
+    secao(`OMs perdidas e impacto no tempo ${sr.porMes ? 'por mês' : 'por dia'}`);
+    const g1 = pos();
+    const nDia = linhasDia.length;
+    const colLinha = sr.acumulado ? 3 : 2;
+    graficos.push({
+      tipo: 'barrasLinha', titulo: `OMs perdidas e impacto no tempo ${sr.acumulado ? 'acumulado' : (sr.porMes ? 'por mês' : 'por dia')} (${un})`,
+      de: [0, g1], ate: [L, g1 + 18],
+      categorias: { ref: X.absoluta('Por dia', 0, 1, 0, nDia), valores: linhasDia.map((l) => l[0].v), formato: sr.porMes ? null : 'dd/mm' },
+      series: [
+        { nome: cabDia[1], refNome: X.absoluta('Por dia', 1, 0, 1, 0), ref: X.absoluta('Por dia', 1, 1, 1, nDia), valores: linhasDia.map((l) => l[1].v) },
+        { nome: cabDia[colLinha], refNome: X.absoluta('Por dia', colLinha, 0, colLinha, 0), ref: X.absoluta('Por dia', colLinha, 1, colLinha, nDia), valores: linhasDia.map((l) => l[colLinha].v) }
+      ],
+      formatoLinha: sr.emMinutos ? '#,##0' : '#,##0.0'
+    });
+    for (let k = 0; k < 19; k++) linhas.push([]);
+
+    /** Tabela de totais (à esquerda) com gráfico de barras (à direita). */
+    const blocoTotais = (titulo, nomeTabela, cabecalho, grupos, colGrafico, tituloGrafico) => {
+      if (!grupos.length) return;
+      secao(titulo);
+      const l0 = pos();
+      linhas.push(cabecalho);
+      grupos.forEach((g) => linhas.push(g));
+      tabelas.push({ ref: `A${l0 + 1}:D${l0 + 1 + grupos.length}`, nome: nomeTabela });
+      const altura = Math.max(10, grupos.length * 2 + 3);
+      graficos.push({
+        tipo: 'barrasH', titulo: tituloGrafico, de: [5, l0], ate: [L, l0 + altura],
+        categorias: { ref: X.absoluta('Resumo', 0, l0 + 1, 0, l0 + grupos.length), valores: grupos.map((g) => g[0].v) },
+        series: [{ nome: cabecalho[colGrafico], refNome: X.absoluta('Resumo', colGrafico, l0, colGrafico, l0), ref: X.absoluta('Resumo', colGrafico, l0 + 1, colGrafico, l0 + grupos.length), valores: grupos.map((g) => g[colGrafico].v || 0) }]
+      });
+      while (pos() < l0 + altura + 1) linhas.push([]);
+    };
+    const agrupar = (lista, chave, porFalhas = false) => {
+      const m = new Map();
+      lista.forEach((e) => {
+        const k = chave(e) || '—';
+        const x = m.get(k) || { qtd: 0, oms: 0, horas: 0 };
+        x.qtd++; x.oms += omsDe(e, filtro); x.horas += horasDe(e, filtro);
+        m.set(k, x);
+      });
+      return [...m.entries()].sort((a, b) => (porFalhas ? b[1].qtd - a[1].qtd || b[1].oms - a[1].oms : b[1].oms - a[1].oms || b[1].qtd - a[1].qtd))
+        .map(([k, x]) => [c(k, 'texto'), c(x.qtd, 'inteiro'), c(x.oms, 'inteiro'), dur(x.horas)]);
+    };
+    const porTipo = agrupar(evs, rotuloTipo);
+    blocoTotais('Por tipo de evento', 'tbPorTipo', ['Tipo de evento', 'Eventos', 'OMs perdidas', 'Impacto no tempo'], porTipo,
+      porTipo.some((g) => g[2].v) ? 2 : 1, porTipo.some((g) => g[2].v) ? 'OMs perdidas por tipo de evento' : 'Eventos por tipo');
+    blocoTotais('Falhas por equipamento', 'tbPorEquipamento', ['Equipamento', 'Falhas', 'OMs perdidas', 'Impacto no tempo'],
+      agrupar(evs.filter(ehFalha), (e) => e.equipamento, true), 1, 'Falhas por equipamento');
+    linhas.push([c('OMs perdidas e impacto no tempo contam no dia de cada impacto informado no evento. A duração vai do início ao fim do evento (em aberto: até a emissão).', 'nota')]);
+    mesclas.push(`A${pos()}:${X.letra(L - 1)}${pos()}`); alturas[pos() - 1] = 30;
+
+    const resumoPl = {
+      nome: 'Resumo', larguras: [24, 20, 20, 20, 2, 10, 10, 10, 10, 10, 10, 10], grade: false, paisagem: true,
+      linhas, mesclas, alturas, graficos, tabelas
+    };
+    const nomeArq = `Eventos EM80 ${U.fmtData(de).replace(/\//g, '-')} a ${U.fmtData(ate).replace(/\//g, '-')}.xlsx`;
+    return {
+      nome: nomeArq,
+      bytes: X.gerar({ autor: 'CMA – Centro de Monitoramento de Ativos', titulo: 'Eventos do carro controle EM80', planilhas: [resumoPl, eventos, impactos, porDia].filter(Boolean) })
+    };
+  }
+
+  function exportarExcel() {
+    try {
+      const { nome, bytes } = montarExcel();
+      App.xlsx.baixar(bytes, nome);
+      ui.toast(`Planilha ${nome} gerada.`, 'ok');
+    } catch (e) {
+      ui.toast(`Não foi possível gerar a planilha: ${e.message}`, 'erro', 7000);
+    }
   }
 
   function imprimir(el, nome) {
@@ -556,7 +796,9 @@
   /** Recarrega a lista. O formulário só é redesenhado quando pedido, para não atrapalhar a digitação. */
   async function carregar({ form = true } = {}) {
     [lista, pendentes] = await Promise.all([dados.listar(COLECAO), sync.pendentesDoTipo('evento')]);
-    lista = lista.slice().sort((a, b) => String(b.inicio).localeCompare(String(a.inicio)));
+    // nomes antigos de equipamento (ex.: Aplanix → Applanix) aparecem já corrigidos
+    lista = lista.map((e) => (NOMES_ANTIGOS[e.equipamento] ? { ...e, equipamento: NOMES_ANTIGOS[e.equipamento] } : e))
+      .sort((a, b) => String(b.inicio).localeCompare(String(a.inicio)));
     if (form) renderForm();
     renderListas();
   }
@@ -571,7 +813,7 @@
 
   document.addEventListener('em80:sincronizado', () => { if (raiz) carregar({ form: false }); });
 
-  App.eventos = { _codigoDe: codigoDe, _horasDe: horasDe };
+  App.eventos = { _codigoDe: codigoDe, _horasDe: horasDe, _montarExcel: montarExcel };
   App.modulos = App.modulos || [];
   App.modulos.push({ id: 'eventos', titulo: 'Eventos', icone: 'alerta', montar, aoMostrar });
 })(window.App);

@@ -740,6 +740,20 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 @media (min-width: 900px) { .grade-4 { grid-template-columns: repeat(4, 1fr); } }
 .ev-pdf .ev-graficos { grid-template-columns: 1fr 1fr; }
 
+/* Eventos: histórico recolhível, filtro por data e clique no gráfico */
+.ev-historico > summary.ev-hist-cab { cursor: pointer; list-style: none; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.ev-historico > summary.ev-hist-cab::-webkit-details-marker { display: none; }
+.ev-historico > summary.ev-hist-cab::before { content: '▸'; display: inline-block; width: 1em; color: var(--texto2); transition: transform .15s; }
+.ev-historico[open] > summary.ev-hist-cab::before { transform: rotate(90deg); }
+.ev-historico > summary h2 { margin: 0; display: inline; }
+.ev-historico[open] > summary { margin-bottom: 12px; }
+.ev-hist-filtro { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin-bottom: 12px; }
+.ev-hist-filtro .campo { margin: 0; min-width: 180px; }
+.ev-graf-cab { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.ev-graf-cab h3 { margin: 0; }
+.graf-alvo-clicavel { cursor: pointer; }
+.graf-sel { fill: var(--serie-real); opacity: .14; }
+
 /* Marcos nos gráficos por km (travador – TRAV) */
 .graf-marco-faixa { fill: #8e44ad; opacity: .14; }
 .graf-marco-simbolo { fill: #8e44ad; }
@@ -1119,10 +1133,10 @@ window.App = window.App || {};
 
 (function (App) {
   App.config = {
-    versao: '2026.10.24',
+    versao: '2026.10.25',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-1585c823be', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-f6c3372a58', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -1148,10 +1162,10 @@ window.App = window.App || {};
       },
       {
         id: 'aplanix',
-        titulo: 'Aplanix',
+        titulo: 'Applanix',
         itens: [
-          { tipo: 'sn', id: 'aplanix_conexao', texto: 'O sistema Aplanix apresentou dificuldades para conectar?', problemaEm: 'Sim' },
-          { tipo: 'sn', id: 'aplanix_falha', texto: 'O sistema Aplanix apresentou falhas ou desconectou durante a inspeção?', problemaEm: 'Sim' },
+          { tipo: 'sn', id: 'aplanix_conexao', texto: 'O sistema Applanix apresentou dificuldades para conectar?', problemaEm: 'Sim' },
+          { tipo: 'sn', id: 'aplanix_falha', texto: 'O sistema Applanix apresentou falhas ou desconectou durante a inspeção?', problemaEm: 'Sim' },
           { tipo: 'sn', id: 'aplanix_leds', texto: 'Os LEDs do POS/TG apresentaram alguma instabilidade?', problemaEm: 'Sim' },
           { tipo: 'sn', id: 'aplanix_nivelamento', texto: 'Os parâmetros de nivelamento apresentaram alguma perturbação inesperada?', problemaEm: 'Sim' }
         ]
@@ -1168,7 +1182,7 @@ window.App = window.App || {};
     ],
 
     /** Equipamentos do Registro de Eventos. "Outro" abre um campo de texto. */
-    equipamentos: ['OGMS', 'KLD', 'Aplanix', 'M1', 'M2', 'M3', 'Outro'],
+    equipamentos: ['OGMS', 'KLD', 'Applanix', 'M1', 'M2', 'M3', 'Outro'],
     /** Tipos de evento. "Falha de equipamento" pede o equipamento; os outros, uma descrição. */
     categoriasEvento: ['Falha de equipamento', 'Atraso da equipe', 'Liberação do carro / da via', 'Chuva', 'Interdição / interrupção', 'Outro']
   };
@@ -2313,6 +2327,7 @@ window.App = window.App || {};
    * Barras (eixo da esquerda) com linha (eixo da direita), por categoria no eixo X.
    * serie: [{ rotulo, barra, linha, dica }]; op: { nomeBarra, nomeLinha, fmtBarra, fmtLinha, titulo }
    */
+  /** op.selecionado = índice destacado; op.aoClicar(d, i) = clique numa coluna. */
   function barrasLinha(serie, op = {}) {
     const W = 560; const H = 200;
     const m = { t: 16, r: 40, b: 34, l: 36 };
@@ -2341,6 +2356,7 @@ window.App = window.App || {};
     const pontos = [];
     serie.forEach((d, i) => {
       const cx = m.l + banda * i + banda / 2;
+      if (i === op.selecionado) svg.appendChild(s('rect', { class: 'graf-sel', x: m.l + banda * i, y: m.t, width: banda, height: ih }));
       if (d.barra) {
         const topo = yB(d.barra);
         svg.appendChild(s('rect', { class: 'graf-barra', x: cx - larg / 2, y: topo, width: larg, height: m.t + ih - topo, rx: Math.min(3, larg / 2) }));
@@ -2354,14 +2370,15 @@ window.App = window.App || {};
       pontos.forEach(([x, y]) => svg.appendChild(s('circle', { class: 'graf-ponto-2', cx: x, cy: y, r: 1.8 })));
     }
     serie.forEach((d, i) => {
-      const alvo = s('rect', { x: m.l + banda * i, y: m.t, width: banda, height: ih + m.b, class: 'graf-alvo' });
+      const alvo = s('rect', { x: m.l + banda * i, y: m.t, width: banda, height: ih + m.b, class: `graf-alvo${op.aoClicar ? ' graf-alvo-clicavel' : ''}` });
       const mostrar = () => {
         const r = caixa.getBoundingClientRect(); const esc = r.width / W;
-        tip.mostrar([d.dica || d.rotulo, `${op.nomeBarra}: ${fmtB(d.barra || 0)}`, `${op.nomeLinha}: ${fmtL(d.linha || 0)}`], (m.l + banda * i + banda / 2) * esc, Math.min(yB(d.barra || 0), yL(d.linha || 0)) * esc);
+        tip.mostrar([d.dica || d.rotulo, `${op.nomeBarra}: ${fmtB(d.barra || 0)}`, `${op.nomeLinha}: ${fmtL(d.linha || 0)}`, op.dicaClique || null].filter(Boolean), (m.l + banda * i + banda / 2) * esc, Math.min(yB(d.barra || 0), yL(d.linha || 0)) * esc);
       };
       alvo.addEventListener('pointerenter', mostrar);
       alvo.addEventListener('pointerdown', mostrar);
       alvo.addEventListener('pointerleave', () => tip.esconder());
+      if (op.aoClicar) alvo.addEventListener('click', () => { tip.esconder(); op.aoClicar(d, i); });
       svg.appendChild(alvo);
     });
     caixa.insertBefore(svg, caixa.firstChild);
@@ -2391,6 +2408,387 @@ window.App = window.App || {};
   }
 
   App.charts = { barrasSemana, linhaMes, indicador, graficoKm, barrasLinha, barrasH };
+})(window.App);
+
+</script>
+  <script>
+/* js/xlsx.js */
+/*
+ * Gerador de planilhas Excel (.xlsx) sem bibliotecas: funciona offline.
+ * Monta o pacote OOXML (zip sem compressão) com planilhas, estilos, tabelas do Excel
+ * (filtro e linhas zebradas, como no Ctrl+T) e gráficos nativos do Excel.
+ *
+ * Uso: App.xlsx.gerar({ autor, planilhas: [planilha] }) → Uint8Array; App.xlsx.baixar(bytes, nome).
+ * planilha = {
+ *   nome, larguras: [cm por coluna], alturas: { linha: pontos }, linhas: [[célula…]…], mesclas: ['A1:D1'],
+ *   congelar: n (linhas fixas no topo), paisagem: true, grade: false (esconde as linhas de grade),
+ *   tabelas: [{ ref: 'A3:F20', nome: 'tbEventos' }]  (1ª linha da ref = cabeçalho),
+ *   graficos: [grafico]
+ * }
+ * célula = null | texto | número | { v, e: 'estilo' }  (estilos em ESTILOS; datas com App.xlsx.serial)
+ * grafico = { tipo: 'barrasLinha' | 'barrasH', titulo, de: [col, lin], ate: [col, lin] (0-based),
+ *   categorias: { ref, valores, formato? }, series: [{ nome, ref, valores, tipo?: 'linha', cor? }], formatoLinha? }
+ */
+'use strict';
+
+(function (App) {
+  /* ---------------- Zip (sem compressão) ---------------- */
+
+  const TABELA_CRC = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32(bytes) {
+    let c = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) c = TABELA_CRC[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  }
+
+  /** arquivos: [[caminho, texto]] → Uint8Array do zip. */
+  function zip(arquivos) {
+    const enc = new TextEncoder();
+    const partes = []; const central = [];
+    let pos = 0;
+    // data/hora da geração no formato DOS
+    const d = new Date();
+    const dosHora = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    const dosData = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    arquivos.forEach(([nome, texto]) => {
+      const nomeB = enc.encode(nome);
+      const dados = enc.encode(texto);
+      const crc = crc32(dados);
+      const loc = new DataView(new ArrayBuffer(30));
+      loc.setUint32(0, 0x04034b50, true); loc.setUint16(4, 20, true); loc.setUint16(6, 0x0800, true); loc.setUint16(8, 0, true);
+      loc.setUint16(10, dosHora, true); loc.setUint16(12, dosData, true); loc.setUint32(14, crc, true);
+      loc.setUint32(18, dados.length, true); loc.setUint32(22, dados.length, true); loc.setUint16(26, nomeB.length, true); loc.setUint16(28, 0, true);
+      const cen = new DataView(new ArrayBuffer(46));
+      cen.setUint32(0, 0x02014b50, true); cen.setUint16(4, 20, true); cen.setUint16(6, 20, true); cen.setUint16(8, 0x0800, true); cen.setUint16(10, 0, true);
+      cen.setUint16(12, dosHora, true); cen.setUint16(14, dosData, true); cen.setUint32(16, crc, true);
+      cen.setUint32(20, dados.length, true); cen.setUint32(24, dados.length, true); cen.setUint16(28, nomeB.length, true);
+      cen.setUint32(42, pos, true);
+      partes.push(new Uint8Array(loc.buffer), nomeB, dados);
+      central.push(new Uint8Array(cen.buffer), nomeB);
+      pos += 30 + nomeB.length + dados.length;
+    });
+    const tamCentral = central.reduce((t, p) => t + p.length, 0);
+    const fim = new DataView(new ArrayBuffer(22));
+    fim.setUint32(0, 0x06054b50, true); fim.setUint16(8, arquivos.length, true); fim.setUint16(10, arquivos.length, true);
+    fim.setUint32(12, tamCentral, true); fim.setUint32(16, pos, true);
+    const todas = [...partes, ...central, new Uint8Array(fim.buffer)];
+    const out = new Uint8Array(todas.reduce((t, p) => t + p.length, 0));
+    let o = 0; todas.forEach((p) => { out.set(p, o); o += p.length; });
+    return out;
+  }
+
+  /* ---------------- Utilidades ---------------- */
+
+  const esc = (v) => String(v ?? '')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const letra = (c) => { let s = ''; c += 1; while (c > 0) { const m = (c - 1) % 26; s = String.fromCharCode(65 + m) + s; c = Math.floor((c - 1) / 26); } return s; };
+  const ref = (c, l) => `${letra(c)}${l + 1}`;
+  const absoluta = (planilha, c0, l0, c1, l1) => `'${String(planilha).replace(/'/g, "''")}'!$${letra(c0)}$${l0 + 1}:$${letra(c1)}$${l1 + 1}`;
+
+  /** "2026-10-19T08:30:00" ou "2026-10-19" (hora local) → número de série do Excel. */
+  function serial(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(String(iso || ''));
+    if (!m) return null;
+    const dias = (Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(1899, 11, 30)) / 86400000;
+    return dias + ((+m[4] || 0) * 3600 + (+m[5] || 0) * 60 + (+m[6] || 0)) / 86400;
+  }
+
+  /* ---------------- Estilos ---------------- */
+
+  // formatos: 164 data e hora, 165 data, 166 duração, 167 decimal, 168 dia/mês
+  const NUMFMTS = [[164, 'dd/mm/yyyy hh:mm'], [165, 'dd/mm/yyyy'], [166, '[h]:mm'], [167, '#,##0.0'], [168, 'dd/mm']];
+  // fontes: 0 normal, 1 negrito, 2 título, 3 cinza, 4 valor do cartão, 5 rótulo do cartão
+  const FONTES = [
+    '<font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font>',
+    '<font><b/><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font>',
+    '<font><b/><sz val="15"/><color rgb="FF1F3864"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font>',
+    '<font><sz val="10"/><color rgb="FF595959"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font>',
+    '<font><b/><sz val="18"/><color rgb="FF1F3864"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font>',
+    '<font><sz val="9"/><color rgb="FF595959"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font>'
+  ];
+  // preenchimentos: 0 nenhum, 1 gray125 (obrigatório), 2 cartão
+  const PREENCHIMENTOS = [
+    '<fill><patternFill patternType="none"/></fill>',
+    '<fill><patternFill patternType="gray125"/></fill>',
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/><bgColor indexed="64"/></patternFill></fill>'
+  ];
+  // bordas: 0 nenhuma, 1 linha embaixo (seção), 2 laterais brancas (separa os cartões)
+  const BORDAS = [
+    '<border><left/><right/><top/><bottom/><diagonal/></border>',
+    '<border><left/><right/><top/><bottom style="medium"><color rgb="FF1F3864"/></bottom><diagonal/></border>',
+    '<border><left style="thick"><color rgb="FFFFFFFF"/></left><right style="thick"><color rgb="FFFFFFFF"/></right><top/><bottom/><diagonal/></border>'
+  ];
+  const al = (h, v, quebra) => `<alignment${h ? ` horizontal="${h}"` : ''}${v ? ` vertical="${v}"` : ''}${quebra ? ' wrapText="1"' : ''}/>`;
+  /** nome → [numFmtId, fonte, preenchimento, borda, alinhamento] */
+  const ESTILOS = {
+    padrao: [0, 0, 0, 0, null],
+    titulo: [0, 2, 0, 0, null],
+    sub: [0, 3, 0, 0, null],
+    secao: [0, 1, 0, 1, null],
+    cab: [0, 1, 0, 0, al(null, 'center', true)],
+    texto: [0, 0, 0, 0, al(null, 'top')],
+    quebra: [0, 0, 0, 0, al(null, 'top', true)],
+    inteiro: [3, 0, 0, 0, al(null, 'top')],
+    decimal: [167, 0, 0, 0, al(null, 'top')],
+    dataHora: [164, 0, 0, 0, al('left', 'top')],
+    data: [165, 0, 0, 0, al('left', 'top')],
+    duracao: [166, 0, 0, 0, al(null, 'top')],
+    cartaoRotulo: [0, 5, 2, 2, al('left', 'center')],
+    cartaoInteiro: [3, 4, 2, 2, al('left', 'center')],
+    cartaoDuracao: [166, 4, 2, 2, al('left', 'center')],
+    cartaoSub: [0, 3, 2, 2, al('left', 'top', true)],
+    nota: [0, 3, 0, 0, al(null, 'top', true)]
+  };
+  const NOMES_ESTILO = Object.keys(ESTILOS);
+  const idEstilo = (nome) => Math.max(0, NOMES_ESTILO.indexOf(nome || 'padrao'));
+
+  function estilosXml() {
+    const xfs = NOMES_ESTILO.map((n) => {
+      const [fmt, fonte, fill, borda, alin] = ESTILOS[n];
+      const attrs = `numFmtId="${fmt}" fontId="${fonte}" fillId="${fill}" borderId="${borda}" xfId="0"`
+        + `${fmt ? ' applyNumberFormat="1"' : ''}${fonte ? ' applyFont="1"' : ''}${fill ? ' applyFill="1"' : ''}${borda ? ' applyBorder="1"' : ''}${alin ? ' applyAlignment="1"' : ''}`;
+      return alin ? `<xf ${attrs}>${alin}</xf>` : `<xf ${attrs}/>`;
+    });
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+      + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+      + `<numFmts count="${NUMFMTS.length}">${NUMFMTS.map(([id, f]) => `<numFmt numFmtId="${id}" formatCode="${esc(f)}"/>`).join('')}</numFmts>`
+      + `<fonts count="${FONTES.length}">${FONTES.join('')}</fonts>`
+      + `<fills count="${PREENCHIMENTOS.length}">${PREENCHIMENTOS.join('')}</fills>`
+      + `<borders count="${BORDAS.length}">${BORDAS.join('')}</borders>`
+      + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+      + `<cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs>`
+      + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+      + '<dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>'
+      + '</styleSheet>';
+  }
+
+  /* ---------------- Planilha ---------------- */
+
+  function celulaXml(c, col, lin) {
+    if (c === null || c === undefined || c === '') return '';
+    const obj = typeof c === 'object' ? c : { v: c };
+    const s = idEstilo(obj.e);
+    const r = ref(col, lin);
+    const v = obj.v;
+    if (v === null || v === undefined || v === '') return s ? `<c r="${r}" s="${s}"/>` : '';
+    if (typeof v === 'number') return Number.isFinite(v) ? `<c r="${r}" s="${s}"><v>${v}</v></c>` : '';
+    return `<c r="${r}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
+  }
+
+  function planilhaXml(p, relDesenho, relTabelas) {
+    const linhas = p.linhas || [];
+    const nCols = Math.max(1, ...linhas.map((l) => (l || []).length));
+    const dim = `A1:${ref(nCols - 1, Math.max(0, linhas.length - 1))}`;
+    const cols = (p.larguras || []).map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('');
+    const vista = p.congelar
+      ? `<sheetView workbookViewId="0"${p.grade === false ? ' showGridLines="0"' : ''}${p.selecionada ? ' tabSelected="1"' : ''}><pane ySplit="${p.congelar}" topLeftCell="A${p.congelar + 1}" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A${p.congelar + 1}" sqref="A${p.congelar + 1}"/></sheetView>`
+      : `<sheetView workbookViewId="0"${p.grade === false ? ' showGridLines="0"' : ''}${p.selecionada ? ' tabSelected="1"' : ''}/>`;
+    const dados = linhas.map((l, li) => {
+      const cel = (l || []).map((c, ci) => celulaXml(c, ci, li)).join('');
+      const alt = p.alturas && p.alturas[li] ? ` ht="${p.alturas[li]}" customHeight="1"` : '';
+      return cel || alt ? `<row r="${li + 1}"${alt}>${cel}</row>` : '';
+    }).join('');
+    const mesclas = (p.mesclas || []).length ? `<mergeCells count="${p.mesclas.length}">${p.mesclas.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : '';
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+      + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      + `<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><dimension ref="${dim}"/><sheetViews>${vista}</sheetViews>`
+      + '<sheetFormatPr defaultRowHeight="15"/>'
+      + (cols ? `<cols>${cols}</cols>` : '')
+      + `<sheetData>${dados}</sheetData>${mesclas}`
+      + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
+      + `<pageSetup paperSize="9" orientation="${p.paisagem ? 'landscape' : 'portrait'}" fitToWidth="1" fitToHeight="0"/>`
+      + (relDesenho ? `<drawing r:id="${relDesenho}"/>` : '')
+      + (relTabelas.length ? `<tableParts count="${relTabelas.length}">${relTabelas.map((id) => `<tablePart r:id="${id}"/>`).join('')}</tableParts>` : '')
+      + '</worksheet>';
+  }
+
+  function tabelaXml(t, id, p) {
+    const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(t.ref);
+    const col = (s) => s.split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+    const c0 = col(m[1]); const c1 = col(m[3]); const l0 = Number(m[2]) - 1;
+    const cab = (p.linhas[l0] || []).slice(c0, c1 + 1).map((c) => String(c && typeof c === 'object' ? c.v : c));
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+      + `<table xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" id="${id}" name="${esc(t.nome)}" displayName="${esc(t.nome)}" ref="${t.ref}" totalsRowShown="0">`
+      + `<autoFilter ref="${t.ref}"/><tableColumns count="${cab.length}">${cab.map((n, i) => `<tableColumn id="${i + 1}" name="${esc(n)}"/>`).join('')}</tableColumns>`
+      + `<tableStyleInfo name="${t.estilo || 'TableStyleMedium2'}" showFirstColumn="0" showLastColumn="0" showRowStripes="1" showColumnStripes="0"/></table>`;
+  }
+
+  /* ---------------- Gráficos ---------------- */
+
+  const corSerie = (cor) => `<c:spPr><a:solidFill><a:srgbClr val="${cor}"/></a:solidFill></c:spPr>`;
+  const corLinha = (cor) => `<c:spPr><a:ln w="22225" cap="rnd"><a:solidFill><a:srgbClr val="${cor}"/></a:solidFill><a:round/></a:ln></c:spPr>`;
+  const textoEixo = '<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="900"><a:solidFill><a:srgbClr val="595959"/></a:solidFill></a:defRPr></a:pPr><a:endParaRPr lang="pt-BR"/></a:p></c:txPr>';
+  const linhaGrade = '<c:majorGridlines><c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="D9D9D9"/></a:solidFill></a:ln></c:spPr></c:majorGridlines>';
+  const semLinha = '<c:spPr><a:ln><a:noFill/></a:ln></c:spPr>';
+  const eixoLinha = '<c:spPr><a:ln w="9525"><a:solidFill><a:srgbClr val="BFBFBF"/></a:solidFill></a:ln></c:spPr>';
+
+  function categoriasXml(cat) {
+    const n = cat.valores.length;
+    const numeros = cat.valores.every((v) => typeof v === 'number');
+    if (numeros) {
+      return `<c:cat><c:numRef><c:f>${esc(cat.ref)}</c:f><c:numCache><c:formatCode>${esc(cat.formato || 'General')}</c:formatCode><c:ptCount val="${n}"/>`
+        + `${cat.valores.map((v, i) => `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>`).join('')}</c:numCache></c:numRef></c:cat>`;
+    }
+    return `<c:cat><c:strRef><c:f>${esc(cat.ref)}</c:f><c:strCache><c:ptCount val="${n}"/>`
+      + `${cat.valores.map((v, i) => `<c:pt idx="${i}"><c:v>${esc(v)}</c:v></c:pt>`).join('')}</c:strCache></c:strRef></c:cat>`;
+  }
+  function valoresXml(s, formato = 'General') {
+    return `<c:val><c:numRef><c:f>${esc(s.ref)}</c:f><c:numCache><c:formatCode>${esc(formato)}</c:formatCode><c:ptCount val="${s.valores.length}"/>`
+      + `${s.valores.map((v, i) => (Number.isFinite(v) ? `<c:pt idx="${i}"><c:v>${v}</c:v></c:pt>` : '')).join('')}</c:numCache></c:numRef></c:val>`;
+  }
+  const nomeSerie = (s) => `<c:tx><c:strRef><c:f>${esc(s.refNome)}</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>${esc(s.nome)}</c:v></c:pt></c:strCache></c:strRef></c:tx>`;
+
+  function eixoCat(id, cruza, { posicao = 'b', apagar = false, inverter = false, formato = null } = {}) {
+    return `<c:catAx><c:axId val="${id}"/><c:scaling><c:orientation val="${inverter ? 'maxMin' : 'minMax'}"/></c:scaling><c:delete val="${apagar ? 1 : 0}"/>`
+      + `<c:axPos val="${posicao}"/>${formato ? `<c:numFmt formatCode="${esc(formato)}" sourceLinked="0"/>` : ''}<c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/>`
+      + `${eixoLinha}${textoEixo}<c:crossAx val="${cruza}"/><c:crosses val="autoZero"/><c:auto val="1"/><c:lblAlgn val="ctr"/><c:lblOffset val="100"/><c:noMultiLvlLbl val="0"/></c:catAx>`;
+  }
+  function eixoVal(id, cruza, { posicao = 'l', grade = true, cruzaMax = false, apagar = false, formato = 'General' } = {}) {
+    return `<c:valAx><c:axId val="${id}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="${apagar ? 1 : 0}"/><c:axPos val="${posicao}"/>`
+      + `${grade ? linhaGrade : ''}<c:numFmt formatCode="${esc(formato)}" sourceLinked="0"/><c:majorTickMark val="none"/><c:minorTickMark val="none"/><c:tickLblPos val="nextTo"/>`
+      + `${semLinha}${textoEixo}<c:crossAx val="${cruza}"/><c:crosses val="${cruzaMax ? 'max' : 'autoZero'}"/><c:crossBetween val="between"/></c:valAx>`;
+  }
+
+  function graficoXml(g) {
+    const cats = categoriasXml(g.categorias);
+    let plot = '';
+    if (g.tipo === 'barrasLinha') {
+      const [b, l] = g.series;
+      plot = '<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>'
+        + `<c:ser><c:idx val="0"/><c:order val="0"/>${nomeSerie(b)}${corSerie(b.cor || '4472C4')}<c:invertIfNegative val="0"/>${cats}${valoresXml(b)}</c:ser>`
+        + '<c:gapWidth val="80"/><c:axId val="1001"/><c:axId val="1002"/></c:barChart>'
+        + '<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>'
+        + `<c:ser><c:idx val="1"/><c:order val="1"/>${nomeSerie(l)}${corLinha(l.cor || 'ED7D31')}<c:marker><c:symbol val="none"/></c:marker>${cats}${valoresXml(l, g.formatoLinha || 'General')}<c:smooth val="0"/></c:ser>`
+        + '<c:marker val="1"/><c:axId val="1003"/><c:axId val="1004"/></c:lineChart>'
+        + eixoCat(1001, 1002, { formato: g.categorias.formato || null })
+        + eixoVal(1002, 1001, { formato: '#,##0' })
+        + eixoCat(1003, 1004, { apagar: true })
+        + eixoVal(1004, 1003, { posicao: 'r', grade: false, cruzaMax: true, formato: g.formatoLinha || 'General' });
+    } else {
+      const [b] = g.series;
+      plot = '<c:barChart><c:barDir val="bar"/><c:grouping val="clustered"/><c:varyColors val="0"/>'
+        + `<c:ser><c:idx val="0"/><c:order val="0"/>${nomeSerie(b)}${corSerie(b.cor || '4472C4')}<c:invertIfNegative val="0"/>`
+        + '<c:dLbls><c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>'
+        + `${textoEixo}<c:showLegendKey val="0"/><c:showVal val="1"/><c:showCatName val="0"/><c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/></c:dLbls>`
+        + `${cats}${valoresXml(b)}</c:ser><c:gapWidth val="60"/><c:axId val="2001"/><c:axId val="2002"/></c:barChart>`
+        + eixoCat(2001, 2002, { posicao: 'l', inverter: true })
+        + eixoVal(2002, 2001, { posicao: 'b', formato: '#,##0' });
+    }
+    const titulo = `<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1100" b="1"/></a:pPr><a:r><a:rPr lang="pt-BR" sz="1100" b="1"><a:solidFill><a:srgbClr val="404040"/></a:solidFill></a:rPr><a:t>${esc(g.titulo)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>`;
+    const legenda = g.tipo === 'barrasLinha' ? `<c:legend><c:legendPos val="b"/><c:overlay val="0"/>${textoEixo}</c:legend>` : '';
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+      + '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      + '<c:lang val="pt-BR"/><c:roundedCorners val="0"/>'
+      + `<c:chart>${titulo}<c:autoTitleDeleted val="0"/><c:plotArea><c:layout/>${plot}</c:plotArea>${legenda}<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart>`
+      + '<c:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="9525"><a:solidFill><a:srgbClr val="D9D9D9"/></a:solidFill></a:ln></c:spPr>'
+      + '<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="900"><a:latin typeface="Calibri"/></a:defRPr></a:pPr><a:endParaRPr lang="pt-BR"/></a:p></c:txPr>'
+      + '</c:chartSpace>';
+  }
+
+  function desenhoXml(graficos, idsRel) {
+    const ancora = (g, k) => `<xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>${g.de[0]}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${g.de[1]}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>`
+      + `<xdr:to><xdr:col>${g.ate[0]}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${g.ate[1]}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>`
+      + `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${k + 2}" name="Gráfico ${k + 1}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>`
+      + '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">'
+      + `<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="${idsRel[k]}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`;
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+      + '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+      + `${graficos.map(ancora).join('')}</xdr:wsDr>`;
+  }
+
+  /* ---------------- Pasta de trabalho ---------------- */
+
+  const rels = (lista) => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+    + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    + `${lista.map(([id, tipo, alvo]) => `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/${tipo}" Target="${alvo}"/>`).join('')}</Relationships>`;
+
+  function gerar({ autor = '', titulo = '', aplicativo = 'Carro Controle EM80', planilhas }) {
+    const arquivos = [];
+    const tipos = [
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+      '<Default Extension="xml" ContentType="application/xml"/>',
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>',
+      '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>',
+      '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
+    ];
+    let nTabela = 0; let nGrafico = 0; let nDesenho = 0;
+    planilhas.forEach((p, i) => {
+      const n = i + 1;
+      const relsPlanilha = [];
+      let relDesenho = null;
+      const relTabelas = [];
+      (p.tabelas || []).forEach((t) => {
+        nTabela++;
+        const id = `rId${relsPlanilha.length + 1}`;
+        relsPlanilha.push([id, 'officeDocument/2006/relationships/table', `../tables/table${nTabela}.xml`]);
+        relTabelas.push(id);
+        arquivos.push([`xl/tables/table${nTabela}.xml`, tabelaXml(t, nTabela, p)]);
+        tipos.push(`<Override PartName="/xl/tables/table${nTabela}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>`);
+      });
+      if ((p.graficos || []).length) {
+        nDesenho++;
+        relDesenho = `rId${relsPlanilha.length + 1}`;
+        relsPlanilha.push([relDesenho, 'officeDocument/2006/relationships/drawing', `../drawings/drawing${nDesenho}.xml`]);
+        const relsDesenho = [];
+        p.graficos.forEach((g) => {
+          nGrafico++;
+          relsDesenho.push([`rId${relsDesenho.length + 1}`, 'officeDocument/2006/relationships/chart', `../charts/chart${nGrafico}.xml`]);
+          arquivos.push([`xl/charts/chart${nGrafico}.xml`, graficoXml(g)]);
+          tipos.push(`<Override PartName="/xl/charts/chart${nGrafico}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`);
+        });
+        arquivos.push([`xl/drawings/drawing${nDesenho}.xml`, desenhoXml(p.graficos, relsDesenho.map((r) => r[0]))]);
+        arquivos.push([`xl/drawings/_rels/drawing${nDesenho}.xml.rels`, rels(relsDesenho)]);
+        tipos.push(`<Override PartName="/xl/drawings/drawing${nDesenho}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`);
+      }
+      arquivos.push([`xl/worksheets/sheet${n}.xml`, planilhaXml({ ...p, selecionada: i === 0 }, relDesenho, relTabelas)]);
+      if (relsPlanilha.length) arquivos.push([`xl/worksheets/_rels/sheet${n}.xml.rels`, rels(relsPlanilha)]);
+      tipos.push(`<Override PartName="/xl/worksheets/sheet${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`);
+    });
+    const agora = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    const nomesPlanilhas = planilhas.map((p) => esc(String(p.nome).slice(0, 31)));
+    arquivos.unshift(
+      ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">${tipos.join('')}</Types>`],
+      ['_rels/.rels', rels([
+        ['rId1', 'officeDocument/2006/relationships/officeDocument', 'xl/workbook.xml'],
+        ['rId2', 'package/2006/relationships/metadata/core-properties', 'docProps/core.xml'],
+        ['rId3', 'officeDocument/2006/relationships/extended-properties', 'docProps/app.xml']])],
+      ['docProps/core.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+        + `<dc:title>${esc(titulo)}</dc:title><dc:creator>${esc(autor)}</dc:creator><cp:lastModifiedBy>${esc(autor)}</cp:lastModifiedBy>`
+        + `<dcterms:created xsi:type="dcterms:W3CDTF">${agora}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${agora}</dcterms:modified></cp:coreProperties>`],
+      ['docProps/app.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
+        + `<Application>${esc(aplicativo)}</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop><Company>${esc(autor)}</Company></Properties>`],
+      ['xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        + '<bookViews><workbookView activeTab="0"/></bookViews>'
+        + `<sheets>${nomesPlanilhas.map((nm, i) => `<sheet name="${nm}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets><calcPr calcId="191029"/></workbook>`],
+      ['xl/_rels/workbook.xml.rels', rels([
+        ...planilhas.map((_, i) => [`rId${i + 1}`, 'officeDocument/2006/relationships/worksheet', `worksheets/sheet${i + 1}.xml`]),
+        [`rId${planilhas.length + 1}`, 'officeDocument/2006/relationships/styles', 'styles.xml']])],
+      ['xl/styles.xml', estilosXml()]);
+    return zip(arquivos);
+  }
+
+  /** Baixa o arquivo gerado. */
+  function baixar(bytes, nome) {
+    const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = nome;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  App.xlsx = { gerar, baixar, serial, letra, ref, absoluta, ESTILOS: NOMES_ESTILO };
 })(window.App);
 
 </script>
@@ -7945,7 +8343,7 @@ window.App = window.App || {};
 /*
  * Módulo 2 – Registro de Eventos: falhas de equipamento e outros eventos que afetam a inspeção
  * (atraso da equipe, liberação do carro, chuva…), com o impacto em OMs perdidas e em tempo.
- * Painel com gráficos e exportação em PDF.
+ * Painel com gráficos, histórico com filtro por data e exportação em PDF e Excel.
  */
 'use strict';
 
@@ -7954,24 +8352,30 @@ window.App = window.App || {};
   const { h } = ui;
   const COLECAO = 'eventos';
   const FALHA = 'Falha de equipamento';
-  const UNIDADES = { h: 'horas', d: 'dias' };
+  const UNIDADES = { min: 'minutos', h: 'horas', d: 'dias' };
+  const unidadeDe = (u) => (u === 'd' || u === 'min' ? u : 'h');
+  /** Nome antigo do equipamento (antes da correção para Applanix). */
+  const NOMES_ANTIGOS = { Aplanix: 'Applanix' };
 
   let raiz;
   let formCartao;
   let painelEl;
   let abertosEl;
-  let recentesEl;
   let lista = []; // todos os eventos do aparelho (inclusive excluídos)
   let pendentes = new Map();
   let editando = null; // evento em edição (ou null)
   let f = {}; // campos do formulário
   let periodo = U.pref.get('eventos:periodo', '30d');
+  let linhaGrafico = U.pref.get('eventos:linha', 'acumulado'); // linha do gráfico: 'diario' ou 'acumulado'
+  let filtroHist = null; // { de, ate, rotulo }: histórico só desses dias (campo de data ou clique no gráfico)
+  let historicoEl;
+  let historicoAberto = U.pref.get('eventos:historicoAberto', true);
 
   const vazio = () => ({
     categoria: FALHA, equipamento: '', outro: '', parte: '', descricao: '',
     inicio: '', fim: '', impactos: [], observacao: ''
   });
-  const impactoVazio = (data = '') => ({ data, oms: '', valor: '', unidade: 'h' });
+  const impactoVazio = (data = '') => ({ data, oms: '', valor: '', unidade: unidadeDe(U.pref.get('eventos:unidade', 'h')) });
 
   /* ---------------- Identificação e valores ---------------- */
 
@@ -7989,7 +8393,7 @@ window.App = window.App || {};
   const ehFalha = (ev) => categoriaDe(ev) === FALHA;
   const titulo = (ev) => (ehFalha(ev) ? [ev.equipamento, ev.parte] : [categoriaDe(ev), ev.descricao]).filter(Boolean).join(' · ');
   const num = (v) => (v === '' || v === null || v === undefined || Number.isNaN(Number(v)) ? 0 : Number(v));
-  const horasImpacto = (i) => num(i.valor) * (i.unidade === 'd' ? 24 : 1);
+  const horasImpacto = (i) => num(i.valor) * ({ d: 24, min: 1 / 60 }[i.unidade] || 1);
   /**
    * Impactos do evento, um por dia: [{ data, oms, valor, unidade }].
    * Eventos antigos (um impacto só, nos campos omsPerdidas/impactoValor/dataImpacto) viram um item.
@@ -7999,18 +8403,21 @@ window.App = window.App || {};
     if (!lista && ev.impactosJson) { try { lista = JSON.parse(ev.impactosJson); } catch (e) { lista = null; } }
     if (!Array.isArray(lista)) {
       lista = num(ev.omsPerdidas) || num(ev.impactoValor)
-        ? [{ data: diaImpactoAntigo(ev), oms: ev.omsPerdidas, valor: ev.impactoValor, unidade: ev.impactoUnidade === 'd' ? 'd' : 'h' }]
+        ? [{ data: diaImpactoAntigo(ev), oms: ev.omsPerdidas, valor: ev.impactoValor, unidade: unidadeDe(ev.impactoUnidade) }]
         : [];
     }
     const inicio = String(ev.inicio || '').slice(0, 10);
-    return lista.map((i) => ({ data: U.ehData(String(i.data || '').slice(0, 10)) ? String(i.data).slice(0, 10) : inicio, oms: i.oms, valor: i.valor, unidade: i.unidade === 'd' ? 'd' : 'h' }))
+    return lista.map((i) => ({ data: U.ehData(String(i.data || '').slice(0, 10)) ? String(i.data).slice(0, 10) : inicio, oms: i.oms, valor: i.valor, unidade: unidadeDe(i.unidade) }))
       .sort((a, b) => a.data.localeCompare(b.data));
   }
   const omsDe = (ev, filtro = () => true) => impactosDe(ev).filter(filtro).reduce((t, i) => t + num(i.oms), 0);
   const horasDe = (ev, filtro = () => true) => impactosDe(ev).filter(filtro).reduce((t, i) => t + horasImpacto(i), 0);
-  const fmtTempo = (i) => `${fmtN(i.valor, 1)} ${i.unidade === 'd' ? (num(i.valor) === 1 ? 'dia' : 'dias') : 'h'}`;
+  const fmtTempo = (i) => `${fmtN(i.valor, 1)} ${i.unidade === 'd' ? (num(i.valor) === 1 ? 'dia' : 'dias') : i.unidade === 'min' ? 'min' : 'h'}`;
   const fmtN = (v, casas = 0) => Number(v || 0).toLocaleString('pt-BR', { maximumFractionDigits: casas, minimumFractionDigits: 0 });
-  const fmtHoras = (hh) => (hh >= 24 ? `${fmtN(hh, 1)} h (${fmtN(hh / 24, 1)} dia${hh / 24 >= 2 ? 's' : ''})` : `${fmtN(hh, 1)} h`);
+  const fmtHoras = (hh) => {
+    if (hh > 0 && hh < 1) return `${fmtN(hh * 60)} min`;
+    return hh >= 24 ? `${fmtN(hh, 1)} h (${fmtN(hh / 24, 1)} dia${hh / 24 >= 2 ? 's' : ''})` : `${fmtN(hh, 1)} h`;
+  };
   /** Um texto por dia de impacto: "19/10: 92 OMs perdidas · 8 h". */
   const textoImpacto = (ev) => impactosDe(ev).map((i) => {
     const partes = [];
@@ -8032,7 +8439,10 @@ window.App = window.App || {};
     formCartao = h('section', { class: 'cartao' });
     painelEl = h('section', { class: 'cartao' });
     abertosEl = h('div', { class: 'lista' });
-    recentesEl = h('div', { class: 'lista' });
+    historicoEl = h('details', {
+      class: 'cartao ev-historico', open: historicoAberto || null,
+      ontoggle: (e) => { historicoAberto = e.target.open; U.pref.set('eventos:historicoAberto', historicoAberto); }
+    });
     raiz.append(
       h('div', { class: 'tela-cab' },
         h('h1', { text: 'Registro de Eventos' }),
@@ -8040,7 +8450,7 @@ window.App = window.App || {};
       formCartao,
       h('section', { class: 'cartao' }, h('h2', { text: 'Em aberto' }), abertosEl),
       painelEl,
-      h('section', { class: 'cartao' }, h('h2', { text: 'Recentes' }), recentesEl));
+      historicoEl);
     renderForm();
     setInterval(() => {
       if (raiz.offsetParent !== null) renderListas();
@@ -8127,12 +8537,12 @@ window.App = window.App || {};
                 oninput: (e) => { imp.oms = e.target.value; }
               })),
               ui.campo('Impacto no tempo', h('input', {
-                type: 'number', name: `impValor${k}`, min: 0, step: 0.5, inputmode: 'decimal', value: imp.valor, placeholder: '0',
+                type: 'number', name: `impValor${k}`, min: 0, step: 'any', inputmode: 'decimal', value: imp.valor, placeholder: '0',
                 oninput: (e) => { imp.valor = e.target.value; }
               })),
               ui.campo('Unidade', h('select', {
                 name: `impUnidade${k}`, value: imp.unidade,
-                onchange: (e) => { imp.unidade = e.target.value; }
+                onchange: (e) => { imp.unidade = e.target.value; U.pref.set('eventos:unidade', imp.unidade); }
               }, Object.entries(UNIDADES).map(([v, t]) => h('option', { value: v, text: t }))))),
             h('button', {
               type: 'button', class: 'btn-icone', 'aria-label': `Remover impacto ${k + 1}`, title: 'Remover este dia',
@@ -8212,7 +8622,7 @@ window.App = window.App || {};
     const falha = f.categoria === FALHA;
     const val = (v) => (String(v ?? '').trim() === '' ? '' : U.numero(v));
     const impactos = f.impactos
-      .map((i) => ({ data: i.data || String(inicio || '').slice(0, 10), oms: val(i.oms), valor: val(i.valor), unidade: i.unidade === 'd' ? 'd' : 'h' }))
+      .map((i) => ({ data: i.data || String(inicio || '').slice(0, 10), oms: val(i.oms), valor: val(i.valor), unidade: unidadeDe(i.unidade) }))
       .filter((i) => i.oms !== '' || i.valor !== '')
       .sort((a, b) => a.data.localeCompare(b.data));
     const totalOms = impactos.reduce((t, i) => t + num(i.oms), 0);
@@ -8328,12 +8738,50 @@ window.App = window.App || {};
         h('button', { class: 'btn btn-secundario btn-pequeno', 'aria-label': `Excluir ${codigoDe(ev)}`, onclick: () => excluir(ev) }, ui.icone('lixo'), 'Excluir')));
   }
 
-  function renderListas() {
+  /** O evento aconteceu (ou teve impacto) entre as datas de e ate? */
+  function noIntervalo(ev, de, ate) {
+    const ini = String(ev.inicio || '').slice(0, 10);
+    const fim = String(ev.fim || U.agora()).slice(0, 10);
+    return (ini <= ate && fim >= de) || impactosDe(ev).some((i) => i.data >= de && i.data <= ate);
+  }
+
+  /** Filtra o histórico por um dia (ou mês, no gráfico por mês). Repetir o mesmo filtro limpa. */
+  function filtrarHistorico(de, ate, rotulo) {
+    filtroHist = de && !(filtroHist && filtroHist.de === de && filtroHist.ate === ate) ? { de, ate, rotulo } : null;
+    historicoAberto = true;
+    renderListas();
+    if (filtroHist) ui.rolarAte(historicoEl);
+  }
+
+  const LIMITE_HIST = 25;
+
+  function renderHistorico() {
     const todos = visiveis();
-    const abertos = todos.filter((e) => !e.fim);
-    const fechados = todos.filter((e) => e.fim).slice(0, 25);
+    const filtrados = filtroHist ? todos.filter((e) => noIntervalo(e, filtroHist.de, filtroHist.ate)) : todos.filter((e) => e.fim);
+    const mostrar = filtroHist ? filtrados : filtrados.slice(0, LIMITE_HIST);
+    const campoData = h('input', {
+      type: 'date', name: 'filtroData', 'aria-label': 'Filtrar pela data',
+      value: filtroHist && filtroHist.de === filtroHist.ate ? filtroHist.de : '',
+      onchange: (e) => { const d = e.target.value; filtroHist = null; if (U.ehData(d)) filtrarHistorico(d, d, U.fmtData(d)); else renderListas(); }
+    });
+    historicoEl.open = historicoAberto;
+    ui.trocar(historicoEl,
+      h('summary', { class: 'ev-hist-cab' },
+        h('h2', { text: 'Histórico de eventos' }),
+        h('span', { class: 'sub', text: filtroHist ? `${filtrados.length} evento(s) em ${filtroHist.rotulo}` : `${todos.filter((e) => e.fim).length} finalizado(s)` })),
+      h('div', { class: 'ev-hist-filtro' },
+        ui.campo('Filtrar pela data', campoData),
+        filtroHist ? h('button', { type: 'button', class: 'btn btn-secundario btn-pequeno', onclick: () => filtrarHistorico(null) }, ui.icone('x'), 'Limpar filtro') : null,
+        h('span', { class: 'sub', text: 'Ou toque num dia do gráfico do painel.' })),
+      h('div', { class: 'lista' }, mostrar.length ? mostrar.map((e) => cartaoEvento(e, !e.fim))
+        : h('p', { class: 'vazio', text: filtroHist ? `Nenhum evento em ${filtroHist.rotulo}.` : 'Nenhum evento finalizado ainda.' })),
+      !filtroHist && filtrados.length > LIMITE_HIST ? h('p', { class: 'sub', text: `Mostrando os ${LIMITE_HIST} mais recentes de ${filtrados.length}. Use o filtro por data para ver os outros.` }) : null);
+  }
+
+  function renderListas() {
+    const abertos = visiveis().filter((e) => !e.fim);
     ui.trocar(abertosEl, abertos.length ? abertos.map((e) => cartaoEvento(e, true)) : h('p', { class: 'vazio', text: 'Nenhum evento em aberto.' }));
-    ui.trocar(recentesEl, fechados.length ? fechados.map((e) => cartaoEvento(e, false)) : h('p', { class: 'vazio', text: 'Nenhum evento finalizado ainda.' }));
+    renderHistorico();
     renderPainel();
   }
 
@@ -8370,7 +8818,10 @@ window.App = window.App || {};
     };
   }
 
-  /** Série por dia (até 62 dias) ou por mês: OMs perdidas (barras) e impacto em horas acumulado (linha). */
+  /**
+   * Série por dia (até 62 dias) ou por mês: OMs perdidas (barras) e impacto no tempo (linha),
+   * do dia ou acumulado no período (escolha do usuário). Em minutos quando o maior valor fica abaixo de 2 h.
+   */
   function seriePorData(evs) {
     const [de, ate] = intervalo();
     const dias = Math.round((U.parseData(ate) - U.parseData(de)) / 86400000) + 1;
@@ -8384,17 +8835,24 @@ window.App = window.App || {};
       const x = mapa.get(k); if (!x) return;
       x.oms += num(i.oms); x.horas += horasImpacto(i); x.qtd++;
     }));
-    let acumulado = 0;
-    return chaves.map((k) => {
+    const acumulado = linhaGrafico === 'acumulado';
+    let soma = 0;
+    const horas = chaves.map((k) => { soma += mapa.get(k).horas; return acumulado ? soma : mapa.get(k).horas; });
+    const emMinutos = Math.max(0, ...horas) < 2;
+    const pontos = chaves.map((k, n) => {
       const x = mapa.get(k);
-      acumulado += x.horas;
+      const de2 = porMes ? `${k}-01` : k;
       return {
-        rotulo: porMes ? U.fmtMesAno(`${k}-01`) : U.fmtData(k).slice(0, 5),
-        dica: `${porMes ? U.fmtMesAno(`${k}-01`) : `${U.diaSemanaCurto(k)} ${U.fmtData(k)}`} · ${x.qtd} impacto(s) · impacto no ${porMes ? 'mês' : 'dia'}: ${fmtHoras(x.horas)}`,
+        chave: k, de: de2, ate: porMes ? U.fimMes(de2) : k,
+        rotulo: porMes ? U.fmtMesAno(de2) : U.fmtData(k).slice(0, 5),
+        rotuloLongo: porMes ? U.fmtMesAno(de2) : `${U.diaSemanaCurto(k)} ${U.fmtData(k)}`,
+        dica: `${porMes ? U.fmtMesAno(de2) : `${U.diaSemanaCurto(k)} ${U.fmtData(k)}`} · ${x.qtd} impacto(s) · impacto no ${porMes ? 'mês' : 'dia'}: ${fmtHoras(x.horas)}`,
         barra: x.oms,
-        linha: Math.round(acumulado * 10) / 10
+        horasDia: x.horas,
+        linha: emMinutos ? Math.round(horas[n] * 60) : Math.round(horas[n] * 10) / 10
       };
     });
+    return { pontos, porMes, emMinutos, acumulado };
   }
 
   function porGrupo(evs, chave, valor) {
@@ -8403,7 +8861,30 @@ window.App = window.App || {};
     return [...mapa.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
   }
 
-  function graficos(evs) {
+  /** Gráfico de barras (OMs perdidas) e linha (impacto no tempo, do dia ou acumulado). */
+  function graficoPorData(evs, { interativo = true } = {}) {
+    const { charts } = App;
+    const sr = seriePorData(evs);
+    const un = sr.emMinutos ? 'min' : 'h';
+    const nomeLinha = `Impacto no tempo ${sr.acumulado ? 'acumulado no período' : `por ${sr.porMes ? 'mês' : 'dia'}`} (${un})`;
+    const sel = filtroHist ? sr.pontos.findIndex((p) => p.de === filtroHist.de && p.ate === filtroHist.ate) : -1;
+    return h('div', { class: 'laudo-grafico' },
+      h('div', { class: 'ev-graf-cab' },
+        h('h3', { text: `OMs perdidas e impacto no tempo ${sr.acumulado ? 'acumulado' : (sr.porMes ? 'por mês' : 'por dia')}` }),
+        interativo ? h('div', { class: 'seg seg-compacto', role: 'group', 'aria-label': 'Linha do gráfico' },
+          [['diario', sr.porMes ? 'Por mês' : 'Por dia'], ['acumulado', 'Acumulado']].map(([v, t]) => h('button', {
+            type: 'button', class: `seg-opcao${linhaGrafico === v ? ' ativo' : ''}`, 'aria-pressed': linhaGrafico === v ? 'true' : 'false',
+            onclick: () => { linhaGrafico = v; U.pref.set('eventos:linha', v); renderPainel(); }
+          }, t))) : null),
+      charts.barrasLinha(sr.pontos, {
+        nomeBarra: 'OMs perdidas', nomeLinha, fmtLinha: (v) => `${fmtN(v, sr.emMinutos ? 0 : 1)} ${un}`,
+        selecionado: sel,
+        aoClicar: interativo ? (p) => filtrarHistorico(p.de, p.ate, sr.porMes ? p.rotulo : p.rotuloLongo) : null,
+        dicaClique: interativo ? `Toque para ver os eventos ${sr.porMes ? 'do mês' : 'do dia'}` : null
+      }));
+  }
+
+  function graficos(evs, opcoes = {}) {
     const { charts } = App;
     const filtro = noPeriodo();
     const porTipoOms = porGrupo(evs, rotuloTipo, (e) => omsDe(e, filtro));
@@ -8412,9 +8893,7 @@ window.App = window.App || {};
     const bloco = (t, g) => h('div', { class: 'laudo-grafico' }, h('h3', { text: t }), g);
     // barras com linha à esquerda; barras horizontais empilhadas à direita
     return [h('div', { class: 'ev-graf-esq' },
-      bloco('OMs perdidas e impacto no tempo acumulado', charts.barrasLinha(seriePorData(evs), {
-        nomeBarra: 'OMs perdidas', nomeLinha: 'Impacto acumulado (h)', fmtLinha: (v) => `${fmtN(v, 1)} h`
-      }))),
+      graficoPorData(evs, opcoes)),
     h('div', { class: 'ev-graf-dir' },
       porTipoOms.length ? bloco('OMs perdidas por tipo de evento', charts.barrasH(porTipoOms.map(([r, v]) => ({ rotulo: r, valor: v, texto: fmtN(v) })))) : null,
       porTipoHoras.length ? bloco('Impacto no tempo por tipo de evento', charts.barrasH(porTipoHoras.map(([r, v]) => ({ rotulo: r, valor: v, texto: fmtHoras(v) })), { classe: 'graf-barra-2' })) : null,
@@ -8430,7 +8909,9 @@ window.App = window.App || {};
     ui.trocar(painelEl, h('div', { class: 'ev-painel' },
       h('div', { class: 'cartao-cab' },
         h('h2', { text: 'Painel de eventos' }),
-        h('button', { class: 'btn btn-secundario btn-pequeno', onclick: exportarPdf, disabled: !evs.length }, ui.icone('documento'), 'Exportar PDF')),
+        h('div', { class: 'linha-acoes' },
+          h('button', { class: 'btn btn-secundario btn-pequeno', onclick: exportarExcel, disabled: !evs.length }, ui.icone('documento'), 'Exportar Excel'),
+          h('button', { class: 'btn btn-secundario btn-pequeno', onclick: exportarPdf, disabled: !evs.length }, ui.icone('documento'), 'Exportar PDF'))),
       h('div', { class: 'ev-periodo' },
         h('div', { class: 'seg seg-compacto', role: 'group', 'aria-label': 'Período' },
           PERIODOS.map(([v, t]) => h('button', {
@@ -8464,7 +8945,7 @@ window.App = window.App || {};
             ['Impacto no tempo', fmtHoras(r.horas), 'informado nos eventos'],
             ['Duração dos eventos', U.fmtDuracao(r.minutos) || '0min', 'do início ao fim']
           ].map(([t, v, sub]) => h('div', { class: 'laudo-kpi' }, h('span', { text: t }), h('strong', { text: v }), h('small', { text: sub }))))),
-      h('section', { class: 'laudo-secao' }, h('h2', { text: 'Gráficos' }), h('div', { class: 'ev-graficos' }, graficos(evs))),
+      h('section', { class: 'laudo-secao' }, h('h2', { text: 'Gráficos' }), h('div', { class: 'ev-graficos' }, graficos(evs, { interativo: false }))),
       h('section', { class: 'laudo-secao' }, h('h2', { text: 'Eventos do período' }),
         tabela(['Código', 'Tipo', 'Equipamento / descrição', 'Início', 'Fim', 'Duração', 'OMs perdidas', 'Impactos por dia', 'Observação'],
           evs.map((e) => [codigoDe(e), categoriaDe(e), ehFalha(e) ? [e.equipamento, e.parte].filter(Boolean).join(' · ') : e.descricao,
@@ -8473,6 +8954,163 @@ window.App = window.App || {};
             e.observacao || '']))),
       null);
     imprimir(el, `Eventos EM80 ${U.fmtData(de).replace(/\//g, '-')} a ${U.fmtData(ate).replace(/\//g, '-')}`);
+  }
+
+  /* ---------------- Excel ---------------- */
+
+  /**
+   * Planilha do período do painel: Resumo (cartões, gráficos e totais por tipo e equipamento),
+   * Eventos, Impactos por dia e Por dia. Tabelas do Excel (filtro e zebrado) e gráficos nativos.
+   */
+  function montarExcel() {
+    const X = App.xlsx;
+    const evs = doPeriodo().slice().sort((a, b) => String(a.inicio).localeCompare(String(b.inicio)));
+    const r = resumo(evs);
+    const [de, ate] = intervalo();
+    const filtro = noPeriodo();
+    const c = (v, e) => ({ v, e });
+    const dur = (horas) => c(horas ? horas / 24 : null, 'duracao');
+    const descricao = (e) => (ehFalha(e) ? e.parte || '' : e.descricao || '');
+    const equipamento = (e) => (ehFalha(e) ? e.equipamento || '' : '');
+
+    /* Por dia (fonte do gráfico de barras e linha) */
+    const sr = seriePorData(evs);
+    const un = sr.emMinutos ? 'min' : 'h';
+    const fmtNum = sr.emMinutos ? 'inteiro' : 'decimal';
+    let acum = 0;
+    const linhasDia = sr.pontos.map((p) => {
+      acum += p.horasDia;
+      const conv = (hh) => (sr.emMinutos ? Math.round(hh * 60) : Math.round(hh * 100) / 100);
+      return [sr.porMes ? c(p.rotulo, 'texto') : c(X.serial(p.de), 'data'), c(p.barra, 'inteiro'), c(conv(p.horasDia), fmtNum), c(conv(acum), fmtNum)];
+    });
+    const cabDia = [sr.porMes ? 'Mês' : 'Data', 'OMs perdidas', `Impacto no ${sr.porMes ? 'mês' : 'dia'} (${un})`, `Impacto acumulado (${un})`];
+    const porDia = {
+      nome: 'Por dia', larguras: [14, 14, 22, 24], congelar: 1,
+      linhas: [cabDia, ...linhasDia],
+      tabelas: [{ ref: `A1:D${linhasDia.length + 1}`, nome: 'tbPorDia' }]
+    };
+
+    /* Eventos */
+    const cabEv = ['Código', 'Tipo', 'Equipamento', 'Parte / descrição', 'Início', 'Fim', 'Duração', 'OMs perdidas', 'Impacto no tempo', 'Impactos por dia', 'Observação', 'Situação'];
+    const linhasEv = evs.map((e) => [
+      c(codigoDe(e), 'texto'), c(categoriaDe(e), 'texto'), c(equipamento(e), 'texto'), c(descricao(e), 'quebra'),
+      c(X.serial(e.inicio), 'dataHora'), c(e.fim ? X.serial(e.fim) : null, 'dataHora'),
+      c((U.minutosEntre(e.inicio, e.fim || U.agora()) || 0) / 1440, 'duracao'),
+      c(omsDe(e) || null, 'inteiro'), dur(horasDe(e)),
+      c(textoImpacto(e).join('\n'), 'quebra'), c(e.observacao || '', 'quebra'), c(e.fim ? 'Finalizado' : 'Em aberto', 'texto')
+    ]);
+    const eventos = {
+      nome: 'Eventos', larguras: [17, 20, 13, 30, 16, 16, 10, 14, 17, 30, 42, 11], congelar: 1, paisagem: true,
+      linhas: [cabEv, ...linhasEv],
+      tabelas: [{ ref: `A1:L${linhasEv.length + 1}`, nome: 'tbEventos' }]
+    };
+
+    /* Impactos por dia (só os dias dentro do período) */
+    const imps = evs.flatMap((e) => impactosDe(e).filter(filtro).map((i) => ({ e, i }))).sort((a, b) => a.i.data.localeCompare(b.i.data));
+    const nomeUn = { min: 'minutos', h: 'horas', d: 'dias' };
+    const linhasImp = imps.map(({ e, i }) => [
+      c(X.serial(i.data), 'data'), c(codigoDe(e), 'texto'), c(categoriaDe(e), 'texto'), c([equipamento(e), descricao(e)].filter(Boolean).join(' · '), 'quebra'),
+      c(num(i.oms) || null, 'inteiro'), dur(horasImpacto(i)), c(num(i.valor) || null, 'decimal'), c(num(i.valor) ? nomeUn[i.unidade] : '', 'texto')
+    ]);
+    const cabImp = ['Data', 'Código', 'Tipo', 'Equipamento / descrição', 'OMs perdidas', 'Impacto no tempo', 'Valor informado', 'Unidade'];
+    const impactos = linhasImp.length ? {
+      nome: 'Impactos por dia', larguras: [12, 17, 20, 34, 14, 17, 16, 10], congelar: 1,
+      linhas: [cabImp, ...linhasImp],
+      tabelas: [{ ref: `A1:H${linhasImp.length + 1}`, nome: 'tbImpactos' }]
+    } : null;
+
+    /* Resumo */
+    const L = 12; // colunas A–L
+    const linhas = []; const mesclas = []; const alturas = {}; const graficos = []; const tabelas = [];
+    const pos = () => linhas.length;
+    const secao = (texto) => { const l = pos(); linhas.push([c(texto, 'secao'), ...Array.from({ length: L - 1 }, () => c(null, 'secao'))]); mesclas.push(`A${l + 1}:${X.letra(L - 1)}${l + 1}`); };
+    linhas.push([c('Eventos do carro controle EM80', 'titulo')]); mesclas.push(`A1:${X.letra(L - 1)}1`); alturas[0] = 22;
+    linhas.push([c(`Centro de Monitoramento de Ativos · Período: ${U.fmtData(de)} a ${U.fmtData(ate)} · Emitido em ${U.fmtDataHora(U.agora())}`, 'sub')]);
+    mesclas.push(`A2:${X.letra(L - 1)}2`);
+    linhas.push([]);
+    const cartoes = [
+      ['Eventos', c(r.qtd, 'cartaoInteiro'), `${evs.filter(ehFalha).length} falha(s) de equipamento`],
+      ['OMs perdidas', c(r.oms, 'cartaoInteiro'), 'informadas nos eventos'],
+      ['Impacto no tempo', c(r.horas / 24, 'cartaoDuracao'), 'informado nos eventos (h:min)'],
+      ['Duração dos eventos', c(r.minutos / 1440, 'cartaoDuracao'), 'do início ao fim (h:min)']
+    ];
+    const lc = pos();
+    linhas.push(cartoes.map(([t]) => c(t, 'cartaoRotulo')));
+    linhas.push(cartoes.map(([, v]) => v));
+    linhas.push(cartoes.map(([, , sub]) => c(sub, 'cartaoSub')));
+    alturas[lc] = 18; alturas[lc + 1] = 30; alturas[lc + 2] = 30;
+    linhas.push([]);
+
+    secao(`OMs perdidas e impacto no tempo ${sr.porMes ? 'por mês' : 'por dia'}`);
+    const g1 = pos();
+    const nDia = linhasDia.length;
+    const colLinha = sr.acumulado ? 3 : 2;
+    graficos.push({
+      tipo: 'barrasLinha', titulo: `OMs perdidas e impacto no tempo ${sr.acumulado ? 'acumulado' : (sr.porMes ? 'por mês' : 'por dia')} (${un})`,
+      de: [0, g1], ate: [L, g1 + 18],
+      categorias: { ref: X.absoluta('Por dia', 0, 1, 0, nDia), valores: linhasDia.map((l) => l[0].v), formato: sr.porMes ? null : 'dd/mm' },
+      series: [
+        { nome: cabDia[1], refNome: X.absoluta('Por dia', 1, 0, 1, 0), ref: X.absoluta('Por dia', 1, 1, 1, nDia), valores: linhasDia.map((l) => l[1].v) },
+        { nome: cabDia[colLinha], refNome: X.absoluta('Por dia', colLinha, 0, colLinha, 0), ref: X.absoluta('Por dia', colLinha, 1, colLinha, nDia), valores: linhasDia.map((l) => l[colLinha].v) }
+      ],
+      formatoLinha: sr.emMinutos ? '#,##0' : '#,##0.0'
+    });
+    for (let k = 0; k < 19; k++) linhas.push([]);
+
+    /** Tabela de totais (à esquerda) com gráfico de barras (à direita). */
+    const blocoTotais = (titulo, nomeTabela, cabecalho, grupos, colGrafico, tituloGrafico) => {
+      if (!grupos.length) return;
+      secao(titulo);
+      const l0 = pos();
+      linhas.push(cabecalho);
+      grupos.forEach((g) => linhas.push(g));
+      tabelas.push({ ref: `A${l0 + 1}:D${l0 + 1 + grupos.length}`, nome: nomeTabela });
+      const altura = Math.max(10, grupos.length * 2 + 3);
+      graficos.push({
+        tipo: 'barrasH', titulo: tituloGrafico, de: [5, l0], ate: [L, l0 + altura],
+        categorias: { ref: X.absoluta('Resumo', 0, l0 + 1, 0, l0 + grupos.length), valores: grupos.map((g) => g[0].v) },
+        series: [{ nome: cabecalho[colGrafico], refNome: X.absoluta('Resumo', colGrafico, l0, colGrafico, l0), ref: X.absoluta('Resumo', colGrafico, l0 + 1, colGrafico, l0 + grupos.length), valores: grupos.map((g) => g[colGrafico].v || 0) }]
+      });
+      while (pos() < l0 + altura + 1) linhas.push([]);
+    };
+    const agrupar = (lista, chave, porFalhas = false) => {
+      const m = new Map();
+      lista.forEach((e) => {
+        const k = chave(e) || '—';
+        const x = m.get(k) || { qtd: 0, oms: 0, horas: 0 };
+        x.qtd++; x.oms += omsDe(e, filtro); x.horas += horasDe(e, filtro);
+        m.set(k, x);
+      });
+      return [...m.entries()].sort((a, b) => (porFalhas ? b[1].qtd - a[1].qtd || b[1].oms - a[1].oms : b[1].oms - a[1].oms || b[1].qtd - a[1].qtd))
+        .map(([k, x]) => [c(k, 'texto'), c(x.qtd, 'inteiro'), c(x.oms, 'inteiro'), dur(x.horas)]);
+    };
+    const porTipo = agrupar(evs, rotuloTipo);
+    blocoTotais('Por tipo de evento', 'tbPorTipo', ['Tipo de evento', 'Eventos', 'OMs perdidas', 'Impacto no tempo'], porTipo,
+      porTipo.some((g) => g[2].v) ? 2 : 1, porTipo.some((g) => g[2].v) ? 'OMs perdidas por tipo de evento' : 'Eventos por tipo');
+    blocoTotais('Falhas por equipamento', 'tbPorEquipamento', ['Equipamento', 'Falhas', 'OMs perdidas', 'Impacto no tempo'],
+      agrupar(evs.filter(ehFalha), (e) => e.equipamento, true), 1, 'Falhas por equipamento');
+    linhas.push([c('OMs perdidas e impacto no tempo contam no dia de cada impacto informado no evento. A duração vai do início ao fim do evento (em aberto: até a emissão).', 'nota')]);
+    mesclas.push(`A${pos()}:${X.letra(L - 1)}${pos()}`); alturas[pos() - 1] = 30;
+
+    const resumoPl = {
+      nome: 'Resumo', larguras: [24, 20, 20, 20, 2, 10, 10, 10, 10, 10, 10, 10], grade: false, paisagem: true,
+      linhas, mesclas, alturas, graficos, tabelas
+    };
+    const nomeArq = `Eventos EM80 ${U.fmtData(de).replace(/\//g, '-')} a ${U.fmtData(ate).replace(/\//g, '-')}.xlsx`;
+    return {
+      nome: nomeArq,
+      bytes: X.gerar({ autor: 'CMA – Centro de Monitoramento de Ativos', titulo: 'Eventos do carro controle EM80', planilhas: [resumoPl, eventos, impactos, porDia].filter(Boolean) })
+    };
+  }
+
+  function exportarExcel() {
+    try {
+      const { nome, bytes } = montarExcel();
+      App.xlsx.baixar(bytes, nome);
+      ui.toast(`Planilha ${nome} gerada.`, 'ok');
+    } catch (e) {
+      ui.toast(`Não foi possível gerar a planilha: ${e.message}`, 'erro', 7000);
+    }
   }
 
   function imprimir(el, nome) {
@@ -8500,7 +9138,9 @@ window.App = window.App || {};
   /** Recarrega a lista. O formulário só é redesenhado quando pedido, para não atrapalhar a digitação. */
   async function carregar({ form = true } = {}) {
     [lista, pendentes] = await Promise.all([dados.listar(COLECAO), sync.pendentesDoTipo('evento')]);
-    lista = lista.slice().sort((a, b) => String(b.inicio).localeCompare(String(a.inicio)));
+    // nomes antigos de equipamento (ex.: Aplanix → Applanix) aparecem já corrigidos
+    lista = lista.map((e) => (NOMES_ANTIGOS[e.equipamento] ? { ...e, equipamento: NOMES_ANTIGOS[e.equipamento] } : e))
+      .sort((a, b) => String(b.inicio).localeCompare(String(a.inicio)));
     if (form) renderForm();
     renderListas();
   }
@@ -8515,7 +9155,7 @@ window.App = window.App || {};
 
   document.addEventListener('em80:sincronizado', () => { if (raiz) carregar({ form: false }); });
 
-  App.eventos = { _codigoDe: codigoDe, _horasDe: horasDe };
+  App.eventos = { _codigoDe: codigoDe, _horasDe: horasDe, _montarExcel: montarExcel };
   App.modulos = App.modulos || [];
   App.modulos.push({ id: 'eventos', titulo: 'Eventos', icone: 'alerta', montar, aoMostrar });
 })(window.App);

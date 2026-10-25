@@ -65,6 +65,16 @@ test('evento: idempotente, duração calculada e versão mais nova prevalece', (
   assert.equal(rec[0].criadoEm, '2026-10-19T08:00:00');
 });
 
+test('evento: impacto em minutos vira horas na aba Eventos_Impactos', () => {
+  const s = novo();
+  const ev = { id: 'e9', inicio: '2026-10-19T08:00:00', fim: '2026-10-19T08:40:00', equipamento: 'Applanix', atualizadoEm: '2026-10-19T08:40:00',
+    impactos: [{ data: '2026-10-19', oms: 2, valor: 45, unidade: 'min' }] };
+  assert.equal(s.post('sync', { itens: [{ key: 'evento:e9', tipo: 'evento', dados: ev }] }).dados.resultados[0].ok, true);
+  const [imp] = s.aba('Eventos_Impactos');
+  assert.equal(imp['Unidade do impacto'], 'minutos');
+  assert.equal(imp['Impacto (h)'], 0.75);
+});
+
 test('evento inválido retorna erro só daquele item', () => {
   const s = novo();
   const r = s.post('sync', {

@@ -5,7 +5,7 @@
  */
 'use strict';
 
-const VERSAO = 'em80-1585c823be';
+const VERSAO = 'em80-f6c3372a58';
 const ARQUIVOS = [
   './',
   'index.html',
@@ -22,6 +22,7 @@ const ARQUIVOS = [
   'js/dados.js',
   'js/ui.js',
   'js/charts.js',
+  'js/xlsx.js',
   'js/om.js',
   'js/bitola.js',
   'js/cobertura.js',

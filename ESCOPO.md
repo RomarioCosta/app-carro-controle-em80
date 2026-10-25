@@ -73,9 +73,9 @@ App para uso em campo no Carro Controle EM80, com cinco módulos:
 4. Desgaste do trilho → pares de valores por amostra: **medida KLD** e **medida em campo (vampiro)**
 5. Os LEDs do KLD apresentaram alguma instabilidade ou sinal anômalo de erro? (Sim/Não)
 
-### Aplanix
-1. O sistema Aplanix apresentou dificuldades para conectar? (Sim/Não)
-2. O sistema Aplanix apresentou falhas ou desconectou durante a inspeção? (Sim/Não)
+### Applanix
+1. O sistema Applanix apresentou dificuldades para conectar? (Sim/Não)
+2. O sistema Applanix apresentou falhas ou desconectou durante a inspeção? (Sim/Não)
 3. Os LEDs do POS/TG apresentaram alguma instabilidade? (Sim/Não)
 4. O comportamento dos parâmetros de nivelamento apresentou alguma perturbação inesperada? (Sim/Não)
 
@@ -127,7 +127,7 @@ Registro de falhas durante a inspeção.
 |---|---|
 | Horário de início | Data/hora |
 | Horário de fim | Data/hora |
-| Equipamento | Lista (OGMS, KLD, Aplanix, M1, M2, M3…) |
+| Equipamento | Lista (OGMS, KLD, Applanix, M1, M2, M3…) |
 | Parte do equipamento | Texto livre (a lista será construída com o uso) |
 | Observação / impacto da falha | Texto livre |
 
@@ -136,6 +136,17 @@ Registro de falhas durante a inspeção.
 - Botão **"Finalizar agora"**: preenche o horário de fim de um evento em aberto.
 - **Sugestões** a partir dos textos usados com frequência.
 - **Duplicar o último evento**, para falhas repetidas.
+
+### Impacto e painel
+- **Impacto por dia:** OMs perdidas e tempo, em **minutos, horas ou dias** (o app lembra a última unidade usada). Na planilha, a aba Eventos_Impactos guarda o valor, a unidade e o impacto convertido em horas.
+- **Gráfico de barras e linha:** barras = OMs perdidas no dia; linha = impacto no tempo **por dia** ou **acumulado no período** (botão "Por dia / Acumulado"). A unidade da linha passa para minutos quando o maior valor fica abaixo de 2 h. Períodos acima de 62 dias são agrupados por mês.
+- **Histórico de eventos:** recolhível (setinha) e com **filtro por data**. Tocar num dia do gráfico mostra os eventos daquele dia (toque de novo ou "Limpar filtro" para ver todos).
+- **Exportar Excel (.xlsx):** planilha do período do painel, feita no aparelho (funciona sem internet):
+  - **Resumo:** cartões (eventos, OMs perdidas, impacto no tempo, duração), gráfico de OMs perdidas e impacto, totais por tipo de evento e falhas por equipamento, com gráficos;
+  - **Eventos:** um por linha (código, tipo, equipamento, parte/descrição, início, fim, duração, OMs, impacto, impactos por dia, observação, situação);
+  - **Impactos por dia** e **Por dia** (fonte do gráfico).
+  As tabelas são tabelas do Excel (filtro e linhas zebradas), datas e durações são valores de verdade (dá para somar e filtrar) e os gráficos são do próprio Excel.
+- **Exportar PDF:** continua disponível.
 
 ---
 
