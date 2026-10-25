@@ -408,7 +408,8 @@
     filtroHist = de && !(filtroHist && filtroHist.de === de && filtroHist.ate === ate) ? { de, ate, rotulo } : null;
     historicoAberto = true;
     renderListas();
-    if (filtroHist) ui.rolarAte(historicoEl);
+    // só rola até o histórico (sem pôr o foco no campo de data, que abriria o calendário no celular)
+    if (filtroHist) historicoEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   const LIMITE_HIST = 25;

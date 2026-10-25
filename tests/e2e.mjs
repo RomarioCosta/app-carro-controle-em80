@@ -338,6 +338,8 @@ async function main() {
       assert.equal(await hist.locator('.item').count(), Number(txtFiltro.match(/(\d+) evento/)[1]));
       await hist.locator('.item', { hasText: 'Applanix' }).waitFor();
       assert.equal(await painel.locator('.graf-sel').count(), 1);
+      await page.waitForTimeout(400); // o foco não pode ir para o campo de data (abriria o calendário no celular)
+      assert.notEqual(await page.evaluate(() => document.activeElement && document.activeElement.getAttribute('name')), 'filtroData');
       await hist.getByRole('button', { name: 'Limpar filtro' }).click();
       assert.equal(await painel.locator('.graf-sel').count(), 0);
       // campo de data: ontem só tem o impacto do atraso da equipe
@@ -805,9 +807,9 @@ async function main() {
       // ponto de atenção pelo esquema
       await page.getByRole('button', { name: 'Ponto de atenção' }).click();
       await page.locator('.esq-alvo[data-trecho="TST:EH:11@1"]').click();
-      // Tab fecha a lista de sugestões do tipo (no Chromium automatizado ela pode segurar o texto do campo seguinte)
+      // a janela põe o foco no 1º campo logo depois de abrir: espera, para o foco não cair no meio do preenchimento
+      await page.waitForFunction(() => document.activeElement && document.activeElement.matches('.modal input[list="tipos-ponto"]'));
       await page.locator('.modal input[list="tipos-ponto"]').fill('Subst. TR');
-      await page.locator('.modal input[list="tipos-ponto"]').press('Tab');
       await page.locator('.modal input[placeholder^="Ex.: 08:30"]').fill('08:30 a 13:00');
       await page.locator('.modal textarea').fill('TR2 - substituição de trilho');
       assert.equal(await page.locator('.modal input[list="tipos-ponto"]').inputValue(), 'Subst. TR');
