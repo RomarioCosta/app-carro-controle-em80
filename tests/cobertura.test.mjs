@@ -115,3 +115,48 @@ test('alertas de geometria: trechos acima do limite, agrupados, com o maior nív
   // recorte tira o primeiro
   assert.equal(C.alertasGeometria(planta, 'LT', [{ id: 'a', nome: 'a', resumo: r, recorte: { de: 1000, ate: null } }], lim).length, 1);
 });
+
+/* Arquivo do carro sintético (já lido): 0 a 3.000 m, a cada 0,25 m, com a coluna LINHA por trecho. */
+function arquivoLido(trechos) {
+  const n = 12001;
+  const pos = Float64Array.from({ length: n }, (_, i) => i * 0.25);
+  const linhasValores = [];
+  const linhaIdx = new Uint16Array(n);
+  pos.forEach((p, i) => {
+    const v = trechos.find((t) => p >= t[0] && p < t[1])[2];
+    if (!linhasValores.includes(v)) linhasValores.push(v);
+    linhaIdx[i] = linhasValores.indexOf(v);
+  });
+  const emp2 = new Float64Array(n).fill(1);
+  for (let i = 4400; i < 4440; i++) emp2[i] = 50; // pico em 1.100–1.110 m (dentro do deslocamento)
+  return { meta: { ramal: 'LT', linha: '1', sentido: 'C', data: '22/10/2026', corretiva: 'GV1' }, pos, dados: { curv: new Float64Array(n), emp2 }, eventos: [{ pos: 0, texto: 'X' }], avisos: [], linhaIdx, linhasValores };
+}
+// Geometria com 2 linhas iguais (0–1.000, 1.100–2.100, 2.200–3.200…), para a correção da linha
+const planta2 = { elementos: [...elementos, ...elementos.map((e) => ({ ...e, linha: '2' }))], ramais: { LT: ['1', '2'] } };
+const medidoNa = (r, linha) => C.extensao(C.coberturaDoArquivo(r)[linha] || []);
+
+test('LOCOM: deslocamento fica fora da cobertura e dos alertas; correção por valor e por trecho', () => {
+  const arq = arquivoLido([[0, 1000, '1'], [1000, 1500, 'LOCOM'], [1500, 3001, 'TESTE01']]);
+  const r = C.resumirArquivo(arq, planta2, 'teste.csv');
+  assert.deepEqual(j(r.valoresLinha.map((x) => [x.valor, x.pontos])), [['TESTE01', 6001], ['1', 4000], ['LOCOM', 2000]]);
+  assert.ok(r.inconsistencias.some((x) => /2\.000 pontos em deslocamento \(LINHA = LOCOM\)/.test(x.texto)));
+  assert.ok(Math.abs(medidoNa(r, '1') - 2500) < 10); // 0–1.000 e 1.500–3.000 (TESTE01 → linha 1)
+  const lim = (id) => (id === 'emp2' ? [{ grau: 2, nome: 'Restrição', sup: 12, inf: -12 }] : []);
+  assert.equal(C.alertasGeometria(planta2, 'LT', [{ id: 'a', nome: 'a', resumo: r, recorte: null }], lim).length, 0);
+  // TESTE01 era a linha 2, e o deslocamento entre 1.000 e 1.500 foi na verdade medição na linha 1
+  const r2 = C.resumirArquivo(arq, planta2, 'teste.csv', { linhas: { valores: { TESTE01: '2' }, trechos: [{ de: 1000, ate: 1499.75, linha: '1' }] } });
+  assert.ok(Math.abs(medidoNa(r2, '1') - 1500) < 10);
+  assert.ok(Math.abs(medidoNa(r2, '2') - 1500) < 10);
+  assert.equal(C.alertasGeometria(planta2, 'LT', [{ id: 'a', nome: 'a', resumo: r2, recorte: null }], lim).length, 1); // agora conta
+  assert.deepEqual(j(r2.valoresLinha.map((x) => x.valor)), ['TESTE01', '1', 'LOCOM']); // a tabela mostra os valores originais
+});
+
+test('RH (pátio) de cada sede, com o nome, para as marcas nas barras', () => {
+  const nec = C.necessario(planta, 'LT', '1');
+  const rh = nec.filter((t) => t.tipo === 'RH');
+  assert.ok(rh.every((t) => t.patio));
+  assert.equal(rh[0].nome, 'RH-1'); // entre o EH 0 e o EH 1
+  const [l] = C.montar(planta, 'LT', [arq('gv1', 0, 5600)]);
+  assert.deepEqual(j(l.sedes[0].rh.map((p) => p.nome)), ['RH-1', 'RH-2', 'RH-3', 'RH-4']);
+  assert.ok(Math.abs(l.sedes[0].rh[0].ini - 1000) < 1e-9 && Math.abs(l.sedes[0].rh[0].fim - 1100) < 1e-9);
+});

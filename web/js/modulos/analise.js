@@ -54,7 +54,7 @@
     try {
       const salvo = await store.get(CHAVE);
       if (v !== versaoArquivo) return;
-      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [], regras: salvo.regras || null });
+      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [], regras: salvo.regras || null, linhas: salvo.linhas || null });
     } catch (e) { /* sem arquivo salvo */ }
   }
 
@@ -117,6 +117,8 @@
   /** Saltos/voltas do km compensados na Montagem (chaves de B.saltosCompensaveis) e as regras usadas lá. */
   let compensar = [];
   let regrasComp = null;
+  /** Correção da coluna LINHA feita na Montagem (B.corrigirLinhas). */
+  let regrasLinha = null;
 
   function aplicarRecorte() {
     arquivo = B.recortar(arquivoCompleto, recorte.de, recorte.ate);
@@ -127,10 +129,11 @@
     }
   }
 
-  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [], regras = null }) {
+  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [], regras = null, linhas = null }) {
     versaoArquivo++;
     compensar = [...comp];
     regrasComp = regras;
+    regrasLinha = linhas;
     cacheAjuste.clear(); cacheConferencia.clear();
     try {
       arquivoCompleto = B.lerCSV(texto);
@@ -139,6 +142,8 @@
         const lista = B.compensacoesPedidas(B.saltosCompensaveis(arquivoCompleto.pos, regrasComp || {}), compensar);
         arquivoCompleto = B.compensarArquivo(arquivoCompleto, lista);
       }
+      // linha corrigida na Montagem (valor trocado ou linha definida num trecho de km)
+      arquivoCompleto = B.corrigirLinhas(arquivoCompleto, regrasLinha);
       recorte = trecho ? { de: trecho.de ?? null, ate: trecho.ate ?? null } : { de: null, ate: null };
       aplicarRecorte();
     } catch (e) {
@@ -158,7 +163,7 @@
     }
     zoom = null;
     recalcular();
-    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar, regras: regrasComp }).catch(() => {});
+    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar, regras: regrasComp, linhas: regrasLinha }).catch(() => {});
   }
 
   async function mudarRecorte(de, ate) {
@@ -363,6 +368,7 @@
             }
           })))),
         arquivo.recorte && arquivo.recorte.descartados ? h('p', { class: 'sub', text: `${arquivo.recorte.descartados.toLocaleString('pt-BR')} pontos fora do trecho analisado foram descartados (o arquivo não é alterado).` }) : null,
+        arquivo.recorte && arquivo.recorte.deslocamento ? h('p', { class: 'sub', text: `${arquivo.recorte.deslocamento.toLocaleString('pt-BR')} pontos com o carro em deslocamento (LINHA = LOCOM) foram desconsiderados.` }) : null,
         arquivoCompleto.compensados ? h('p', { class: 'sub', text: `Km compensado em ${arquivoCompleto.compensados} salto(s)/volta(s) na Montagem: gráficos, tabelas e laudo usam o km compensado; o trecho analisado é no km do arquivo.` }) : null,
         h('div', { class: 'linha-acoes' },
           h('button', { class: 'btn btn-primario', onclick: abrirLaudo }, ui.icone('documento'), 'Gerar laudo (PDF)')),
@@ -746,7 +752,7 @@
 
   /** Selo da conferência independente (relê o CSV original e recalcula) e botão da planilha de conferência. */
   function cartaoConferencia() {
-    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda, recorte, opcoes.offset) : null;
+    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda, recorte, opcoes.offset, arquivo.idx || null) : null;
     const selo = !c ? null : c.ok
       ? h('span', { class: 'conf-ok', title: `Recontagem independente a partir do CSV original: ${c.linhas.toLocaleString('pt-BR')} linhas de medição; pontos e pontos acima de cada elemento iguais aos da análise.${c.voltas.length ? ` O km volta ${c.voltas.length} vez(es) no arquivo.` : ''}` }, ui.icone('check'), 'Conferido')
       : h('button', { class: 'conf-erro', onclick: () => mostrarDivergencias(c) }, `⚠ ${c.divergencias.length} divergência(s)`);
@@ -1014,7 +1020,7 @@
         ['Data da inspeção', m.data],
         ['Inspetor', m.inspetor],
         ['Responsável pela análise', info.responsavel || '—'],
-        ['Trecho', `${B.fmtKm(pos[0])} → ${B.fmtKm(pos[pos.length - 1])} (${fmt(r.geral.extensao / 1000, 2)} km · ${pos.length.toLocaleString('pt-BR')} pontos)${arquivo.recorte && arquivo.recorte.descartados ? ` · trecho analisado ${recorte.de !== null ? `a partir de ${B.fmtKm(recorte.de)}` : ''}${recorte.de !== null && recorte.ate !== null ? ' ' : ''}${recorte.ate !== null ? `até ${B.fmtKm(recorte.ate)}` : ''}; ${arquivo.recorte.descartados.toLocaleString('pt-BR')} pontos do arquivo fora do trecho` : ''}`]
+        ['Trecho', `${B.fmtKm(pos[0])} → ${B.fmtKm(pos[pos.length - 1])} (${fmt(r.geral.extensao / 1000, 2)} km · ${pos.length.toLocaleString('pt-BR')} pontos)${arquivo.recorte && arquivo.recorte.descartados ? ` · trecho analisado ${recorte.de !== null ? `a partir de ${B.fmtKm(recorte.de)}` : ''}${recorte.de !== null && recorte.ate !== null ? ' ' : ''}${recorte.ate !== null ? `até ${B.fmtKm(recorte.ate)}` : ''}; ${arquivo.recorte.descartados.toLocaleString('pt-BR')} pontos do arquivo fora do trecho` : ''}${arquivo.recorte && arquivo.recorte.deslocamento ? ` · ${arquivo.recorte.deslocamento.toLocaleString('pt-BR')} pontos em deslocamento (LOCOM) desconsiderados` : ''}`]
       ], 'laudo-id')),
 
       h('section', { class: `laudo-resultado laudo-res-${RESULTADOS.indexOf(info.resultado)}` },
@@ -1101,7 +1107,7 @@
     estado: () => ({ arquivo, resultado, nomeArquivo, opcoes }),
     textoDoArquivo,
     /** Abre um arquivo vindo de outra tela (Montagem / Tela do carro), com o trecho e as compensações dela. */
-    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [], regras = null } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp, regras }),
+    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [], regras = null, linhas = null } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp, regras, linhas }),
     planta: async () => { try { return await store.get(CHAVE_PLANTA); } catch (e) { return null; } }
   };
 })(window.App);

@@ -603,3 +603,56 @@ test('compensar mesmo assim: usa todos os pontos antes do pulo', () => {
   assert.equal(p[0] + 0, pos[0] + f.porPonto); // 1º ponto já recebe a 1ª parcela
   assert.equal(B.compensacoesPedidas([c], []).length, 0); // sem pedido, nada muda
 });
+
+/** CSV sintético com a coluna LINHA = LOCOM nos pontos [i0, i1) (carro em deslocamento). */
+function csvComLocom(i0, i1) {
+  let k = 0;
+  return gerarCSV().split('\r\n').map((l) => {
+    const c = l.split(';');
+    if (c[0] !== 'D') return l;
+    if (k >= i0 && k < i1) c[4] = 'LOCOM';
+    k++;
+    return c.join(';');
+  }).join('\r\n');
+}
+
+test('LINHA = LOCOM: pontos em deslocamento ficam fora da análise e a conferência continua batendo', () => {
+  const texto = csvComLocom(1000, 1400);
+  const a = B.lerCSV(texto);
+  assert.ok(B.ehDeslocamento('LOCOM') && B.ehDeslocamento(' locom ') && !B.ehDeslocamento('1'));
+  const r = B.recortar(a, null, null);
+  assert.equal(r.pos.length, 3600);
+  assert.equal(r.recorte.deslocamento, 400);
+  assert.equal(r.recorte.descartados, 0);
+  assert.equal(r.idx[1000], 1400); // ponto do arquivo inteiro (Tela do carro vai direto no alerta)
+  const res = B.analisar(r);
+  const conf = B.conferir(texto, res, 2, null, null, r.idx);
+  assert.equal(conf.ok, true, JSON.stringify(conf.divergencias));
+  assert.equal(conf.linhas, 3600);
+  // com recorte junto: só os pontos dentro do recorte e fora do deslocamento
+  const r2 = B.recortar(a, 2000, null); // arquivo decrescente: do início até 2+000
+  assert.equal(r2.pos.length + r2.recorte.descartados + r2.recorte.deslocamento, 4000);
+  assert.equal(B.conferir(texto, B.analisar(r2), 2, null, null, r2.idx).ok, true);
+});
+
+test('correção da linha: troca de valor e linha num trecho de km (o trecho prevalece)', () => {
+  const a = B.lerCSV(csvComLocom(1000, 1400));
+  const valor = (arq, i) => arq.linhasValores[arq.linhaIdx[i]];
+  // LOCOM passa a valer como linha 2: nada fica de fora
+  const c1 = B.corrigirLinhas(a, { valores: { LOCOM: '2' } });
+  assert.equal(valor(c1, 1200), '2');
+  assert.equal(valor(c1, 10), '1');
+  assert.equal(B.recortar(c1, null, null), c1);
+  // trecho de km (km do arquivo): pontos 0–400 (2+500 a 2+400) na linha 3; vale mais que a troca de valor
+  const c2 = B.corrigirLinhas(a, { valores: { 1: '2' }, trechos: [{ de: 2400, ate: 2500, linha: '3' }] });
+  assert.equal(valor(c2, 0), '3');
+  assert.equal(valor(c2, 400), '3');
+  assert.equal(valor(c2, 401), '2');
+  assert.equal(valor(c2, 1200), 'LOCOM');
+  // trecho marcado como deslocamento
+  const c3 = B.corrigirLinhas(a, { trechos: [{ de: 1500, ate: 1600, linha: 'LOCOM' }] });
+  assert.equal(B.recortar(c3, null, null).recorte.deslocamento, 400 + 400); // 1+600 a 1+500,25 (fim do arquivo)
+  // sem regras: o mesmo arquivo
+  assert.equal(B.corrigirLinhas(a, null), a);
+  assert.equal(B.corrigirLinhas(a, { valores: {}, trechos: [] }), a);
+});

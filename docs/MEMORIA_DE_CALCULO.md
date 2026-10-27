@@ -425,9 +425,36 @@ Falta = metros que precisam ser medidos − metros medidos
 | Km volta | o km anda para trás mais de 2 m (no sentido do arquivo) |
 | Km salta | o km pula mais de 2 m para frente |
 | Km parado | mais de 40 pontos com o mesmo km |
-| LINHA inválida | valor como TESTE01: vale a linha mais frequente do arquivo |
+| LINHA inválida | valor como TESTE01: vale a linha mais frequente do arquivo (corrija em "Linha do arquivo", item 15.5) |
+| Deslocamento | pontos com LINHA = LOCOM: desconsiderados (item 15.5) |
 | Corretiva diferente | menos da metade do arquivo cai na sede da coluna CORRETIVA |
 | Poucas curvas casadas | menos de 70% (item 7) |
+
+### 15.4 Data, sentido e RH nas barras
+
+- Cada arquivo mostra a **data da inspeção** (coluna DATA) e o **sentido** (coluna SEQUÊNCIA, C ou D, e se o km cresce ou decresce no arquivo).
+- Nas barras de cada linha e de cada sede, um **traço fino marca cada RH (pátio)**: o vão entre dois EH diferentes (a RH-43 fica entre o EH 42/43 e o EH 43/44). Passando o dedo ou o mouse, aparece o nome e o km do RH.
+- Abrindo uma sede, cada trecho medido mostra **de qual RH até qual RH** ele vai (ex.: "Medido 320+100 – 334+500 (14,4 km) · RH-40 → RH-42").
+
+### 15.5 Linha do arquivo: LOCOM e correção da linha
+
+**LOCOM.** Na coluna LINHA, "LOCOM" quer dizer que o carro só passou em deslocamento: esses pontos **não contam** como medido, não geram alerta de geometria e ficam fora da Análise, do laudo e da Tela do carro (a Análise mostra quantos pontos foram desconsiderados).
+
+**Correção.** O operador pode errar ou confundir a linha. Em "Linha do arquivo", cada arquivo permite:
+
+1. **Trocar um valor da coluna LINHA** para uma linha da geometria ou para "Desconsiderar (deslocamento)". Ex.: "TESTE01" → Linha 2; "LOCOM" → Linha 1 (se o carro estava medindo).
+2. **Definir a linha num trecho de km** (km do arquivo, o mesmo do recorte). Ex.: de 320+100 a 321+400 → Linha 2.
+
+Ordem: primeiro a troca de valor; depois os trechos (o trecho vale mais; entre dois trechos, o último).
+
+**Onde vale.** Cobertura, buracos, sobreposições, alertas de geometria, Tela do carro e Análise/laudo abertos pela Montagem. O CSV nunca é alterado; desfazer é voltar o valor para "Automático" ou remover o trecho.
+
+**Exemplo.** Arquivo de 0 a 3.000 m: até 1.000 m com LINHA = 1, de 1.000 a 1.500 m com LOCOM e de 1.500 a 3.000 m com TESTE01.
+
+| Situação | Linha 1 | Linha 2 |
+|---|---|---|
+| Sem correção (TESTE01 vale a linha mais frequente, 1; LOCOM fora) | 2.500 m | 0 |
+| TESTE01 → Linha 2 e o trecho 1.000–1.500 → Linha 1 | 1.500 m | 1.500 m |
 
 ---
 
