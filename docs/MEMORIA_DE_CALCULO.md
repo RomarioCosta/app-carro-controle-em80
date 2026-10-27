@@ -449,6 +449,8 @@ Ordem: primeiro a troca de valor; depois os trechos (o trecho vale mais; entre d
 
 **Onde vale.** Cobertura, buracos, sobreposições, alertas de geometria, Tela do carro e Análise/laudo abertos pela Montagem. O CSV nunca é alterado; desfazer é voltar o valor para "Automático" ou remover o trecho.
 
+**Arquivos adicionados antes desta versão.** Ao abrir a Montagem, o app recalcula sozinho, a partir do CSV guardado, os arquivos calculados numa versão anterior (mantendo recorte, compensações e correções) e mostra o andamento ("Atualizando os arquivos… 3 de 12"). Arquivos de versões bem antigas, sem o CSV guardado, precisam ser adicionados de novo (o app avisa).
+
 **Exemplo.** Arquivo de 0 a 3.000 m: até 1.000 m com LINHA = 1, de 1.000 a 1.500 m com LOCOM e de 1.500 a 3.000 m com TESTE01.
 
 | Situação | Linha 1 | Linha 2 |

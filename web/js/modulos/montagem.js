@@ -42,23 +42,45 @@
           arquivos = salvos.map((a) => ({ ...a, compensar: a.compensar || [], resumo: C().normalizarResumo(a.resumo) }));
           // arquivos adicionados antes desta versão não têm o CSV guardado nem o cálculo dos saltos/voltas
           for (const a of arquivos) a.antigo = !a.resumo.espacamento || !(await store.get(CHAVE_CSV(a.id)).catch(() => null));
-          // compensações feitas na regra anterior (só nos pontos logo antes do pulo): refaz com a regra atual
-          const refazer = arquivos.filter((a) => !a.antigo && (a.compensar || []).length && a.resumo.compensaveis.some((c) => c.extensao === undefined));
-          for (const a of refazer) {
-            try {
-              const texto = await lerCsv(a.id);
-              if (!texto || !planta) continue;
-              const rg = regras();
-              a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar, compensacao: rg, linhas: a.linhas });
-              a.compensar = a.compensar.filter((ch) => a.resumo.compensaveis.some((c) => c.chave === ch));
-              a.regras = rg;
-            } catch (e) { /* fica como estava; o botão Compensar/Desfazer recalcula */ }
-          }
-          if (refazer.length) await gravar();
         } catch (e) { arquivos = []; }
       })();
     }
     return carregado;
+  }
+
+  /**
+   * Arquivos calculados numa versão anterior do app (resumo sem a versão atual): recalcula a partir do CSV
+   * guardado, mantendo recorte, compensações e correção da linha. Roda em segundo plano, um arquivo por vez.
+   */
+  let atualizando = null; // { feitos, total } enquanto recalcula
+  async function atualizarResumos() {
+    if (atualizando || !planta) return;
+    const lista = arquivos.filter((a) => !a.antigo && a.resumo.versao !== C().VERSAO_RESUMO);
+    if (!lista.length) return;
+    atualizando = { feitos: 0, total: lista.length };
+    render();
+    let ok = 0;
+    for (const a of lista) {
+      await new Promise((r) => setTimeout(r, 30)); // deixa a tela responder entre um arquivo e outro
+      try {
+        const texto = await lerCsv(a.id);
+        if (texto) {
+          const rg = a.regras || regras();
+          a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar || [], compensacao: rg, linhas: a.linhas || null });
+          a.compensar = (a.compensar || []).filter((ch) => a.resumo.compensaveis.some((c) => c.chave === ch));
+          a.regras = rg;
+          ok++;
+        }
+      } catch (e) { /* fica como estava; tenta de novo na próxima vez */ }
+      atualizando.feitos++;
+      render();
+    }
+    atualizando = null;
+    if (ok) {
+      await gravar();
+      ui.toast(`${ok} arquivo(s) atualizado(s) para a versão nova (LOCOM, linha do arquivo e RH).`, 'ok', 5000);
+    }
+    render();
   }
 
   /* ---------------- CSV guardado (comprimido) ---------------- */
@@ -383,6 +405,7 @@
     const input = h('input', { type: 'file', multiple: true, hidden: true, onchange: (e) => { const l = [...e.target.files]; e.target.value = ''; if (l.length) adicionar(l); } });
     return h('section', { class: 'cartao pilha' },
       h('h2', { text: `Arquivos (${lista.length})` }),
+      atualizando ? h('p', { class: 'aviso', role: 'status', text: `Atualizando os arquivos para a versão nova do app: ${atualizando.feitos} de ${atualizando.total}…` }) : null,
       antigos.length ? h('div', { class: 'aviso pilha' },
         h('span', { text: `${antigos.length} arquivo(s) foram adicionados numa versão anterior do app. Para ter o ajuste do km (Compensar), os alertas de geometria e a Tela do carro, adicione de novo os mesmos arquivos (pode selecionar todos de uma vez). O recorte de cada um é mantido.` }),
         h('div', null, h('button', { class: 'btn btn-primario btn-pequeno', disabled: processando || null, onclick: () => input.click() }, ui.icone('upload'), 'Adicionar de novo'), input)) : null,
@@ -439,7 +462,7 @@
     const vazia = { valores: {}, trechos: [] };
     if (!r.valoresLinha) {
       return h('div', { class: 'pilha mt-comp' }, h('strong', { text: 'Linha do arquivo' }),
-        h('div', null, h('span', { class: 'mt-sub', text: 'Para corrigir a linha deste arquivo, recalcule-o (adicionado numa versão anterior). ' }),
+        h('div', null, h('span', { class: 'mt-sub', text: atualizando ? 'Atualizando este arquivo para a versão nova…' : 'Para corrigir a linha deste arquivo, recalcule-o (calculado numa versão anterior). ' }),
           h('button', { class: 'btn btn-secundario btn-pequeno', disabled: processando || null, onclick: () => mudarLinhas(a, a.linhas || vazia, 'Arquivo recalculado.') }, 'Recalcular')));
     }
     const linhasPlanta = planta && r.ramal && planta.ramais[r.ramal] ? planta.ramais[r.ramal].map(String) : [];
@@ -634,8 +657,8 @@
   }
 
   App.montagem = {
-    async montar(el) { raiz = el; await carregar(); render(); },
-    async aoMostrar() { if (!raiz) return; planta = App.analise && App.analise.planta ? await App.analise.planta() : planta; render(); },
+    async montar(el) { raiz = el; await carregar(); render(); atualizarResumos(); },
+    async aoMostrar() { if (!raiz) return; planta = App.analise && App.analise.planta ? await App.analise.planta() : planta; render(); atualizarResumos(); },
     lista: listaParaTela,
     atual: () => atual,
     ciclo,
