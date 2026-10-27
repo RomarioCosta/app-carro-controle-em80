@@ -93,6 +93,12 @@
    * Resumo de um arquivo do carro para a montagem (não guarda o arquivo inteiro):
    * amostras a cada ~1 m com o km do arquivo, a correção do km pela geometria e a linha; e as inconsistências.
    */
+  /**
+   * Versão do cálculo do resumo. Sobe quando o cálculo muda (ex.: 2 = LOCOM e correção da linha):
+   * a Montagem recalcula sozinha, a partir do CSV guardado, os arquivos com versão anterior.
+   */
+  C.VERSAO_RESUMO = 2;
+
   C.resumirArquivo = (arquivoOriginal, planta, nome, opcoes = {}) => {
     const b = B();
     // valores da coluna LINHA como vieram do carro (para a tela de correção): pontos e km de cada valor
@@ -181,6 +187,7 @@
       geometria[id] = g;
     });
     return {
+      versao: C.VERSAO_RESUMO,
       nome,
       meta: { ...meta },
       ramal,

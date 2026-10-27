@@ -778,6 +778,17 @@ async function main() {
       await page.getByText('Trecho removido.').waitFor();
       assert.equal(await pctMedido(), antes);
       await page.locator('.mt-arquivo summary', { hasText: 'linha corrigida' }).waitFor({ state: 'detached' });
+      // arquivo calculado numa versão anterior (sem a lista da coluna LINHA): o app atualiza sozinho ao abrir a Montagem
+      await page.evaluate(async () => {
+        const lista = await App.store.get('montagem:arquivos');
+        lista.forEach((x) => { delete x.resumo.versao; delete x.resumo.valoresLinha; });
+        await App.store.set('montagem:arquivos', lista);
+      });
+      await page.reload();
+      await page.getByText(/1 arquivo\(s\) atualizado\(s\) para a versão nova/).waitFor();
+      await page.locator('.mt-arquivo summary', { hasText: 'TESTE.csv' }).click();
+      await page.locator('.mt-linha-arq').getByRole('group', { name: 'Valor 1' }).waitFor();
+      assert.equal(await page.evaluate(async () => (await App.store.get('montagem:arquivos'))[0].resumo.versao), 2);
       // salto de 3 m no km: botão Compensar (espalha nos 2.400 pontos desde o início do arquivo)
       await page.locator('input[name="arquivo-montagem"]').setInputFiles([{ name: 'SALTO.csv', mimeType: 'text/csv', buffer: Buffer.from(gerarCSV({ salto: 3 }), 'latin1') }]);
       await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
