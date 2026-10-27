@@ -727,6 +727,36 @@
     .filter((e) => e.ramal === ramal && String(e.linha) === String(linha))
     .sort((a, b) => a.ini - b.ini);
 
+  /** Valor da coluna LINHA que indica o carro em deslocamento (sem medição válida): desconsiderado. */
+  B.DESLOCAMENTO = 'LOCOM';
+  B.ehDeslocamento = (v) => /^\s*LOCOM/i.test(String(v ?? ''));
+
+  /**
+   * Correção da coluna LINHA (feita na Montagem): o operador pode errar ou confundir as linhas.
+   * regras = { valores: { 'TESTE01': '2', 'LOCOM': '1' }, trechos: [{ de, ate, linha }] } (km do arquivo).
+   * Primeiro troca cada valor; depois, nos trechos de km, vale a linha do trecho (o último trecho prevalece).
+   * linha 'LOCOM' = desconsiderar (deslocamento).
+   */
+  B.corrigirLinhas = (arquivo, regras) => {
+    const trocas = (regras && regras.valores) || {};
+    const trechos = ((regras && regras.trechos) || []).filter((t) => Number.isFinite(t.de) && Number.isFinite(t.ate) && t.linha);
+    if (!Object.keys(trocas).length && !trechos.length) return arquivo;
+    const orig = arquivo.linhasValores || [String((arquivo.meta && arquivo.meta.linha) || '')];
+    const idxOrig = arquivo.linhaIdx || new Uint16Array(arquivo.pos.length);
+    const posArq = arquivo.posArq || arquivo.pos;
+    const valores = []; const mapa = new Map();
+    const indice = (v) => { if (!mapa.has(v)) { mapa.set(v, valores.length); valores.push(v); } return mapa.get(v); };
+    const porValor = orig.map((v) => indice(trocas[v] ? String(trocas[v]) : v));
+    const tr = trechos.map((t) => ({ lo: Math.min(t.de, t.ate), hi: Math.max(t.de, t.ate), k: indice(String(t.linha)) }));
+    const linhaIdx = new Uint16Array(posArq.length);
+    for (let i = 0; i < posArq.length; i++) {
+      let k = porValor[idxOrig[i]];
+      for (const t of tr) if (posArq[i] >= t.lo && posArq[i] <= t.hi) k = t.k;
+      linhaIdx[i] = k;
+    }
+    return { ...arquivo, linhasValores: valores, linhaIdx, linhasCorrigidas: true };
+  };
+
   /** Linha da planta correspondente ao valor da coluna LINHA ("1", "01", "L1", "LINHA 2"…); null se não for linha. */
   B.linhaDaPlanta = (valor, linhasPlanta) => {
     const m = /^\s*(?:L|LINHA)?\s*0*(\d{1,2})\s*$/i.exec(String(valor ?? ''));
@@ -1368,12 +1398,19 @@
    * Serve para descartar o começo/fim do arquivo sem editar o CSV (o Excel altera os números ao salvar).
    */
   B.recortar = (arquivo, de, ate) => {
-    if ((de === null || de === undefined) && (ate === null || ate === undefined)) return arquivo;
+    const desloc = (arquivo.linhasValores || []).map(B.ehDeslocamento);
+    const temDesloc = !!arquivo.linhaIdx && desloc.some(Boolean);
+    if ((de === null || de === undefined) && (ate === null || ate === undefined) && !temDesloc) return arquivo;
     const dentro = (p) => (de === null || de === undefined || p >= de) && (ate === null || ate === undefined || p <= ate);
     // o recorte é sempre no km do arquivo (o mesmo da Montagem), mesmo com o km compensado
     const posArq = arquivo.posArq || arquivo.pos;
     const manter = [];
-    posArq.forEach((p, i) => { if (dentro(p)) manter.push(i); });
+    let deslocamento = 0;
+    posArq.forEach((p, i) => {
+      if (!dentro(p)) return;
+      if (temDesloc && desloc[arquivo.linhaIdx[i]]) { deslocamento++; return; } // carro em deslocamento: desconsiderado
+      manter.push(i);
+    });
     const filtrar = (arr) => Float64Array.from(manter, (i) => arr[i]);
     const dados = {};
     Object.keys(arquivo.dados).forEach((k) => { dados[k] = filtrar(arquivo.dados[k]); });
@@ -1385,11 +1422,17 @@
       dados,
       linhaIdx: arquivo.linhaIdx ? Uint16Array.from(manter, (i) => arquivo.linhaIdx[i]) : arquivo.linhaIdx,
       eventos: (arquivo.eventos || []).filter((e) => dentro(e.posArq ?? e.pos)).map((e) => ({ ...e, i: undefined })),
-      recorte: { de: de ?? null, ate: ate ?? null, descartados: arquivo.pos.length - manter.length }
+      recorte: { de: de ?? null, ate: ate ?? null, descartados: arquivo.pos.length - manter.length - deslocamento, deslocamento }
     };
   };
 
-  B.conferir = (texto, resultado, limite, faixa = null, offset = null) => {
+  /**
+   * Recontagem independente a partir do CSV original. indices = pontos do arquivo inteiro que a análise usou
+   * (recorte e deslocamento); sem eles, vale a faixa de km.
+   */
+  B.conferir = (texto, resultado, limite, faixa = null, offset = null, indices = null) => {
+    const usar = indices ? new Set(indices) : null;
+    let kD = -1; // ponto (linha "D" com posição) no arquivo inteiro
     // Offset aplicado na análise: a conferência soma o mesmo valor na mesma bitola.
     const offF = offset && offset.aplicar && offset.bitola === 'bitF' ? Math.round((Number(offset.valor) || 0) * 10000) : 0;
     const offT = offset && offset.aplicar && offset.bitola === 'bitT' ? Math.round((Number(offset.valor) || 0) * 10000) : 0;
@@ -1415,8 +1458,9 @@
       const km = parseFloat(String(c[iKm]).replace(',', '.'));
       const loc = parseFloat(String(c[iLoc]).replace(',', '.'));
       if (!Number.isFinite(km) || !Number.isFinite(loc)) continue;
+      kD++;
       const metros = km * 1000 + loc;
-      if (faixa && ((faixa.de !== null && faixa.de !== undefined && metros < faixa.de) || (faixa.ate !== null && faixa.ate !== undefined && metros > faixa.ate))) continue;
+      if (usar ? !usar.has(kD) : faixa && ((faixa.de !== null && faixa.de !== undefined && metros < faixa.de) || (faixa.ate !== null && faixa.ate !== undefined && metros > faixa.ate))) continue;
       const f = ler(c[iF]); const t = ler(c[iT]);
       pontos.push({ m: Math.round((km * 1000 + loc) * 100), f: f === null ? null : f + offF, t: t === null ? null : t + offT });
     }

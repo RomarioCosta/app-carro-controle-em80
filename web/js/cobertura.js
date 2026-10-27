@@ -63,11 +63,14 @@
    */
   C.necessario = (planta, ramal, linha, { rhMax = 1000, incluirRH = true } = {}) => {
     const els = B().elementosDaPlanta(planta, ramal, linha);
+    const nomes = B().nomesTrechos(els);
     const out = [];
     els.forEach((e, k) => {
       const ant = els[k - 1];
       if (incluirRH && ant && e.ini - ant.fim > 0.5 && e.ini - ant.fim <= rhMax) {
-        out.push({ ini: ant.fim, fim: e.ini, sede: e.sede || ant.sede || '', eh: e.nomeEh || `EH ${e.eh}`, tipo: 'RH' });
+        // pátio = vão entre dois EH diferentes (RH-43 entre o EH 42/43 e o EH 43/44)
+        const patio = ant.eh !== e.eh;
+        out.push({ ini: ant.fim, fim: e.ini, sede: e.sede || ant.sede || '', eh: e.nomeEh || `EH ${e.eh}`, tipo: 'RH', patio, nome: patio ? nomes.rh((ant.fim + e.ini) / 2) : '' });
       }
       out.push({ ini: e.ini, fim: e.fim, sede: e.sede || '', eh: e.nomeEh || `EH ${e.eh}`, tipo: e.tipo });
     });
@@ -90,8 +93,12 @@
    * Resumo de um arquivo do carro para a montagem (não guarda o arquivo inteiro):
    * amostras a cada ~1 m com o km do arquivo, a correção do km pela geometria e a linha; e as inconsistências.
    */
-  C.resumirArquivo = (arquivo, planta, nome, opcoes = {}) => {
+  C.resumirArquivo = (arquivoOriginal, planta, nome, opcoes = {}) => {
     const b = B();
+    // valores da coluna LINHA como vieram do carro (para a tela de correção): pontos e km de cada valor
+    const valoresLinha = C.valoresDaLinha(arquivoOriginal);
+    // correção da linha feita na Montagem (valor trocado / linha num trecho de km)
+    const arquivo = b.corrigirLinhas(arquivoOriginal, opcoes.linhas);
     const { pos, meta } = arquivo;
     const n = pos.length;
     const esp = b.espacamento(pos) || 0.25;
@@ -103,14 +110,17 @@
     // linha de cada ponto: coluna LINHA; valor que não é linha (ex.: TESTE01) → a linha válida mais frequente
     const valores = arquivo.linhasValores || [String(meta.linha || '')];
     const validas = valores.map((v) => b.linhaDaPlanta(v, linhasPlanta));
+    const desloc = valores.map(b.ehDeslocamento); // LOCOM: carro em deslocamento, desconsiderado
     const cont = new Map();
     (arquivo.linhaIdx || []).forEach((k) => { if (validas[k]) cont.set(validas[k], (cont.get(validas[k]) || 0) + 1); });
     const linhaRef = [...cont.entries()].sort((a, c) => c[1] - a[1]).map(([l]) => l)[0] || (linhasPlanta.includes('1') ? '1' : linhasPlanta[0] || '1');
-    const invalidas = valores.filter((v, k) => !validas[k]);
+    const invalidas = valores.filter((v, k) => !validas[k] && !desloc[k]);
     if (invalidas.length) {
-      let q = 0; (arquivo.linhaIdx || []).forEach((k) => { if (!validas[k]) q++; });
-      avisar('alerta', `Coluna LINHA com valor que não é linha (${invalidas.join(', ')}) em ${q.toLocaleString('pt-BR')} pontos: considerada a linha ${linhaRef}.`);
+      let q = 0; (arquivo.linhaIdx || []).forEach((k) => { if (!validas[k] && !desloc[k]) q++; });
+      avisar('alerta', `Coluna LINHA com valor que não é linha (${invalidas.join(', ')}) em ${q.toLocaleString('pt-BR')} pontos: considerada a linha ${linhaRef}. Corrija em "Linha do arquivo".`);
     }
+    let qDesloc = 0; (arquivo.linhaIdx || []).forEach((k) => { if (desloc[k]) qDesloc++; });
+    if (qDesloc) avisar('info', `${qDesloc.toLocaleString('pt-BR')} pontos em deslocamento (LINHA = LOCOM): desconsiderados na cobertura e nos alertas.`);
     // saltos/voltas pequenos do km: compensados só quando o usuário pede (botão "Compensar")
     const compensaveis = b.saltosCompensaveis(pos, opcoes.compensacao || {});
     const pedidos = new Set(opcoes.compensar || []);
@@ -149,7 +159,8 @@
     const amostras = { pos: new Float64Array(qtd), aj: new Float32Array(qtd), linha: new Uint8Array(qtd), linhas };
     let q = 0;
     const amostrar = (i) => {
-      const l = validas[arquivo.linhaIdx ? arquivo.linhaIdx[i] : 0] || linhaRef;
+      const kv = arquivo.linhaIdx ? arquivo.linhaIdx[i] : 0;
+      const l = desloc[kv] ? b.DESLOCAMENTO : (validas[kv] || linhaRef);
       let li = linhas.indexOf(l); if (li < 0) { li = linhas.length; linhas.push(l); }
       amostras.pos[q] = pos[i]; amostras.aj[q] = aj.ajustes[i]; amostras.linha[q] = li; q++;
     };
@@ -182,8 +193,21 @@
       compensaveis: compensaveis.map(({ i, de, km, desde, delta, tipo, pontosFaltando, N, disponiveis, extensao, pct, cabe, porPonto, chave, tratado }) => ({ i, de, km, desde, delta, tipo, pontosFaltando, N, disponiveis, extensao, pct, cabe, porPonto, chave, tratado })),
       amostras,
       geometria,
-      inconsistencias
+      inconsistencias,
+      valoresLinha
     };
+  };
+
+  /** Valores da coluna LINHA do arquivo: [{ valor, pontos, de, ate }] (km do arquivo), do mais frequente ao menos. */
+  C.valoresDaLinha = (arquivo) => {
+    const valores = arquivo.linhasValores || [String((arquivo.meta && arquivo.meta.linha) || '')];
+    const st = valores.map((valor) => ({ valor, pontos: 0, de: Infinity, ate: -Infinity }));
+    const idx = arquivo.linhaIdx;
+    arquivo.pos.forEach((p, i) => {
+      const x = st[idx ? idx[i] : 0];
+      x.pontos++; if (p < x.de) x.de = p; if (p > x.ate) x.ate = p;
+    });
+    return st.filter((x) => x.pontos).sort((a, c) => c.pontos - a.pontos);
   };
 
   /** Volta as amostras para arrays tipados (quando o armazenamento as gravou como objeto/lista). */
@@ -236,6 +260,7 @@
           if (Number.isNaN(val)) continue;
           const y = x + aj[k];
           const l = linhas[linha[k]];
+          if (B().ehDeslocamento(l)) { fechar(); continue; } // deslocamento: sem alerta
           const el = elemento(elsDe(l), y);
           if (!el) continue; // fora de tangente/curva (circuito): sem limite
           const niveis = limites(id, el.tipo === 'C' ? 'C' : 'T') || [];
@@ -269,6 +294,7 @@
       if (recorte && ((recorte.de !== null && recorte.de !== undefined && p < recorte.de) || (recorte.ate !== null && recorte.ate !== undefined && p > recorte.ate))) { fechar(); continue; }
       const g = p + aj[k];
       const l = linhas[linha[k]];
+      if (B().ehDeslocamento(l)) { fechar(); continue; } // carro em deslocamento: não conta como medido
       if (atual && atual.l === l && Math.abs(g - atual.ult) <= folga) {
         atual.i = Math.min(atual.i, g); atual.f = Math.max(atual.f, g); atual.ult = g;
       } else { fechar(); atual = { l, i: g, f: g, ult: g }; }
@@ -318,7 +344,8 @@
           sede: s.sede, ini: s.ini, fim: s.fim, necessario: necS, coberto: cobS, pct: necS ? (cobS / necS) * 100 : 0,
           buracos: buracos.filter((b) => b.sede === s.sede), arquivos: arqs,
           cobertos: C.interseccao(faixa, cobertos),
-          sobreposicoes: sobreposicoes.filter((o) => o.sede === s.sede)
+          sobreposicoes: sobreposicoes.filter((o) => o.sede === s.sede),
+          rh: s.trechos.filter((t) => t.tipo === 'RH' && t.patio).map((t) => ({ ini: t.ini, fim: t.fim, nome: t.nome }))
         };
       });
       // divisa entre sedes vizinhas (ex.: GV1 → GV2): o arquivo de uma tem que encostar no da outra, sem buraco

@@ -877,6 +877,17 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-bur { fill: var(--erro); }
 .mt-sob { fill: var(--alerta); }
 .mt-div { stroke: var(--texto2); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.mt-rh { stroke: var(--texto); stroke-width: 1; opacity: .35; vector-effect: non-scaling-stroke; }
+.mt-legenda i.mt-rh { width: 2px; background: var(--texto); opacity: .45; }
+.mt-data { font-size: .78rem; color: var(--texto2); flex-basis: 100%; padding-left: 18px; }
+.mt-ok-txt { color: var(--ok); }
+.mt-sub-titulo { font-size: .9rem; margin-top: 4px; }
+.mt-trechos li { display: flex; align-items: center; gap: 8px; }
+.mt-trecho-novo { align-items: end; }
+.mt-linha-arq select { min-width: 0; }
+.mt-valores-linha { display: flex; flex-direction: column; border-top: 1px solid var(--borda); }
+.mt-valor-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 8px 0; border-bottom: 1px solid var(--borda); }
+.mt-valor-linha select { flex: 0 1 260px; }
 .mt-legenda { display: flex; flex-wrap: wrap; gap: 14px; font-size: .8rem; color: var(--texto2); }
 .mt-legenda i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; }
 .mt-legenda i.mt-nec { background: var(--grade); } .mt-legenda i.mt-cob { background: var(--ok); }
@@ -1133,10 +1144,10 @@ window.App = window.App || {};
 
 (function (App) {
   App.config = {
-    versao: '2026.10.25',
+    versao: '2026.10.27',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-fdce125cab', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-fa34209c41', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -3991,6 +4002,36 @@ window.App = window.App || {};
     .filter((e) => e.ramal === ramal && String(e.linha) === String(linha))
     .sort((a, b) => a.ini - b.ini);
 
+  /** Valor da coluna LINHA que indica o carro em deslocamento (sem medição válida): desconsiderado. */
+  B.DESLOCAMENTO = 'LOCOM';
+  B.ehDeslocamento = (v) => /^\s*LOCOM/i.test(String(v ?? ''));
+
+  /**
+   * Correção da coluna LINHA (feita na Montagem): o operador pode errar ou confundir as linhas.
+   * regras = { valores: { 'TESTE01': '2', 'LOCOM': '1' }, trechos: [{ de, ate, linha }] } (km do arquivo).
+   * Primeiro troca cada valor; depois, nos trechos de km, vale a linha do trecho (o último trecho prevalece).
+   * linha 'LOCOM' = desconsiderar (deslocamento).
+   */
+  B.corrigirLinhas = (arquivo, regras) => {
+    const trocas = (regras && regras.valores) || {};
+    const trechos = ((regras && regras.trechos) || []).filter((t) => Number.isFinite(t.de) && Number.isFinite(t.ate) && t.linha);
+    if (!Object.keys(trocas).length && !trechos.length) return arquivo;
+    const orig = arquivo.linhasValores || [String((arquivo.meta && arquivo.meta.linha) || '')];
+    const idxOrig = arquivo.linhaIdx || new Uint16Array(arquivo.pos.length);
+    const posArq = arquivo.posArq || arquivo.pos;
+    const valores = []; const mapa = new Map();
+    const indice = (v) => { if (!mapa.has(v)) { mapa.set(v, valores.length); valores.push(v); } return mapa.get(v); };
+    const porValor = orig.map((v) => indice(trocas[v] ? String(trocas[v]) : v));
+    const tr = trechos.map((t) => ({ lo: Math.min(t.de, t.ate), hi: Math.max(t.de, t.ate), k: indice(String(t.linha)) }));
+    const linhaIdx = new Uint16Array(posArq.length);
+    for (let i = 0; i < posArq.length; i++) {
+      let k = porValor[idxOrig[i]];
+      for (const t of tr) if (posArq[i] >= t.lo && posArq[i] <= t.hi) k = t.k;
+      linhaIdx[i] = k;
+    }
+    return { ...arquivo, linhasValores: valores, linhaIdx, linhasCorrigidas: true };
+  };
+
   /** Linha da planta correspondente ao valor da coluna LINHA ("1", "01", "L1", "LINHA 2"…); null se não for linha. */
   B.linhaDaPlanta = (valor, linhasPlanta) => {
     const m = /^\s*(?:L|LINHA)?\s*0*(\d{1,2})\s*$/i.exec(String(valor ?? ''));
@@ -4632,12 +4673,19 @@ window.App = window.App || {};
    * Serve para descartar o começo/fim do arquivo sem editar o CSV (o Excel altera os números ao salvar).
    */
   B.recortar = (arquivo, de, ate) => {
-    if ((de === null || de === undefined) && (ate === null || ate === undefined)) return arquivo;
+    const desloc = (arquivo.linhasValores || []).map(B.ehDeslocamento);
+    const temDesloc = !!arquivo.linhaIdx && desloc.some(Boolean);
+    if ((de === null || de === undefined) && (ate === null || ate === undefined) && !temDesloc) return arquivo;
     const dentro = (p) => (de === null || de === undefined || p >= de) && (ate === null || ate === undefined || p <= ate);
     // o recorte é sempre no km do arquivo (o mesmo da Montagem), mesmo com o km compensado
     const posArq = arquivo.posArq || arquivo.pos;
     const manter = [];
-    posArq.forEach((p, i) => { if (dentro(p)) manter.push(i); });
+    let deslocamento = 0;
+    posArq.forEach((p, i) => {
+      if (!dentro(p)) return;
+      if (temDesloc && desloc[arquivo.linhaIdx[i]]) { deslocamento++; return; } // carro em deslocamento: desconsiderado
+      manter.push(i);
+    });
     const filtrar = (arr) => Float64Array.from(manter, (i) => arr[i]);
     const dados = {};
     Object.keys(arquivo.dados).forEach((k) => { dados[k] = filtrar(arquivo.dados[k]); });
@@ -4649,11 +4697,17 @@ window.App = window.App || {};
       dados,
       linhaIdx: arquivo.linhaIdx ? Uint16Array.from(manter, (i) => arquivo.linhaIdx[i]) : arquivo.linhaIdx,
       eventos: (arquivo.eventos || []).filter((e) => dentro(e.posArq ?? e.pos)).map((e) => ({ ...e, i: undefined })),
-      recorte: { de: de ?? null, ate: ate ?? null, descartados: arquivo.pos.length - manter.length }
+      recorte: { de: de ?? null, ate: ate ?? null, descartados: arquivo.pos.length - manter.length - deslocamento, deslocamento }
     };
   };
 
-  B.conferir = (texto, resultado, limite, faixa = null, offset = null) => {
+  /**
+   * Recontagem independente a partir do CSV original. indices = pontos do arquivo inteiro que a análise usou
+   * (recorte e deslocamento); sem eles, vale a faixa de km.
+   */
+  B.conferir = (texto, resultado, limite, faixa = null, offset = null, indices = null) => {
+    const usar = indices ? new Set(indices) : null;
+    let kD = -1; // ponto (linha "D" com posição) no arquivo inteiro
     // Offset aplicado na análise: a conferência soma o mesmo valor na mesma bitola.
     const offF = offset && offset.aplicar && offset.bitola === 'bitF' ? Math.round((Number(offset.valor) || 0) * 10000) : 0;
     const offT = offset && offset.aplicar && offset.bitola === 'bitT' ? Math.round((Number(offset.valor) || 0) * 10000) : 0;
@@ -4679,8 +4733,9 @@ window.App = window.App || {};
       const km = parseFloat(String(c[iKm]).replace(',', '.'));
       const loc = parseFloat(String(c[iLoc]).replace(',', '.'));
       if (!Number.isFinite(km) || !Number.isFinite(loc)) continue;
+      kD++;
       const metros = km * 1000 + loc;
-      if (faixa && ((faixa.de !== null && faixa.de !== undefined && metros < faixa.de) || (faixa.ate !== null && faixa.ate !== undefined && metros > faixa.ate))) continue;
+      if (usar ? !usar.has(kD) : faixa && ((faixa.de !== null && faixa.de !== undefined && metros < faixa.de) || (faixa.ate !== null && faixa.ate !== undefined && metros > faixa.ate))) continue;
       const f = ler(c[iF]); const t = ler(c[iT]);
       pontos.push({ m: Math.round((km * 1000 + loc) * 100), f: f === null ? null : f + offF, t: t === null ? null : t + offT });
     }
@@ -4839,11 +4894,14 @@ window.App = window.App || {};
    */
   C.necessario = (planta, ramal, linha, { rhMax = 1000, incluirRH = true } = {}) => {
     const els = B().elementosDaPlanta(planta, ramal, linha);
+    const nomes = B().nomesTrechos(els);
     const out = [];
     els.forEach((e, k) => {
       const ant = els[k - 1];
       if (incluirRH && ant && e.ini - ant.fim > 0.5 && e.ini - ant.fim <= rhMax) {
-        out.push({ ini: ant.fim, fim: e.ini, sede: e.sede || ant.sede || '', eh: e.nomeEh || `EH ${e.eh}`, tipo: 'RH' });
+        // pátio = vão entre dois EH diferentes (RH-43 entre o EH 42/43 e o EH 43/44)
+        const patio = ant.eh !== e.eh;
+        out.push({ ini: ant.fim, fim: e.ini, sede: e.sede || ant.sede || '', eh: e.nomeEh || `EH ${e.eh}`, tipo: 'RH', patio, nome: patio ? nomes.rh((ant.fim + e.ini) / 2) : '' });
       }
       out.push({ ini: e.ini, fim: e.fim, sede: e.sede || '', eh: e.nomeEh || `EH ${e.eh}`, tipo: e.tipo });
     });
@@ -4866,8 +4924,12 @@ window.App = window.App || {};
    * Resumo de um arquivo do carro para a montagem (não guarda o arquivo inteiro):
    * amostras a cada ~1 m com o km do arquivo, a correção do km pela geometria e a linha; e as inconsistências.
    */
-  C.resumirArquivo = (arquivo, planta, nome, opcoes = {}) => {
+  C.resumirArquivo = (arquivoOriginal, planta, nome, opcoes = {}) => {
     const b = B();
+    // valores da coluna LINHA como vieram do carro (para a tela de correção): pontos e km de cada valor
+    const valoresLinha = C.valoresDaLinha(arquivoOriginal);
+    // correção da linha feita na Montagem (valor trocado / linha num trecho de km)
+    const arquivo = b.corrigirLinhas(arquivoOriginal, opcoes.linhas);
     const { pos, meta } = arquivo;
     const n = pos.length;
     const esp = b.espacamento(pos) || 0.25;
@@ -4879,14 +4941,17 @@ window.App = window.App || {};
     // linha de cada ponto: coluna LINHA; valor que não é linha (ex.: TESTE01) → a linha válida mais frequente
     const valores = arquivo.linhasValores || [String(meta.linha || '')];
     const validas = valores.map((v) => b.linhaDaPlanta(v, linhasPlanta));
+    const desloc = valores.map(b.ehDeslocamento); // LOCOM: carro em deslocamento, desconsiderado
     const cont = new Map();
     (arquivo.linhaIdx || []).forEach((k) => { if (validas[k]) cont.set(validas[k], (cont.get(validas[k]) || 0) + 1); });
     const linhaRef = [...cont.entries()].sort((a, c) => c[1] - a[1]).map(([l]) => l)[0] || (linhasPlanta.includes('1') ? '1' : linhasPlanta[0] || '1');
-    const invalidas = valores.filter((v, k) => !validas[k]);
+    const invalidas = valores.filter((v, k) => !validas[k] && !desloc[k]);
     if (invalidas.length) {
-      let q = 0; (arquivo.linhaIdx || []).forEach((k) => { if (!validas[k]) q++; });
-      avisar('alerta', `Coluna LINHA com valor que não é linha (${invalidas.join(', ')}) em ${q.toLocaleString('pt-BR')} pontos: considerada a linha ${linhaRef}.`);
+      let q = 0; (arquivo.linhaIdx || []).forEach((k) => { if (!validas[k] && !desloc[k]) q++; });
+      avisar('alerta', `Coluna LINHA com valor que não é linha (${invalidas.join(', ')}) em ${q.toLocaleString('pt-BR')} pontos: considerada a linha ${linhaRef}. Corrija em "Linha do arquivo".`);
     }
+    let qDesloc = 0; (arquivo.linhaIdx || []).forEach((k) => { if (desloc[k]) qDesloc++; });
+    if (qDesloc) avisar('info', `${qDesloc.toLocaleString('pt-BR')} pontos em deslocamento (LINHA = LOCOM): desconsiderados na cobertura e nos alertas.`);
     // saltos/voltas pequenos do km: compensados só quando o usuário pede (botão "Compensar")
     const compensaveis = b.saltosCompensaveis(pos, opcoes.compensacao || {});
     const pedidos = new Set(opcoes.compensar || []);
@@ -4925,7 +4990,8 @@ window.App = window.App || {};
     const amostras = { pos: new Float64Array(qtd), aj: new Float32Array(qtd), linha: new Uint8Array(qtd), linhas };
     let q = 0;
     const amostrar = (i) => {
-      const l = validas[arquivo.linhaIdx ? arquivo.linhaIdx[i] : 0] || linhaRef;
+      const kv = arquivo.linhaIdx ? arquivo.linhaIdx[i] : 0;
+      const l = desloc[kv] ? b.DESLOCAMENTO : (validas[kv] || linhaRef);
       let li = linhas.indexOf(l); if (li < 0) { li = linhas.length; linhas.push(l); }
       amostras.pos[q] = pos[i]; amostras.aj[q] = aj.ajustes[i]; amostras.linha[q] = li; q++;
     };
@@ -4958,8 +5024,21 @@ window.App = window.App || {};
       compensaveis: compensaveis.map(({ i, de, km, desde, delta, tipo, pontosFaltando, N, disponiveis, extensao, pct, cabe, porPonto, chave, tratado }) => ({ i, de, km, desde, delta, tipo, pontosFaltando, N, disponiveis, extensao, pct, cabe, porPonto, chave, tratado })),
       amostras,
       geometria,
-      inconsistencias
+      inconsistencias,
+      valoresLinha
     };
+  };
+
+  /** Valores da coluna LINHA do arquivo: [{ valor, pontos, de, ate }] (km do arquivo), do mais frequente ao menos. */
+  C.valoresDaLinha = (arquivo) => {
+    const valores = arquivo.linhasValores || [String((arquivo.meta && arquivo.meta.linha) || '')];
+    const st = valores.map((valor) => ({ valor, pontos: 0, de: Infinity, ate: -Infinity }));
+    const idx = arquivo.linhaIdx;
+    arquivo.pos.forEach((p, i) => {
+      const x = st[idx ? idx[i] : 0];
+      x.pontos++; if (p < x.de) x.de = p; if (p > x.ate) x.ate = p;
+    });
+    return st.filter((x) => x.pontos).sort((a, c) => c.pontos - a.pontos);
   };
 
   /** Volta as amostras para arrays tipados (quando o armazenamento as gravou como objeto/lista). */
@@ -5012,6 +5091,7 @@ window.App = window.App || {};
           if (Number.isNaN(val)) continue;
           const y = x + aj[k];
           const l = linhas[linha[k]];
+          if (B().ehDeslocamento(l)) { fechar(); continue; } // deslocamento: sem alerta
           const el = elemento(elsDe(l), y);
           if (!el) continue; // fora de tangente/curva (circuito): sem limite
           const niveis = limites(id, el.tipo === 'C' ? 'C' : 'T') || [];
@@ -5045,6 +5125,7 @@ window.App = window.App || {};
       if (recorte && ((recorte.de !== null && recorte.de !== undefined && p < recorte.de) || (recorte.ate !== null && recorte.ate !== undefined && p > recorte.ate))) { fechar(); continue; }
       const g = p + aj[k];
       const l = linhas[linha[k]];
+      if (B().ehDeslocamento(l)) { fechar(); continue; } // carro em deslocamento: não conta como medido
       if (atual && atual.l === l && Math.abs(g - atual.ult) <= folga) {
         atual.i = Math.min(atual.i, g); atual.f = Math.max(atual.f, g); atual.ult = g;
       } else { fechar(); atual = { l, i: g, f: g, ult: g }; }
@@ -5094,7 +5175,8 @@ window.App = window.App || {};
           sede: s.sede, ini: s.ini, fim: s.fim, necessario: necS, coberto: cobS, pct: necS ? (cobS / necS) * 100 : 0,
           buracos: buracos.filter((b) => b.sede === s.sede), arquivos: arqs,
           cobertos: C.interseccao(faixa, cobertos),
-          sobreposicoes: sobreposicoes.filter((o) => o.sede === s.sede)
+          sobreposicoes: sobreposicoes.filter((o) => o.sede === s.sede),
+          rh: s.trechos.filter((t) => t.tipo === 'RH' && t.patio).map((t) => ({ ini: t.ini, fim: t.fim, nome: t.nome }))
         };
       });
       // divisa entre sedes vizinhas (ex.: GV1 → GV2): o arquivo de uma tem que encostar no da outra, sem buraco
@@ -5643,7 +5725,7 @@ window.App = window.App || {};
     try {
       const salvo = await store.get(CHAVE);
       if (v !== versaoArquivo) return;
-      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [], regras: salvo.regras || null });
+      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [], regras: salvo.regras || null, linhas: salvo.linhas || null });
     } catch (e) { /* sem arquivo salvo */ }
   }
 
@@ -5706,6 +5788,8 @@ window.App = window.App || {};
   /** Saltos/voltas do km compensados na Montagem (chaves de B.saltosCompensaveis) e as regras usadas lá. */
   let compensar = [];
   let regrasComp = null;
+  /** Correção da coluna LINHA feita na Montagem (B.corrigirLinhas). */
+  let regrasLinha = null;
 
   function aplicarRecorte() {
     arquivo = B.recortar(arquivoCompleto, recorte.de, recorte.ate);
@@ -5716,10 +5800,11 @@ window.App = window.App || {};
     }
   }
 
-  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [], regras = null }) {
+  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [], regras = null, linhas = null }) {
     versaoArquivo++;
     compensar = [...comp];
     regrasComp = regras;
+    regrasLinha = linhas;
     cacheAjuste.clear(); cacheConferencia.clear();
     try {
       arquivoCompleto = B.lerCSV(texto);
@@ -5728,6 +5813,8 @@ window.App = window.App || {};
         const lista = B.compensacoesPedidas(B.saltosCompensaveis(arquivoCompleto.pos, regrasComp || {}), compensar);
         arquivoCompleto = B.compensarArquivo(arquivoCompleto, lista);
       }
+      // linha corrigida na Montagem (valor trocado ou linha definida num trecho de km)
+      arquivoCompleto = B.corrigirLinhas(arquivoCompleto, regrasLinha);
       recorte = trecho ? { de: trecho.de ?? null, ate: trecho.ate ?? null } : { de: null, ate: null };
       aplicarRecorte();
     } catch (e) {
@@ -5747,7 +5834,7 @@ window.App = window.App || {};
     }
     zoom = null;
     recalcular();
-    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar, regras: regrasComp }).catch(() => {});
+    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar, regras: regrasComp, linhas: regrasLinha }).catch(() => {});
   }
 
   async function mudarRecorte(de, ate) {
@@ -5952,6 +6039,7 @@ window.App = window.App || {};
             }
           })))),
         arquivo.recorte && arquivo.recorte.descartados ? h('p', { class: 'sub', text: `${arquivo.recorte.descartados.toLocaleString('pt-BR')} pontos fora do trecho analisado foram descartados (o arquivo não é alterado).` }) : null,
+        arquivo.recorte && arquivo.recorte.deslocamento ? h('p', { class: 'sub', text: `${arquivo.recorte.deslocamento.toLocaleString('pt-BR')} pontos com o carro em deslocamento (LINHA = LOCOM) foram desconsiderados.` }) : null,
         arquivoCompleto.compensados ? h('p', { class: 'sub', text: `Km compensado em ${arquivoCompleto.compensados} salto(s)/volta(s) na Montagem: gráficos, tabelas e laudo usam o km compensado; o trecho analisado é no km do arquivo.` }) : null,
         h('div', { class: 'linha-acoes' },
           h('button', { class: 'btn btn-primario', onclick: abrirLaudo }, ui.icone('documento'), 'Gerar laudo (PDF)')),
@@ -6335,7 +6423,7 @@ window.App = window.App || {};
 
   /** Selo da conferência independente (relê o CSV original e recalcula) e botão da planilha de conferência. */
   function cartaoConferencia() {
-    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda, recorte, opcoes.offset) : null;
+    const c = textoArquivo ? B.conferir(textoArquivo, resultado, opcoes.limitePerda, recorte, opcoes.offset, arquivo.idx || null) : null;
     const selo = !c ? null : c.ok
       ? h('span', { class: 'conf-ok', title: `Recontagem independente a partir do CSV original: ${c.linhas.toLocaleString('pt-BR')} linhas de medição; pontos e pontos acima de cada elemento iguais aos da análise.${c.voltas.length ? ` O km volta ${c.voltas.length} vez(es) no arquivo.` : ''}` }, ui.icone('check'), 'Conferido')
       : h('button', { class: 'conf-erro', onclick: () => mostrarDivergencias(c) }, `⚠ ${c.divergencias.length} divergência(s)`);
@@ -6603,7 +6691,7 @@ window.App = window.App || {};
         ['Data da inspeção', m.data],
         ['Inspetor', m.inspetor],
         ['Responsável pela análise', info.responsavel || '—'],
-        ['Trecho', `${B.fmtKm(pos[0])} → ${B.fmtKm(pos[pos.length - 1])} (${fmt(r.geral.extensao / 1000, 2)} km · ${pos.length.toLocaleString('pt-BR')} pontos)${arquivo.recorte && arquivo.recorte.descartados ? ` · trecho analisado ${recorte.de !== null ? `a partir de ${B.fmtKm(recorte.de)}` : ''}${recorte.de !== null && recorte.ate !== null ? ' ' : ''}${recorte.ate !== null ? `até ${B.fmtKm(recorte.ate)}` : ''}; ${arquivo.recorte.descartados.toLocaleString('pt-BR')} pontos do arquivo fora do trecho` : ''}`]
+        ['Trecho', `${B.fmtKm(pos[0])} → ${B.fmtKm(pos[pos.length - 1])} (${fmt(r.geral.extensao / 1000, 2)} km · ${pos.length.toLocaleString('pt-BR')} pontos)${arquivo.recorte && arquivo.recorte.descartados ? ` · trecho analisado ${recorte.de !== null ? `a partir de ${B.fmtKm(recorte.de)}` : ''}${recorte.de !== null && recorte.ate !== null ? ' ' : ''}${recorte.ate !== null ? `até ${B.fmtKm(recorte.ate)}` : ''}; ${arquivo.recorte.descartados.toLocaleString('pt-BR')} pontos do arquivo fora do trecho` : ''}${arquivo.recorte && arquivo.recorte.deslocamento ? ` · ${arquivo.recorte.deslocamento.toLocaleString('pt-BR')} pontos em deslocamento (LOCOM) desconsiderados` : ''}`]
       ], 'laudo-id')),
 
       h('section', { class: `laudo-resultado laudo-res-${RESULTADOS.indexOf(info.resultado)}` },
@@ -6690,7 +6778,7 @@ window.App = window.App || {};
     estado: () => ({ arquivo, resultado, nomeArquivo, opcoes }),
     textoDoArquivo,
     /** Abre um arquivo vindo de outra tela (Montagem / Tela do carro), com o trecho e as compensações dela. */
-    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [], regras = null } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp, regras }),
+    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [], regras = null, linhas = null } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp, regras, linhas }),
     planta: async () => { try { return await store.get(CHAVE_PLANTA); } catch (e) { return null; } }
   };
 })(window.App);
@@ -7487,7 +7575,7 @@ window.App = window.App || {};
               const texto = await lerCsv(a.id);
               if (!texto || !planta) continue;
               const rg = regras();
-              a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar, compensacao: rg });
+              a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar, compensacao: rg, linhas: a.linhas });
               a.compensar = a.compensar.filter((ch) => a.resumo.compensaveis.some((c) => c.chave === ch));
               a.regras = rg;
             } catch (e) { /* fica como estava; o botão Compensar/Desfazer recalcula */ }
@@ -7534,13 +7622,14 @@ window.App = window.App || {};
         const { nome, texto } = await App.analise.textoDoArquivo(f);
         const arq = B().lerCSV(texto);
         const rg = regras();
-        const resumo = C().resumirArquivo(arq, planta, nome, { compensacao: rg });
         const existente = arquivos.findIndex((a) => a.nome === nome && (a.ciclo || '') === ciclo());
         const anterior = existente >= 0 ? arquivos[existente] : null;
-        // o mesmo arquivo adicionado de novo mantém o recorte e as compensações que ainda existem nele
+        // o mesmo arquivo adicionado de novo mantém o recorte, a correção da linha e as compensações que ainda existem nele
+        const linhas = anterior ? anterior.linhas || null : null;
+        const resumo = C().resumirArquivo(arq, planta, nome, { compensacao: rg, linhas });
         const compensar = anterior ? (anterior.compensar || []).filter((ch) => resumo.compensaveis.some((c) => c.chave === ch)) : [];
-        const final = compensar.length ? C().resumirArquivo(arq, planta, nome, { compensar, compensacao: rg }) : resumo;
-        const item = { id: anterior ? anterior.id : `${Date.now()}-${k}`, nome, ciclo: ciclo(), adicionadoEm: U.agora(), recorte: anterior ? anterior.recorte : null, compensar, regras: rg, resumo: final };
+        const final = compensar.length ? C().resumirArquivo(arq, planta, nome, { compensar, compensacao: rg, linhas }) : resumo;
+        const item = { id: anterior ? anterior.id : `${Date.now()}-${k}`, nome, ciclo: ciclo(), adicionadoEm: U.agora(), recorte: anterior ? anterior.recorte : null, compensar, regras: rg, linhas, resumo: final };
         await guardarCsv(item.id, texto);
         if (existente >= 0) arquivos[existente] = item; else arquivos.push(item);
         ok++;
@@ -7585,11 +7674,27 @@ window.App = window.App || {};
     await new Promise((r) => setTimeout(r, 30));
     try {
       const rg = regras();
-      a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: lista, compensacao: rg });
+      a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: lista, compensacao: rg, linhas: a.linhas });
       a.compensar = lista.filter((ch) => a.resumo.compensaveis.some((c) => c.chave === ch));
       a.regras = rg;
       await gravar();
       ui.toast(compensar ? 'Compensado: a diferença foi distribuída nos pontos desde o último acerto do km.' : 'Compensação desfeita.', 'ok');
+    } catch (e) { ui.toast(`Não foi possível recalcular: ${e.message}`, 'erro', 7000); }
+    render();
+  }
+
+  /** Correção da coluna LINHA (trocar um valor ou definir a linha num trecho de km): recalcula o arquivo. */
+  async function mudarLinhas(a, linhas, mensagem) {
+    const texto = await lerCsv(a.id).catch(() => null);
+    if (!texto) { semCsv(); return; }
+    ui.toast(`Recalculando ${a.nome}…`, 'info', 3000);
+    await new Promise((r) => setTimeout(r, 30));
+    try {
+      const vazio = !Object.keys(linhas.valores || {}).length && !(linhas.trechos || []).length;
+      a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar || [], compensacao: a.regras || regras(), linhas: vazio ? null : linhas });
+      a.linhas = vazio ? null : linhas;
+      await gravar();
+      ui.toast(mensagem, 'ok');
     } catch (e) { ui.toast(`Não foi possível recalcular: ${e.message}`, 'erro', 7000); }
     render();
   }
@@ -7608,7 +7713,7 @@ window.App = window.App || {};
       try {
         const texto = await lerCsv(a.id);
         if (!texto) continue;
-        a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar || [], compensacao: rg });
+        a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar || [], compensacao: rg, linhas: a.linhas });
         const mantidas = (a.compensar || []).filter((ch) => a.resumo.compensaveis.some((c) => c.chave === ch));
         if (mantidas.length < (a.compensar || []).length) perdidas.push(a.nome);
         a.compensar = mantidas;
@@ -7634,7 +7739,7 @@ window.App = window.App || {};
     window.dispatchEvent(new CustomEvent('em80:checklist-aba', { detail: 'tela' }));
     ui.toast(`Abrindo ${a.nome} na Tela do carro…`, 'info', 2500);
     await new Promise((r) => setTimeout(r, 30));
-    App.analise.abrirTexto(texto, a.nome, { recorte: a.recorte, compensar: a.compensar || [], regras: a.regras || regras() });
+    App.analise.abrirTexto(texto, a.nome, { recorte: a.recorte, compensar: a.compensar || [], regras: a.regras || regras(), linhas: a.linhas || null });
     atual = a.id;
     if (App.telaCarro.aoMostrar) App.telaCarro.aoMostrar();
     if (alvo && Number.isInteger(alvo.i)) App.telaCarro.irParaPonto(alvo.i);
@@ -7661,6 +7766,16 @@ window.App = window.App || {};
     linha.buracos.filter((b) => b.fim > ini && b.ini < fim && linha.sedes.some((s) => s.sede === b.sede && s.coberto > 0))
       .forEach((b) => el.appendChild(svg('rect', { x: x(Math.max(b.ini, ini)), y: 2, width: larg(Math.max(b.ini, ini), Math.min(b.fim, fim)), height: 10, class: 'mt-bur' })));
     linha.sobreposicoes.filter((o) => o.fim > ini && o.ini < fim).forEach((o) => el.appendChild(svg('rect', { x: x(Math.max(o.ini, ini)), y: 0, width: larg(Math.max(o.ini, ini), Math.min(o.fim, fim)), height: 3, class: 'mt-sob' })));
+    // um traço fino em cada RH (pátio): mostra até que RH o trecho já foi medido
+    linha.sedes.filter(dentro).flatMap((s) => s.rh || []).forEach((p) => {
+      const meio = (p.ini + p.fim) / 2;
+      if (meio < ini || meio > fim) return;
+      const t = svg('line', { x1: x(meio), x2: x(meio), y1: 1, y2: 13, class: 'mt-rh' });
+      const dica = document.createElementNS(NS, 'title');
+      dica.textContent = `${p.nome || 'RH'} · ${km(p.ini)} – ${km(p.fim)}`;
+      t.appendChild(dica);
+      el.appendChild(t);
+    });
     if (!divisas) return el;
     // nomes das sedes em HTML (o SVG é esticado na largura e deformaria o texto)
     const rotulos = h('div', { class: 'mt-rotulos' });
@@ -7751,6 +7866,12 @@ window.App = window.App || {};
       if (aberto) {
         const itens = [];
         s.arquivos.forEach((n) => itens.push(h('li', null, ui.icone('documento'), h('span', { text: n }))));
+        // até onde foi medido, pelos RH (pátios) que ficam dentro de cada trecho medido
+        (s.cobertos || []).forEach(([a, b]) => {
+          const dentroRh = (s.rh || []).filter((p) => (p.ini + p.fim) / 2 >= a && (p.ini + p.fim) / 2 <= b);
+          const pelosRh = dentroRh.length ? ` · ${dentroRh[0].nome}${dentroRh.length > 1 ? ` → ${dentroRh[dentroRh.length - 1].nome}` : ''}` : '';
+          itens.push(h('li', { class: 'mt-ok-txt' }, h('span', { text: `Medido ${km(a)} – ${km(b)} (${mTxt(b - a)})${pelosRh}` })));
+        });
         buracos.forEach((b) => itens.push(h('li', { class: 'mt-erro-txt' }, h('span', { text: `Buraco ${km(b.ini)} – ${km(b.fim)} (${mTxt(b.fim - b.ini)}) · ${b.eh}${onde(b)}` }))));
         s.sobreposicoes.forEach((o) => itens.push(h('li', { class: 'mt-atencao-txt' }, h('span', { text: `Medido 2× ${km(o.ini)} – ${km(o.fim)} (${mTxt(o.fim - o.ini)}): ${o.arquivos.join(' e ')}. Recorte um dos arquivos.` }))));
         if (!s.arquivos.length) itens.push(h('li', { class: 'mt-sub', text: 'Nenhum arquivo desta sede ainda.' }));
@@ -7760,7 +7881,7 @@ window.App = window.App || {};
     return h('section', { class: 'cartao pilha' },
       h('div', { class: 'mt-linha-cab' }, h('h2', { text: `Linha ${l.linha}` }), h('span', { class: 'mt-sub', text: `${pctTxt(l.pct)} · falta ${kmTxt(Math.max(0, l.necessario - l.coberto))} de ${kmTxt(l.necessario)}` })),
       faixa(l, ini, fim),
-      h('div', { class: 'mt-legenda' }, ['mt-cob:Medido', 'mt-bur:Buraco', 'mt-sob:Medido 2×', 'mt-nec:Falta medir'].map((x) => { const [c, t] = x.split(':'); return h('span', null, h('i', { class: c }), t); })),
+      h('div', { class: 'mt-legenda' }, ['mt-cob:Medido', 'mt-bur:Buraco', 'mt-sob:Medido 2×', 'mt-nec:Falta medir', 'mt-rh:RH (pátio)'].map((x) => { const [c, t] = x.split(':'); return h('span', null, h('i', { class: c }), t); })),
       h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela' },
         h('thead', null, h('tr', null, ['Sede', 'Trecho', 'Medido', 'Falta', 'Buracos', 'Arquivos', 'Divisa'].map((t) => h('th', { text: t })))),
         h('tbody', null, linhasTabela))));
@@ -7806,7 +7927,8 @@ window.App = window.App || {};
           h('summary', null,
             h('span', { class: `mt-ponto ${erros ? 'mt-erro' : alertas ? 'mt-alerta' : 'mt-ok'}` }),
             h('strong', { text: a.nome }),
-            h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}` }),
+            h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}${a.linhas ? ' · linha corrigida' : ''}` }),
+            h('span', { class: 'mt-data', text: [r.meta.data, sentidoTxt(r)].filter(Boolean).join(' · ') }),
             a.antigo ? h('span', { class: 'mt-cont', text: 'adicionar de novo' }) : compensaveisUsados(a).some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${compensaveisUsados(a).filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
               : avisos.length ? h('span', { class: 'mt-cont', text: `${avisos.length} aviso(s)` }) : null),
           h('div', { class: 'pilha mt-arquivo-corpo' },
@@ -7815,6 +7937,7 @@ window.App = window.App || {};
             a.antigo ? h('div', { class: 'aviso' }, 'Adicionado numa versão anterior: sem o ajuste do km (Compensar) e sem a Tela do carro. ',
               h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => reAdicionar(a) }, ui.icone('upload'), 'Adicionar de novo')) : null,
             r.compensaveis.length ? listaCompensaveis(a) : null,
+            a.antigo ? null : cartaoLinhaArquivo(a),
             h('div', { class: 'linha-acoes' },
               h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
             h('div', { class: 'grade-3' },
@@ -7822,6 +7945,82 @@ window.App = window.App || {};
               ui.campo('Até o km', campoKm(a.recorte && a.recorte.ate, (v) => mudarRecorte('ate', v), 'fim')),
               h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-fantasma', onclick: () => remover(a) }, ui.icone('lixo'), 'Remover')))));
       }));
+  }
+
+  /** Sentido da inspeção: coluna SEQUÊNCIA do arquivo (C/D) e o km crescente ou decrescente. */
+  function sentidoTxt(r) {
+    const seq = String((r.meta && r.meta.sentido) || '').trim().toUpperCase();
+    const km = r.kmFim < r.kmIni ? 'km decrescente' : 'km crescente';
+    return seq ? `Sentido ${seq} (${km})` : km;
+  }
+
+  /* ---------------- Linha do arquivo (coluna LINHA) ---------------- */
+
+  /**
+   * Correção da coluna LINHA: o operador pode errar ou confundir as linhas, e "LOCOM" é o carro em deslocamento.
+   * Troca cada valor da coluna (para uma linha ou para "desconsiderar") e define a linha num trecho de km.
+   */
+  function cartaoLinhaArquivo(a) {
+    const r = a.resumo;
+    const vazia = { valores: {}, trechos: [] };
+    if (!r.valoresLinha) {
+      return h('div', { class: 'pilha mt-comp' }, h('strong', { text: 'Linha do arquivo' }),
+        h('div', null, h('span', { class: 'mt-sub', text: 'Para corrigir a linha deste arquivo, recalcule-o (adicionado numa versão anterior). ' }),
+          h('button', { class: 'btn btn-secundario btn-pequeno', disabled: processando || null, onclick: () => mudarLinhas(a, a.linhas || vazia, 'Arquivo recalculado.') }, 'Recalcular')));
+    }
+    const linhasPlanta = planta && r.ramal && planta.ramais[r.ramal] ? planta.ramais[r.ramal].map(String) : [];
+    const atual = a.linhas || vazia;
+    const regra = () => ({ valores: { ...(atual.valores || {}) }, trechos: [...(atual.trechos || [])] });
+    const DESL = B().DESLOCAMENTO;
+    const nomeLinha = (l) => (B().ehDeslocamento(l) ? 'desconsiderar (deslocamento)' : `linha ${l}`);
+    const auto = (v) => (B().ehDeslocamento(v) ? 'desconsiderar' : B().linhaDaPlanta(v, linhasPlanta) ? `linha ${B().linhaDaPlanta(v, linhasPlanta)}` : `linha ${r.linhaRef}`);
+    const opcoesLinha = () => [...linhasPlanta.map((l) => [l, `Linha ${l}`]), [DESL, 'Desconsiderar (deslocamento)']];
+    const rotuloValor = (v) => (String(v).trim() === '' ? '(vazio)' : v);
+
+    const linhasValores = r.valoresLinha.map((x) => {
+      const escolhido = (atual.valores || {})[x.valor] || '';
+      const sel = h('select', {
+        'aria-label': `Usar o valor ${rotuloValor(x.valor)} como`,
+        onchange: (e) => {
+          const nova = regra();
+          if (e.target.value) nova.valores[x.valor] = e.target.value; else delete nova.valores[x.valor];
+          mudarLinhas(a, nova, `"${rotuloValor(x.valor)}" agora vale como ${e.target.value ? nomeLinha(e.target.value) : 'automático'}.`);
+        }
+      }, [['', `Automático (${auto(x.valor)})`], ...opcoesLinha()].map(([v, t]) => h('option', { value: v, selected: v === escolhido || null, text: t })));
+      return h('div', { class: 'mt-valor-linha', role: 'group', 'aria-label': `Valor ${rotuloValor(x.valor)}` },
+        h('div', null, h('strong', { text: rotuloValor(x.valor) }),
+          h('span', { class: 'mt-sub', text: ` · ${n0(x.pontos)} pontos · ${km(x.de)} – ${km(x.ate)}` })),
+        sel);
+    });
+
+    // linha num trecho de km
+    const novo = { de: null, ate: null, linha: linhasPlanta[0] || DESL };
+    const selTrecho = h('select', { onchange: (e) => { novo.linha = e.target.value; } },
+      opcoesLinha().map(([v, t]) => h('option', { value: v, text: t })));
+    const aplicarTrecho = () => {
+      if (novo.de === null || novo.ate === null) { ui.toast('Informe o km inicial e o final do trecho.', 'erro'); return; }
+      const nova = regra();
+      nova.trechos.push({ de: Math.min(novo.de, novo.ate), ate: Math.max(novo.de, novo.ate), linha: novo.linha });
+      mudarLinhas(a, nova, `Trecho ${km(Math.min(novo.de, novo.ate))} – ${km(Math.max(novo.de, novo.ate))}: ${nomeLinha(novo.linha)}.`);
+    };
+    const trechos = (atual.trechos || []).map((t, k) => h('li', null,
+      h('span', { text: `${km(t.de)} – ${km(t.ate)} → ${nomeLinha(t.linha)}` }),
+      h('button', { class: 'btn-icone', 'aria-label': `Remover o trecho ${km(t.de)} – ${km(t.ate)}`, title: 'Remover', onclick: () => {
+        const nova = regra(); nova.trechos.splice(k, 1);
+        mudarLinhas(a, nova, 'Trecho removido.');
+      } }, ui.icone('lixo'))));
+
+    return h('div', { class: 'pilha mt-comp mt-linha-arq' },
+      h('strong', { text: 'Linha do arquivo' }),
+      h('span', { class: 'mt-sub', text: 'Valores da coluna LINHA. "LOCOM" é o carro em deslocamento e fica fora da cobertura e dos alertas. Se o operador errou a linha, troque o valor ou defina a linha num trecho de km: vale para a cobertura, os alertas, a Tela do carro e a Análise.' }),
+      h('div', { class: 'mt-valores-linha' }, linhasValores),
+      h('strong', { class: 'mt-sub-titulo', text: 'Linha num trecho de km' }),
+      trechos.length ? h('ul', { class: 'mt-lista mt-trechos' }, trechos) : null,
+      h('div', { class: 'grade-4 mt-trecho-novo' },
+        ui.campo('Início (km)', campoKm(null, (v) => { novo.de = v; }, 'ex.: 320+100')),
+        ui.campo('Fim (km)', campoKm(null, (v) => { novo.ate = v; }, 'ex.: 321+400')),
+        ui.campo('Linha do trecho', selTrecho),
+        h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-secundario', disabled: processando || null, onclick: aplicarTrecho }, 'Aplicar no trecho'))));
   }
 
   /* ---------------- Compensação de saltos e voltas do km ---------------- */

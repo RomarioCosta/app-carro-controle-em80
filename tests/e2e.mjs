@@ -747,6 +747,37 @@ async function main() {
       await page.reload();
       await page.getByRole('heading', { name: 'Montagem dos dados' }).waitFor();
       await page.locator('.mt-arquivo summary', { hasText: 'recortado' }).waitFor();
+      // data e sentido da inspeção no arquivo; marcas de RH nas barras
+      const arqTeste = page.locator('.mt-arquivo', { hasText: 'TESTE.csv' });
+      assert.match(await arqTeste.locator('.mt-data').textContent(), /^01\/09\/2026 · Sentido D \(km decrescente\)$/);
+      assert.ok(await page.locator('.mt-faixa .mt-rh').count() > 0);
+      // linha do arquivo: valor da coluna LINHA como deslocamento, depois de volta ao automático
+      const pctMedido = async () => Number((await page.locator('.kpi:visible').filter({ hasText: 'Medido' }).locator('.kpi-valor').textContent()).replace('%', '').replace(',', '.'));
+      const antes = await pctMedido();
+      await arqTeste.locator('summary').click();
+      const tabLinha = arqTeste.locator('.mt-linha-arq');
+      await tabLinha.getByRole('group', { name: 'Valor 1' }).getByText('· 4.000 pontos · 1+500 – 2+500').waitFor();
+      await tabLinha.getByLabel('Usar o valor 1 como').selectOption('LOCOM');
+      await page.getByText('"1" agora vale como desconsiderar (deslocamento).').waitFor();
+      await page.locator('.mt-arquivo summary', { hasText: 'linha corrigida' }).waitFor();
+      assert.equal(await pctMedido(), 0);
+      await arqTeste.locator('.mt-linha-arq').getByLabel('Usar o valor 1 como').selectOption('');
+      await page.getByText('"1" agora vale como automático.').waitFor();
+      assert.equal(await pctMedido(), antes);
+      // linha num trecho de km: 1+900 a 1+800 em deslocamento
+      await arqTeste.getByLabel('Início (km)').fill('1+900');
+      await arqTeste.getByLabel('Início (km)').dispatchEvent('change');
+      await arqTeste.getByLabel('Fim (km)').fill('1+800');
+      await arqTeste.getByLabel('Fim (km)').dispatchEvent('change');
+      await arqTeste.getByLabel('Linha do trecho').selectOption('LOCOM');
+      await arqTeste.getByRole('button', { name: 'Aplicar no trecho' }).click();
+      await arqTeste.getByText('1+800 – 1+900 → desconsiderar (deslocamento)').waitFor();
+      assert.ok(await pctMedido() < antes);
+      await page.screenshot({ path: `${SAIDA}16b-montagem-linha.png`, fullPage: true });
+      await arqTeste.getByRole('button', { name: 'Remover o trecho 1+800 – 1+900' }).click();
+      await page.getByText('Trecho removido.').waitFor();
+      assert.equal(await pctMedido(), antes);
+      await page.locator('.mt-arquivo summary', { hasText: 'linha corrigida' }).waitFor({ state: 'detached' });
       // salto de 3 m no km: botão Compensar (espalha nos 2.400 pontos desde o início do arquivo)
       await page.locator('input[name="arquivo-montagem"]').setInputFiles([{ name: 'SALTO.csv', mimeType: 'text/csv', buffer: Buffer.from(gerarCSV({ salto: 3 }), 'latin1') }]);
       await page.getByText('1 arquivo(s) adicionado(s).').waitFor();

@@ -49,7 +49,7 @@
               const texto = await lerCsv(a.id);
               if (!texto || !planta) continue;
               const rg = regras();
-              a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar, compensacao: rg });
+              a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar, compensacao: rg, linhas: a.linhas });
               a.compensar = a.compensar.filter((ch) => a.resumo.compensaveis.some((c) => c.chave === ch));
               a.regras = rg;
             } catch (e) { /* fica como estava; o botão Compensar/Desfazer recalcula */ }
@@ -96,13 +96,14 @@
         const { nome, texto } = await App.analise.textoDoArquivo(f);
         const arq = B().lerCSV(texto);
         const rg = regras();
-        const resumo = C().resumirArquivo(arq, planta, nome, { compensacao: rg });
         const existente = arquivos.findIndex((a) => a.nome === nome && (a.ciclo || '') === ciclo());
         const anterior = existente >= 0 ? arquivos[existente] : null;
-        // o mesmo arquivo adicionado de novo mantém o recorte e as compensações que ainda existem nele
+        // o mesmo arquivo adicionado de novo mantém o recorte, a correção da linha e as compensações que ainda existem nele
+        const linhas = anterior ? anterior.linhas || null : null;
+        const resumo = C().resumirArquivo(arq, planta, nome, { compensacao: rg, linhas });
         const compensar = anterior ? (anterior.compensar || []).filter((ch) => resumo.compensaveis.some((c) => c.chave === ch)) : [];
-        const final = compensar.length ? C().resumirArquivo(arq, planta, nome, { compensar, compensacao: rg }) : resumo;
-        const item = { id: anterior ? anterior.id : `${Date.now()}-${k}`, nome, ciclo: ciclo(), adicionadoEm: U.agora(), recorte: anterior ? anterior.recorte : null, compensar, regras: rg, resumo: final };
+        const final = compensar.length ? C().resumirArquivo(arq, planta, nome, { compensar, compensacao: rg, linhas }) : resumo;
+        const item = { id: anterior ? anterior.id : `${Date.now()}-${k}`, nome, ciclo: ciclo(), adicionadoEm: U.agora(), recorte: anterior ? anterior.recorte : null, compensar, regras: rg, linhas, resumo: final };
         await guardarCsv(item.id, texto);
         if (existente >= 0) arquivos[existente] = item; else arquivos.push(item);
         ok++;
@@ -147,11 +148,27 @@
     await new Promise((r) => setTimeout(r, 30));
     try {
       const rg = regras();
-      a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: lista, compensacao: rg });
+      a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: lista, compensacao: rg, linhas: a.linhas });
       a.compensar = lista.filter((ch) => a.resumo.compensaveis.some((c) => c.chave === ch));
       a.regras = rg;
       await gravar();
       ui.toast(compensar ? 'Compensado: a diferença foi distribuída nos pontos desde o último acerto do km.' : 'Compensação desfeita.', 'ok');
+    } catch (e) { ui.toast(`Não foi possível recalcular: ${e.message}`, 'erro', 7000); }
+    render();
+  }
+
+  /** Correção da coluna LINHA (trocar um valor ou definir a linha num trecho de km): recalcula o arquivo. */
+  async function mudarLinhas(a, linhas, mensagem) {
+    const texto = await lerCsv(a.id).catch(() => null);
+    if (!texto) { semCsv(); return; }
+    ui.toast(`Recalculando ${a.nome}…`, 'info', 3000);
+    await new Promise((r) => setTimeout(r, 30));
+    try {
+      const vazio = !Object.keys(linhas.valores || {}).length && !(linhas.trechos || []).length;
+      a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar || [], compensacao: a.regras || regras(), linhas: vazio ? null : linhas });
+      a.linhas = vazio ? null : linhas;
+      await gravar();
+      ui.toast(mensagem, 'ok');
     } catch (e) { ui.toast(`Não foi possível recalcular: ${e.message}`, 'erro', 7000); }
     render();
   }
@@ -170,7 +187,7 @@
       try {
         const texto = await lerCsv(a.id);
         if (!texto) continue;
-        a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar || [], compensacao: rg });
+        a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar || [], compensacao: rg, linhas: a.linhas });
         const mantidas = (a.compensar || []).filter((ch) => a.resumo.compensaveis.some((c) => c.chave === ch));
         if (mantidas.length < (a.compensar || []).length) perdidas.push(a.nome);
         a.compensar = mantidas;
@@ -196,7 +213,7 @@
     window.dispatchEvent(new CustomEvent('em80:checklist-aba', { detail: 'tela' }));
     ui.toast(`Abrindo ${a.nome} na Tela do carro…`, 'info', 2500);
     await new Promise((r) => setTimeout(r, 30));
-    App.analise.abrirTexto(texto, a.nome, { recorte: a.recorte, compensar: a.compensar || [], regras: a.regras || regras() });
+    App.analise.abrirTexto(texto, a.nome, { recorte: a.recorte, compensar: a.compensar || [], regras: a.regras || regras(), linhas: a.linhas || null });
     atual = a.id;
     if (App.telaCarro.aoMostrar) App.telaCarro.aoMostrar();
     if (alvo && Number.isInteger(alvo.i)) App.telaCarro.irParaPonto(alvo.i);
@@ -223,6 +240,16 @@
     linha.buracos.filter((b) => b.fim > ini && b.ini < fim && linha.sedes.some((s) => s.sede === b.sede && s.coberto > 0))
       .forEach((b) => el.appendChild(svg('rect', { x: x(Math.max(b.ini, ini)), y: 2, width: larg(Math.max(b.ini, ini), Math.min(b.fim, fim)), height: 10, class: 'mt-bur' })));
     linha.sobreposicoes.filter((o) => o.fim > ini && o.ini < fim).forEach((o) => el.appendChild(svg('rect', { x: x(Math.max(o.ini, ini)), y: 0, width: larg(Math.max(o.ini, ini), Math.min(o.fim, fim)), height: 3, class: 'mt-sob' })));
+    // um traço fino em cada RH (pátio): mostra até que RH o trecho já foi medido
+    linha.sedes.filter(dentro).flatMap((s) => s.rh || []).forEach((p) => {
+      const meio = (p.ini + p.fim) / 2;
+      if (meio < ini || meio > fim) return;
+      const t = svg('line', { x1: x(meio), x2: x(meio), y1: 1, y2: 13, class: 'mt-rh' });
+      const dica = document.createElementNS(NS, 'title');
+      dica.textContent = `${p.nome || 'RH'} · ${km(p.ini)} – ${km(p.fim)}`;
+      t.appendChild(dica);
+      el.appendChild(t);
+    });
     if (!divisas) return el;
     // nomes das sedes em HTML (o SVG é esticado na largura e deformaria o texto)
     const rotulos = h('div', { class: 'mt-rotulos' });
@@ -313,6 +340,12 @@
       if (aberto) {
         const itens = [];
         s.arquivos.forEach((n) => itens.push(h('li', null, ui.icone('documento'), h('span', { text: n }))));
+        // até onde foi medido, pelos RH (pátios) que ficam dentro de cada trecho medido
+        (s.cobertos || []).forEach(([a, b]) => {
+          const dentroRh = (s.rh || []).filter((p) => (p.ini + p.fim) / 2 >= a && (p.ini + p.fim) / 2 <= b);
+          const pelosRh = dentroRh.length ? ` · ${dentroRh[0].nome}${dentroRh.length > 1 ? ` → ${dentroRh[dentroRh.length - 1].nome}` : ''}` : '';
+          itens.push(h('li', { class: 'mt-ok-txt' }, h('span', { text: `Medido ${km(a)} – ${km(b)} (${mTxt(b - a)})${pelosRh}` })));
+        });
         buracos.forEach((b) => itens.push(h('li', { class: 'mt-erro-txt' }, h('span', { text: `Buraco ${km(b.ini)} – ${km(b.fim)} (${mTxt(b.fim - b.ini)}) · ${b.eh}${onde(b)}` }))));
         s.sobreposicoes.forEach((o) => itens.push(h('li', { class: 'mt-atencao-txt' }, h('span', { text: `Medido 2× ${km(o.ini)} – ${km(o.fim)} (${mTxt(o.fim - o.ini)}): ${o.arquivos.join(' e ')}. Recorte um dos arquivos.` }))));
         if (!s.arquivos.length) itens.push(h('li', { class: 'mt-sub', text: 'Nenhum arquivo desta sede ainda.' }));
@@ -322,7 +355,7 @@
     return h('section', { class: 'cartao pilha' },
       h('div', { class: 'mt-linha-cab' }, h('h2', { text: `Linha ${l.linha}` }), h('span', { class: 'mt-sub', text: `${pctTxt(l.pct)} · falta ${kmTxt(Math.max(0, l.necessario - l.coberto))} de ${kmTxt(l.necessario)}` })),
       faixa(l, ini, fim),
-      h('div', { class: 'mt-legenda' }, ['mt-cob:Medido', 'mt-bur:Buraco', 'mt-sob:Medido 2×', 'mt-nec:Falta medir'].map((x) => { const [c, t] = x.split(':'); return h('span', null, h('i', { class: c }), t); })),
+      h('div', { class: 'mt-legenda' }, ['mt-cob:Medido', 'mt-bur:Buraco', 'mt-sob:Medido 2×', 'mt-nec:Falta medir', 'mt-rh:RH (pátio)'].map((x) => { const [c, t] = x.split(':'); return h('span', null, h('i', { class: c }), t); })),
       h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela' },
         h('thead', null, h('tr', null, ['Sede', 'Trecho', 'Medido', 'Falta', 'Buracos', 'Arquivos', 'Divisa'].map((t) => h('th', { text: t })))),
         h('tbody', null, linhasTabela))));
@@ -368,7 +401,8 @@
           h('summary', null,
             h('span', { class: `mt-ponto ${erros ? 'mt-erro' : alertas ? 'mt-alerta' : 'mt-ok'}` }),
             h('strong', { text: a.nome }),
-            h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}` }),
+            h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}${a.linhas ? ' · linha corrigida' : ''}` }),
+            h('span', { class: 'mt-data', text: [r.meta.data, sentidoTxt(r)].filter(Boolean).join(' · ') }),
             a.antigo ? h('span', { class: 'mt-cont', text: 'adicionar de novo' }) : compensaveisUsados(a).some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${compensaveisUsados(a).filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
               : avisos.length ? h('span', { class: 'mt-cont', text: `${avisos.length} aviso(s)` }) : null),
           h('div', { class: 'pilha mt-arquivo-corpo' },
@@ -377,6 +411,7 @@
             a.antigo ? h('div', { class: 'aviso' }, 'Adicionado numa versão anterior: sem o ajuste do km (Compensar) e sem a Tela do carro. ',
               h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => reAdicionar(a) }, ui.icone('upload'), 'Adicionar de novo')) : null,
             r.compensaveis.length ? listaCompensaveis(a) : null,
+            a.antigo ? null : cartaoLinhaArquivo(a),
             h('div', { class: 'linha-acoes' },
               h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
             h('div', { class: 'grade-3' },
@@ -384,6 +419,82 @@
               ui.campo('Até o km', campoKm(a.recorte && a.recorte.ate, (v) => mudarRecorte('ate', v), 'fim')),
               h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-fantasma', onclick: () => remover(a) }, ui.icone('lixo'), 'Remover')))));
       }));
+  }
+
+  /** Sentido da inspeção: coluna SEQUÊNCIA do arquivo (C/D) e o km crescente ou decrescente. */
+  function sentidoTxt(r) {
+    const seq = String((r.meta && r.meta.sentido) || '').trim().toUpperCase();
+    const km = r.kmFim < r.kmIni ? 'km decrescente' : 'km crescente';
+    return seq ? `Sentido ${seq} (${km})` : km;
+  }
+
+  /* ---------------- Linha do arquivo (coluna LINHA) ---------------- */
+
+  /**
+   * Correção da coluna LINHA: o operador pode errar ou confundir as linhas, e "LOCOM" é o carro em deslocamento.
+   * Troca cada valor da coluna (para uma linha ou para "desconsiderar") e define a linha num trecho de km.
+   */
+  function cartaoLinhaArquivo(a) {
+    const r = a.resumo;
+    const vazia = { valores: {}, trechos: [] };
+    if (!r.valoresLinha) {
+      return h('div', { class: 'pilha mt-comp' }, h('strong', { text: 'Linha do arquivo' }),
+        h('div', null, h('span', { class: 'mt-sub', text: 'Para corrigir a linha deste arquivo, recalcule-o (adicionado numa versão anterior). ' }),
+          h('button', { class: 'btn btn-secundario btn-pequeno', disabled: processando || null, onclick: () => mudarLinhas(a, a.linhas || vazia, 'Arquivo recalculado.') }, 'Recalcular')));
+    }
+    const linhasPlanta = planta && r.ramal && planta.ramais[r.ramal] ? planta.ramais[r.ramal].map(String) : [];
+    const atual = a.linhas || vazia;
+    const regra = () => ({ valores: { ...(atual.valores || {}) }, trechos: [...(atual.trechos || [])] });
+    const DESL = B().DESLOCAMENTO;
+    const nomeLinha = (l) => (B().ehDeslocamento(l) ? 'desconsiderar (deslocamento)' : `linha ${l}`);
+    const auto = (v) => (B().ehDeslocamento(v) ? 'desconsiderar' : B().linhaDaPlanta(v, linhasPlanta) ? `linha ${B().linhaDaPlanta(v, linhasPlanta)}` : `linha ${r.linhaRef}`);
+    const opcoesLinha = () => [...linhasPlanta.map((l) => [l, `Linha ${l}`]), [DESL, 'Desconsiderar (deslocamento)']];
+    const rotuloValor = (v) => (String(v).trim() === '' ? '(vazio)' : v);
+
+    const linhasValores = r.valoresLinha.map((x) => {
+      const escolhido = (atual.valores || {})[x.valor] || '';
+      const sel = h('select', {
+        'aria-label': `Usar o valor ${rotuloValor(x.valor)} como`,
+        onchange: (e) => {
+          const nova = regra();
+          if (e.target.value) nova.valores[x.valor] = e.target.value; else delete nova.valores[x.valor];
+          mudarLinhas(a, nova, `"${rotuloValor(x.valor)}" agora vale como ${e.target.value ? nomeLinha(e.target.value) : 'automático'}.`);
+        }
+      }, [['', `Automático (${auto(x.valor)})`], ...opcoesLinha()].map(([v, t]) => h('option', { value: v, selected: v === escolhido || null, text: t })));
+      return h('div', { class: 'mt-valor-linha', role: 'group', 'aria-label': `Valor ${rotuloValor(x.valor)}` },
+        h('div', null, h('strong', { text: rotuloValor(x.valor) }),
+          h('span', { class: 'mt-sub', text: ` · ${n0(x.pontos)} pontos · ${km(x.de)} – ${km(x.ate)}` })),
+        sel);
+    });
+
+    // linha num trecho de km
+    const novo = { de: null, ate: null, linha: linhasPlanta[0] || DESL };
+    const selTrecho = h('select', { onchange: (e) => { novo.linha = e.target.value; } },
+      opcoesLinha().map(([v, t]) => h('option', { value: v, text: t })));
+    const aplicarTrecho = () => {
+      if (novo.de === null || novo.ate === null) { ui.toast('Informe o km inicial e o final do trecho.', 'erro'); return; }
+      const nova = regra();
+      nova.trechos.push({ de: Math.min(novo.de, novo.ate), ate: Math.max(novo.de, novo.ate), linha: novo.linha });
+      mudarLinhas(a, nova, `Trecho ${km(Math.min(novo.de, novo.ate))} – ${km(Math.max(novo.de, novo.ate))}: ${nomeLinha(novo.linha)}.`);
+    };
+    const trechos = (atual.trechos || []).map((t, k) => h('li', null,
+      h('span', { text: `${km(t.de)} – ${km(t.ate)} → ${nomeLinha(t.linha)}` }),
+      h('button', { class: 'btn-icone', 'aria-label': `Remover o trecho ${km(t.de)} – ${km(t.ate)}`, title: 'Remover', onclick: () => {
+        const nova = regra(); nova.trechos.splice(k, 1);
+        mudarLinhas(a, nova, 'Trecho removido.');
+      } }, ui.icone('lixo'))));
+
+    return h('div', { class: 'pilha mt-comp mt-linha-arq' },
+      h('strong', { text: 'Linha do arquivo' }),
+      h('span', { class: 'mt-sub', text: 'Valores da coluna LINHA. "LOCOM" é o carro em deslocamento e fica fora da cobertura e dos alertas. Se o operador errou a linha, troque o valor ou defina a linha num trecho de km: vale para a cobertura, os alertas, a Tela do carro e a Análise.' }),
+      h('div', { class: 'mt-valores-linha' }, linhasValores),
+      h('strong', { class: 'mt-sub-titulo', text: 'Linha num trecho de km' }),
+      trechos.length ? h('ul', { class: 'mt-lista mt-trechos' }, trechos) : null,
+      h('div', { class: 'grade-4 mt-trecho-novo' },
+        ui.campo('Início (km)', campoKm(null, (v) => { novo.de = v; }, 'ex.: 320+100')),
+        ui.campo('Fim (km)', campoKm(null, (v) => { novo.ate = v; }, 'ex.: 321+400')),
+        ui.campo('Linha do trecho', selTrecho),
+        h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-secundario', disabled: processando || null, onclick: aplicarTrecho }, 'Aplicar no trecho'))));
   }
 
   /* ---------------- Compensação de saltos e voltas do km ---------------- */
