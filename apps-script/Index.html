@@ -885,6 +885,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-trechos li { display: flex; align-items: center; gap: 8px; }
 .mt-trecho-novo { align-items: end; }
 .mt-linha-arq select { min-width: 0; }
+.mt-filtros { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
+.mt-filtros .campo { min-width: 0; flex: 1 1 125px; max-width: 220px; }
 .mt-valores-linha { display: flex; flex-direction: column; border-top: 1px solid var(--borda); }
 .mt-valor-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 8px 0; border-bottom: 1px solid var(--borda); }
 .mt-valor-linha select { flex: 0 1 260px; }
@@ -1144,10 +1146,10 @@ window.App = window.App || {};
 
 (function (App) {
   App.config = {
-    versao: '2026.10.27',
+    versao: '2026.10.28',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-27e6e0fd4a', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-e9590960aa', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -7929,15 +7931,40 @@ window.App = window.App || {};
     });
   }
 
-  function cartaoArquivos(lista, conferencia) {
-    if (!lista.length) {
+  /** Sede do arquivo: coluna CORRETIVA (GV1, CS…); sem ela, a sede onde o arquivo caiu na geometria. */
+  const sedeDo = (a, conferencia) => {
+    if (a.resumo.corretiva) return a.resumo.corretiva;
+    const conf = conferencia.find((c) => c.id === a.id);
+    const t = conf && [...conf.trechos].sort((x, y) => y.m - x.m)[0];
+    return t ? C().normSede(t.sede) : '';
+  };
+  /** Data da inspeção (coluna DATA, dd/mm/aaaa) em aaaa-mm-dd, para ordenar. */
+  const dataIso = (d) => { const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(String(d || '').trim()); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
+
+  function cartaoArquivos(todos, conferencia) {
+    if (!todos.length) {
       return h('section', { class: 'cartao' }, h('h2', { text: 'Arquivos' }), h('p', { class: 'vazio', text: 'Nenhum arquivo neste ciclo. Adicione os arquivos do carro (.csv ou .zip).' }));
     }
+    // filtro por data e sede (só a lista de arquivos; a cobertura continua com o ciclo todo)
+    const sedes = [...new Set(todos.map((a) => sedeDo(a, conferencia)).filter(Boolean))].sort();
+    const datas = [...new Set(todos.map((a) => (a.resumo.meta && a.resumo.meta.data) || '').filter(Boolean))].sort((x, y) => dataIso(y).localeCompare(dataIso(x)));
+    const fSede = sedes.includes(U.pref.get('montagem:filtroSede', '')) ? U.pref.get('montagem:filtroSede', '') : '';
+    const fData = datas.includes(U.pref.get('montagem:filtroData', '')) ? U.pref.get('montagem:filtroData', '') : '';
+    const lista = todos.filter((a) => (!fSede || sedeDo(a, conferencia) === fSede) && (!fData || (a.resumo.meta && a.resumo.meta.data) === fData));
+    const filtroSel = (rotulo, valor, opcoes, chave) => ui.campo(rotulo, h('select', { onchange: (e) => { U.pref.set(chave, e.target.value); render(); } },
+      [['', 'Todas'], ...opcoes.map((o) => [o, o])].map(([v, t]) => h('option', { value: v, selected: v === valor || null, text: t }))));
+    const filtros = h('div', { class: 'mt-filtros' },
+      filtroSel('Sede', fSede, sedes, 'montagem:filtroSede'),
+      filtroSel('Data da inspeção', fData, datas, 'montagem:filtroData'),
+      fSede || fData ? h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => { U.pref.set('montagem:filtroSede', ''); U.pref.set('montagem:filtroData', ''); render(); } }, ui.icone('x'), 'Limpar filtros') : null,
+      h('span', { class: 'mt-sub', role: 'status', text: fSede || fData ? `Mostrando ${lista.length} de ${todos.length} arquivo(s)` : '' }));
     const ordem = [...lista].sort((a, b) => (a.resumo.ramal + a.resumo.linhaRef).localeCompare(b.resumo.ramal + b.resumo.linhaRef) || Math.min(a.resumo.kmIni, a.resumo.kmFim) - Math.min(b.resumo.kmIni, b.resumo.kmFim));
-    const antigos = lista.filter((a) => a.antigo);
+    const antigos = todos.filter((a) => a.antigo);
     const input = h('input', { type: 'file', multiple: true, hidden: true, onchange: (e) => { const l = [...e.target.files]; e.target.value = ''; if (l.length) adicionar(l); } });
     return h('section', { class: 'cartao pilha' },
-      h('h2', { text: `Arquivos (${lista.length})` }),
+      h('h2', { text: `Arquivos (${todos.length})` }),
+      todos.length > 1 ? filtros : null,
+      !lista.length ? h('p', { class: 'vazio', text: 'Nenhum arquivo com esse filtro.' }) : null,
       atualizando ? h('p', { class: 'aviso', role: 'status', text: `Atualizando os arquivos para a versão nova do app: ${atualizando.feitos} de ${atualizando.total}…` }) : null,
       antigos.length ? h('div', { class: 'aviso pilha' },
         h('span', { text: `${antigos.length} arquivo(s) foram adicionados numa versão anterior do app. Para ter o ajuste do km (Compensar), os alertas de geometria e a Tela do carro, adicione de novo os mesmos arquivos (pode selecionar todos de uma vez). O recorte de cada um é mantido.` }),

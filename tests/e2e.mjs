@@ -790,8 +790,24 @@ async function main() {
       await page.locator('.mt-linha-arq').getByRole('group', { name: 'Valor 1' }).waitFor();
       assert.equal(await page.evaluate(async () => (await App.store.get('montagem:arquivos'))[0].resumo.versao), 2);
       // salto de 3 m no km: botão Compensar (espalha nos 2.400 pontos desde o início do arquivo)
-      await page.locator('input[name="arquivo-montagem"]').setInputFiles([{ name: 'SALTO.csv', mimeType: 'text/csv', buffer: Buffer.from(gerarCSV({ salto: 3 }), 'latin1') }]);
+      // outra sede (CS) e outra data, para o filtro da lista de arquivos
+      const csvSalto = gerarCSV({ salto: 3 }).replace(/;XX1;/g, ';CS;').replace(/01\/09\/2026/g, '02/09/2026');
+      await page.locator('input[name="arquivo-montagem"]').setInputFiles([{ name: 'SALTO.csv', mimeType: 'text/csv', buffer: Buffer.from(csvSalto, 'latin1') }]);
       await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
+      // filtro por sede e data
+      await page.getByLabel('Sede', { exact: true }).selectOption('CS');
+      await page.getByText('Mostrando 1 de 2 arquivo(s)').waitFor();
+      assert.equal(await page.locator('.mt-arquivo').count(), 1);
+      assert.ok((await page.locator('.mt-arquivo summary').textContent()).includes('SALTO.csv'));
+      await page.locator('.mt-filtros').screenshot({ path: `${SAIDA}16c-montagem-filtro.png` });
+      await page.getByLabel('Data da inspeção').selectOption('01/09/2026');
+      await page.getByText('Nenhum arquivo com esse filtro.').waitFor();
+      await page.getByLabel('Sede', { exact: true }).selectOption('');
+      await page.getByText('Mostrando 1 de 2 arquivo(s)').waitFor();
+      assert.ok((await page.locator('.mt-arquivo summary').textContent()).includes('TESTE.csv'));
+      assert.deepEqual(await page.getByLabel('Data da inspeção').locator('option').allTextContents(), ['Todas', '02/09/2026', '01/09/2026']);
+      await page.getByRole('button', { name: 'Limpar filtros' }).click();
+      await page.locator('.mt-arquivo').nth(1).waitFor();
       const salto = page.locator('.mt-arquivo', { hasText: 'SALTO.csv' });
       await salto.locator('summary').click();
       await salto.locator('.mt-comp-item', { hasText: 'buraco de 3,00 m (12 pontos)' }).waitFor();

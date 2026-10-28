@@ -867,6 +867,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-trechos li { display: flex; align-items: center; gap: 8px; }
 .mt-trecho-novo { align-items: end; }
 .mt-linha-arq select { min-width: 0; }
+.mt-filtros { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
+.mt-filtros .campo { min-width: 0; flex: 1 1 125px; max-width: 220px; }
 .mt-valores-linha { display: flex; flex-direction: column; border-top: 1px solid var(--borda); }
 .mt-valor-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 8px 0; border-bottom: 1px solid var(--borda); }
 .mt-valor-linha select { flex: 0 1 260px; }
