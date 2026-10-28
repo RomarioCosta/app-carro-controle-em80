@@ -433,6 +433,7 @@ Falta = metros que precisam ser medidos − metros medidos
 ### 15.4 Data, sentido e RH nas barras
 
 - Cada arquivo mostra a **data da inspeção** (coluna DATA) e o **sentido** (coluna SEQUÊNCIA, C ou D, e se o km cresce ou decresce no arquivo).
+- **Filtro da lista de arquivos** por **sede** (coluna CORRETIVA: GV1, GV2, CP, CS…; sem ela, a sede onde o arquivo caiu na geometria) e por **data da inspeção** (só as datas que existem nos arquivos, da mais recente para a mais antiga). O filtro vale só para a lista; a cobertura, os buracos e os alertas continuam com o ciclo todo.
 - Nas barras de cada linha e de cada sede, um **traço fino marca cada RH (pátio)**: o vão entre dois EH diferentes (a RH-43 fica entre o EH 42/43 e o EH 43/44). Passando o dedo ou o mouse, aparece o nome e o km do RH.
 - Abrindo uma sede, cada trecho medido mostra **de qual RH até qual RH** ele vai (ex.: "Medido 320+100 – 334+500 (14,4 km) · RH-40 → RH-42").
 
