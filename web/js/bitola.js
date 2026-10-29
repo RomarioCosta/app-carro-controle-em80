@@ -672,6 +672,7 @@
     const elementos = [];
     const rhs = [];
     let descartados = 0; let circuitos = 0; let semLinha = 0;
+    const vistas = new Set(); // RH já lidas (ramal|linha|km inicial|km final)
     const ramalDe = (bruto) => (bruto.length > 2 && bruto.startsWith('R') ? bruto.slice(1) : bruto); // RLT → LT
     /** "49/50 L1", "49/50 L 2", "49/50 L02", "49/50 LINHA 2" → { eh: '49/50', linha: '2' }; coluna "linha" separada, se houver. */
     const ehELinha = (l) => {
@@ -692,6 +693,10 @@
         if (ini === null || fim === null || fim <= ini) return;
         const { eh, linha } = ehELinha(l);
         if (!linha) semLinha++;
+        // a planilha repete a mesma RH no fim de um EH e no começo do seguinte: fica uma só
+        const chave = `${ramalDe(ramalBruto)}|${linha}|${ini}|${fim}`;
+        if (vistas.has(chave)) return;
+        vistas.add(chave);
         rhs.push({
           ramal: ramalDe(ramalBruto), linha, eh: eh.split('/')[0], ini, fim,
           nome: c.elemento >= 0 ? String(l[c.elemento] ?? '').trim().toUpperCase().replace(/^RH\s*-?\s*/, 'RH-') : '',

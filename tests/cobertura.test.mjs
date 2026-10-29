@@ -170,6 +170,7 @@ test('geometria: RH da planilha (inclusive no km 0) e km diferentes por linha (R
     ['RBH', 'GV I', 'TANGENTE 1', 'TANGENTE', '', 300, 1000, '', '01/02 L1'],
     ['RBH', 'GV I', 'CURVA 1', 'CURVA', 'Direita', 1000, 1400, 500, '01/02 L1'],
     ['RBH', 'GV I', 'RH-2', 'RH', '', 1400, 1700, '', '01/02 L1'],
+    ['RBH', 'GV I', 'RH-2', 'RH', '', 1400, 1700, '', '02/03 L1'], // a mesma RH repetida no EH seguinte
     ['RBH', 'GV I', 'TANGENTE 1', 'TANGENTE', '', 5300, 6000, '', '01/02 L 2'],
     ['RBH', 'GV I', 'CURVA 1', 'CURVA', 'Esquerda', 6000, 6500, 400, '01/02 L02'],
     ['RBH', '', 'RH-2', 'RH', '', 6500, 6800, '', '01/02 LINHA 2']

@@ -943,6 +943,34 @@ async function main() {
       await page.locator('.seg-modo').getByRole('button', { name: 'Programação' }).click();
     });
 
+    await passo('geometria (aba elementos_revia): RH com o km de cada linha na conferência da Montagem', async () => {
+      // mesmo formato da planilha "Geometria da EFVM – Carro Controle": RH no km 0 e a mesma RH repetida no EH seguinte
+      const geo = [
+        [],
+        ['', 'ramal', 'ga', 'sede', 'elemento', 'nomenclatura', 'tipo_ativo', 'sentido', 'km_inicial', 'km_final', 'ext', 'raio', 'grau', 'index_elemento', 'rh_eh', 'Plano_de_Regra', 'eh_linha', 'trecho'],
+        ['', 'RTST', 'VP1', 'GV I', 'RH-10', 'RH-10 L1', 'RH', '', 0, 300, 300, '', '', 1, 'RH-10 L1', 1, '10/11 L1', 'Ramal TST'],
+        ['', 'RTST', 'VP1', 'GV I', 'TANGENTE 1', '10/11 L1 - TANGENTE 1', 'TANGENTE', '', 300, 1530, 1230, '', '', 2, '10/11 L1', 1, '10/11 L1', 'Ramal TST'],
+        ['', 'RTST', 'VP1', 'GV I', 'CURVA 1', '10/11 L1 - CURVA 1', 'CURVA', 'Esquerda', 1530, 1730, 200, 667, '', 3, '10/11 L1', 1, '10/11 L1', 'Ramal TST'],
+        ['', 'RTST', 'VP1', 'GV I', 'RH-11', 'RH-11 L1', 'RH', '', 1730, 1760, 30, '', '', 4, 'RH-11 L1', 1, '10/11 L1', 'Ramal TST'],
+        ['', 'RTST', 'VP1', 'GV I', 'RH-11', 'RH-11 L1', 'RH', '', 1730, 1760, 30, '', '', 1, 'RH-11 L1', 1, '11/12 L1', 'Ramal TST'],
+        ['', 'RTST', 'VP1', 'GV I', 'TANGENTE 1', '11/12 L1 - TANGENTE 1', 'TANGENTE', '', 1760, 2531, 771, '', '', 2, '11/12 L1', 1, '11/12 L1', 'Ramal TST']
+      ];
+      await page.getByRole('navigation').getByRole('button', { name: 'Checklist' }).click();
+      await page.getByRole('tab', { name: 'Análise do arquivo' }).click();
+      await page.evaluate((linhas) => { window.__linhasXlsx = linhas; }, geo);
+      await page.locator('input[name="arquivo-planta"]').setInputFiles({ name: 'Geometria.xlsx', mimeType: 'application/vnd.ms-excel', buffer: Buffer.from('falso') });
+      await page.getByText(/^Geometria importada: /).waitFor();
+      await page.evaluate(() => { delete window.__linhasXlsx; });
+      // a geometria guardada no aparelho leva as RH
+      assert.equal(await page.evaluate(async () => (await App.store.get('planta:base')).rhs.length), 2);
+      await page.getByRole('tab', { name: 'Montagem' }).click();
+      await page.locator('details.mt-geo > summary').click();
+      const linhaGeo = page.locator('details.mt-geo tbody tr').first();
+      // TST linha 1: começa no km 0 (RH), termina em 2+531, 2,5 km, 2 tangentes, 1 curva, 2 RH (sem repetir e sem "*")
+      assert.equal((await linhaGeo.locator('td').allTextContents()).slice(0, 8).join('|'), 'TST|1|0+000|2+531|2,5 km|2|1|2');
+      assert.equal(await page.locator('details.mt-geo', { hasText: 'importada numa versão anterior' }).count(), 0);
+    });
+
     await ctx.close();
 
     /* ============ Computador ============ */

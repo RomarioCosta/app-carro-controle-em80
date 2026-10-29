@@ -391,7 +391,7 @@ Cada arquivo fica guardado no aparelho de duas formas:
 
 Pela geometria, o app junta tudo o que precisa de medição, por ramal e linha, **cada linha com os seus km** (ex.: no RBH e no RFA a linha 1 e a linha 2 têm km diferentes):
 - as tangentes e curvas;
-- os RH: as linhas "RH" da própria geometria (aba elementos_revia), com o km de cada linha, **inclusive no início e no fim do ramal** (ex.: o ramal de BH começa no km 0, numa RH). Só numa planta antiga, sem as RH, elas são deduzidas pelo vão de até 1.000 m entre dois elementos.
+- os RH: as linhas "RH" da própria geometria (aba elementos_revia), com o km de cada linha, **inclusive no início e no fim do ramal** (ex.: o ramal de BH começa no km 0, numa RH). A planilha repete a mesma RH no fim de um EH e no começo do seguinte: conta uma vez só. Só numa planta antiga, sem as RH, elas são deduzidas pelo vão de até 1.000 m entre dois elementos.
 
 **Linha de cada elemento** (coluna eh_linha): aceita "49/50 L1", "49/50 L 2", "49/50 L02" e "49/50 LINHA 2" (ou uma coluna "linha" separada). Linha não identificada é avisada.
 

@@ -285,7 +285,8 @@
         } catch (e) { ultimoErro = e; }
       }
       if (!lida) throw ultimoErro || new Error('Planta não encontrada no arquivo.');
-      planta = { nome: f.name, importadoEm: U.agora(), elementos: lida.elementos, ramais: lida.ramais, fonte: lida.fonte || 'planta' };
+      // rhs: RH da geometria com o km de cada linha (a Montagem usa); avisos da leitura aparecem na conferência
+      planta = { nome: f.name, importadoEm: U.agora(), elementos: lida.elementos, ramais: lida.ramais, fonte: lida.fonte || 'planta', rhs: lida.rhs || null, avisos: lida.avisos || [] };
       await store.set(CHAVE_PLANTA, planta);
       cacheAjuste.clear();
       // Geometria do carro controle: os elementos vêm dela (pelo km).
