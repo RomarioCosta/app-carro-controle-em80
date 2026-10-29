@@ -64,6 +64,16 @@
   C.necessario = (planta, ramal, linha, { rhMax = 1000, incluirRH = true } = {}) => {
     const els = B().elementosDaPlanta(planta, ramal, linha);
     const nomes = B().nomesTrechos(els);
+    // geometria com as RH (aba elementos_revia): usa as RH como estão nela, com o km de cada linha,
+    // inclusive no início e no fim do ramal; sem elas (planta antiga), deduz pelos vãos entre elementos
+    const rhsGeo = (planta.rhs || []).filter((x) => x.ramal === ramal && String(x.linha) === String(linha));
+    if (rhsGeo.length) {
+      const sedePerto = (x) => x.sede || (els.find((e) => e.ini >= x.fim - 1) || els[els.length - 1] || {}).sede || '';
+      return [
+        ...els.map((e) => ({ ini: e.ini, fim: e.fim, sede: e.sede || '', eh: e.nomeEh || `EH ${e.eh}`, tipo: e.tipo })),
+        ...(incluirRH ? rhsGeo.map((x) => ({ ini: x.ini, fim: x.fim, sede: sedePerto(x), eh: x.eh ? `EH ${x.eh}` : '', tipo: 'RH', patio: true, nome: x.nome || nomes.rh((x.ini + x.fim) / 2) })) : [])
+      ].sort((a, c) => a.ini - c.ini);
+    }
     const out = [];
     els.forEach((e, k) => {
       const ant = els[k - 1];
@@ -76,6 +86,24 @@
     });
     return out;
   };
+
+  /**
+   * Conferência da geometria: por ramal e linha, início, fim, extensão (tangentes + curvas + RH),
+   * quantidades e sedes, para comparar com a planilha. rhDaGeometria = as RH vieram da própria geometria.
+   */
+  C.resumoGeometria = (planta) => Object.keys(planta.ramais).sort().flatMap((ramal) => planta.ramais[ramal].map((linha) => {
+    const nec = C.necessario(planta, ramal, linha);
+    const conta = (t) => nec.filter((x) => x.tipo === t).length;
+    return {
+      ramal, linha,
+      ini: nec.length ? Math.min(...nec.map((x) => x.ini)) : null,
+      fim: nec.length ? Math.max(...nec.map((x) => x.fim)) : null,
+      extensao: C.extensao(C.uniao(nec.map((x) => [x.ini, x.fim]), 0.5)),
+      tangentes: conta('T'), curvas: conta('C'), rh: conta('RH'),
+      rhDaGeometria: (planta.rhs || []).some((x) => x.ramal === ramal && String(x.linha) === String(linha)),
+      sedes: C.sedes(nec).map((x) => ({ sede: C.normSede(x.sede), ini: x.ini, fim: x.fim }))
+    };
+  }));
 
   /** Sedes (corretivas) de um ramal e linha, em ordem de km: [{ sede, ini, fim, trechos }]. */
   C.sedes = (necessario) => {

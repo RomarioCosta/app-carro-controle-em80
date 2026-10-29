@@ -878,13 +878,36 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-sob { fill: var(--alerta); }
 .mt-div { stroke: var(--texto2); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .mt-rh { stroke: var(--texto); stroke-width: 1; opacity: .35; vector-effect: non-scaling-stroke; }
+.mt-faixa-dica { position: relative; }
+.mt-faixa-dica .mt-faixa { cursor: crosshair; touch-action: pan-y; }
+.mt-dica { position: absolute; bottom: calc(100% + 6px); z-index: 5; display: flex; flex-direction: column; gap: 1px; padding: 5px 8px; border-radius: 6px;
+  background: var(--cab); color: var(--cab-texto); font-size: .75rem; line-height: 1.3; white-space: nowrap; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.mt-dica-cursor { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--texto); pointer-events: none; }
 .mt-legenda i.mt-rh { width: 2px; background: var(--texto); opacity: .45; }
 .mt-data { font-size: .78rem; color: var(--texto2); flex-basis: 100%; padding-left: 18px; }
 .mt-ok-txt { color: var(--ok); }
 .mt-sub-titulo { font-size: .9rem; margin-top: 4px; }
 .mt-trechos li { display: flex; align-items: center; gap: 8px; }
-.mt-trecho-novo { align-items: end; }
+.mt-trechos-novos { display: flex; flex-direction: column; gap: 6px; }
+.mt-trecho-cab, .mt-trecho-linha { display: grid; grid-template-columns: 1fr 1fr 1.3fr 32px; gap: 6px; align-items: center; }
+.mt-trecho-cab span { font-size: .8rem; font-weight: 600; color: var(--texto2); }
+.mt-trecho-linha input, .mt-trecho-linha select { min-width: 0; width: 100%; }
+.mt-trecho-linha input { padding-left: 10px; padding-right: 10px; }
+/* celular: início e fim lado a lado, a linha embaixo */
+@media (max-width: 559px) {
+  .mt-trecho-cab { display: none; }
+  .mt-trecho-linha { grid-template-columns: 1fr 1fr 28px; grid-template-areas: 'ini fim x' 'lin lin lin'; padding-bottom: 8px; border-bottom: 1px solid var(--borda); }
+  .mt-trecho-linha > :nth-child(1) { grid-area: ini; } .mt-trecho-linha > :nth-child(2) { grid-area: fim; }
+  .mt-trecho-linha > :nth-child(3) { grid-area: lin; } .mt-trecho-linha > :nth-child(4) { grid-area: x; }
+}
 .mt-linha-arq select { min-width: 0; }
+/* Montagem: lista de arquivos recolhível */
+.mt-arquivos > summary.mt-recolhe { cursor: pointer; list-style: none; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.mt-arquivos > summary.mt-recolhe::-webkit-details-marker { display: none; }
+.mt-arquivos > summary.mt-recolhe::before { content: '▸'; display: inline-block; width: 1em; color: var(--texto2); transition: transform .15s; }
+.mt-arquivos[open] > summary.mt-recolhe::before { transform: rotate(90deg); }
+.mt-arquivos > summary h2 { margin: 0; display: inline; }
+.mt-arquivos[open] > summary { margin-bottom: 12px; }
 .mt-filtros { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
 .mt-filtros .campo { min-width: 0; flex: 1 1 125px; max-width: 220px; }
 .mt-valores-linha { display: flex; flex-direction: column; border-top: 1px solid var(--borda); }
@@ -1146,10 +1169,10 @@ window.App = window.App || {};
 
 (function (App) {
   App.config = {
-    versao: '2026.10.28',
+    versao: '2026.10.29',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-e9590960aa', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-661a36d282', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -3931,39 +3954,65 @@ window.App = window.App || {};
    * Lê a tabela "Geometria da EFVM – Carro Controle" (aba elementos_revia).
    * Colunas: ramal (RLT), sede, elemento (CURVA 1, TANGENTE 2, RH-50), tipo_ativo (CURVA/TANGENTE/RH),
    * sentido (Esquerda/Direita), km_inicial e km_final (metros), raio, eh_linha ("49/50 L1").
-   * As RH (circuitos) não viram elemento: ficam como trecho sem elemento, como na planta.
+   * As RH (circuitos) não viram elemento (a análise as trata como trecho sem elemento, como na planta), mas ficam
+   * guardadas em "rhs", com o km de cada linha: a Montagem usa essas RH como estão na geometria
+   * (inclusive no início e no fim do ramal), em vez de deduzir pelos vãos entre elementos.
    */
   B.lerGeometria = (linhas, idxCab) => {
     const ks = (linhas[idxCab] || []).map((v) => U.chaveTitulo(v));
     const col = (k) => ks.indexOf(k);
     const c = {
       ramal: col('ramal'), elemento: col('elemento'), tipo: col('tipoativo'), sentido: col('sentido'),
-      ini: col('kminicial'), fim: col('kmfinal'), raio: col('raio'), ehLinha: col('ehlinha'), sede: col('sede')
+      ini: col('kminicial'), fim: col('kmfinal'), raio: col('raio'), ehLinha: col('ehlinha'), sede: col('sede'), linha: col('linha')
     };
     ['ramal', 'tipo', 'ini', 'fim', 'ehLinha'].forEach((k) => {
       if (c[k] < 0) throw new Error(`Coluna da geometria não encontrada: ${k}.`);
     });
     const n = (v) => (typeof v === 'number' ? v : U.numero(v));
     const elementos = [];
-    let descartados = 0; let circuitos = 0;
+    const rhs = [];
+    let descartados = 0; let circuitos = 0; let semLinha = 0;
+    const vistas = new Set(); // RH já lidas (ramal|linha|km inicial|km final)
+    const ramalDe = (bruto) => (bruto.length > 2 && bruto.startsWith('R') ? bruto.slice(1) : bruto); // RLT → LT
+    /** "49/50 L1", "49/50 L 2", "49/50 L02", "49/50 LINHA 2" → { eh: '49/50', linha: '2' }; coluna "linha" separada, se houver. */
+    const ehELinha = (l) => {
+      const txt = String(l[c.ehLinha] ?? '').trim();
+      const m = /^(\S+)\s+L(?:INHA)?\s*0*(\d+)\s*$/i.exec(txt);
+      if (m) return { eh: m[1], linha: m[2] };
+      const sep = c.linha >= 0 && c.linha !== c.ehLinha ? /0*(\d+)\s*$/.exec(String(l[c.linha] ?? '').trim()) : null;
+      return { eh: txt.split(/\s+/)[0] || '', linha: sep ? sep[1] : '' };
+    };
     linhas.slice(idxCab + 1).forEach((l) => {
       if (!l) return;
       const tipoAtivo = String(l[c.tipo] ?? '').trim().toUpperCase();
       const ramalBruto = String(l[c.ramal] ?? '').trim().toUpperCase();
       if (!ramalBruto || !tipoAtivo) return;
-      if (tipoAtivo === 'RH') { circuitos++; return; }
-      const tipo = tipoAtivo.startsWith('CURVA') ? 'C' : tipoAtivo.startsWith('TANGENTE') ? 'T' : '';
       const ini = n(l[c.ini]); const fim = n(l[c.fim]);
+      if (tipoAtivo === 'RH') {
+        circuitos++;
+        if (ini === null || fim === null || fim <= ini) return;
+        const { eh, linha } = ehELinha(l);
+        if (!linha) semLinha++;
+        // a planilha repete a mesma RH no fim de um EH e no começo do seguinte: fica uma só
+        const chave = `${ramalDe(ramalBruto)}|${linha}|${ini}|${fim}`;
+        if (vistas.has(chave)) return;
+        vistas.add(chave);
+        rhs.push({
+          ramal: ramalDe(ramalBruto), linha, eh: eh.split('/')[0], ini, fim,
+          nome: c.elemento >= 0 ? String(l[c.elemento] ?? '').trim().toUpperCase().replace(/^RH\s*-?\s*/, 'RH-') : '',
+          sede: c.sede >= 0 ? String(l[c.sede] ?? '').trim() : ''
+        });
+        return;
+      }
+      const tipo = tipoAtivo.startsWith('CURVA') ? 'C' : tipoAtivo.startsWith('TANGENTE') ? 'T' : '';
       if (!tipo) return;
       if (ini === null || fim === null || fim <= ini) { descartados++; return; }
-      // "49/50 L1" → EH 49/50, linha 1
-      const m = /^\s*([^\s]+)\s+L(\w+)\s*$/i.exec(String(l[c.ehLinha] ?? ''));
-      const eh = m ? m[1] : String(l[c.ehLinha] ?? '').trim();
-      const linha = m ? String(m[2]).replace(/^0+(?=\d)/, '') : '';
+      const { eh, linha } = ehELinha(l);
+      if (!linha) semLinha++;
       const sentido = c.sentido >= 0 ? String(l[c.sentido] ?? '').trim().toUpperCase() : '';
       const num = c.elemento >= 0 ? (/(\d+)\s*$/.exec(String(l[c.elemento] ?? '')) || [])[1] || '' : '';
       elementos.push({
-        ramal: ramalBruto.length > 2 && ramalBruto.startsWith('R') ? ramalBruto.slice(1) : ramalBruto, // RLT → LT
+        ramal: ramalDe(ramalBruto),
         linha,
         eh: eh.split('/')[0],
         nomeEh: `EH ${eh}`,
@@ -3983,11 +4032,13 @@ window.App = window.App || {};
       ramais[e.ramal] = ramais[e.ramal] || [];
       if (!ramais[e.ramal].includes(e.linha)) ramais[e.ramal].push(e.linha);
     });
+    rhs.forEach((x) => { if (ramais[x.ramal] && !ramais[x.ramal].includes(x.linha)) ramais[x.ramal].push(x.linha); });
     Object.values(ramais).forEach((l) => l.sort());
-    return {
-      elementos, ramais, fonte: 'geometria', circuitos,
-      avisos: descartados ? [`${descartados} linha(s) da geometria sem km válido foram ignoradas.`] : []
-    };
+    rhs.sort((a, b) => a.ramal.localeCompare(b.ramal) || String(a.linha).localeCompare(String(b.linha)) || a.ini - b.ini);
+    const avisos = [];
+    if (descartados) avisos.push(`${descartados} linha(s) da geometria sem km válido foram ignoradas.`);
+    if (semLinha) avisos.push(`${semLinha} linha(s) da geometria sem a linha identificada (coluna eh_linha, ex.: "49/50 L1").`);
+    return { elementos, ramais, fonte: 'geometria', circuitos, rhs, avisos };
   };
 
   /** Ramal da planta correspondente ao do arquivo (ex.: "RLT" → "LT"). */
@@ -4897,6 +4948,16 @@ window.App = window.App || {};
   C.necessario = (planta, ramal, linha, { rhMax = 1000, incluirRH = true } = {}) => {
     const els = B().elementosDaPlanta(planta, ramal, linha);
     const nomes = B().nomesTrechos(els);
+    // geometria com as RH (aba elementos_revia): usa as RH como estão nela, com o km de cada linha,
+    // inclusive no início e no fim do ramal; sem elas (planta antiga), deduz pelos vãos entre elementos
+    const rhsGeo = (planta.rhs || []).filter((x) => x.ramal === ramal && String(x.linha) === String(linha));
+    if (rhsGeo.length) {
+      const sedePerto = (x) => x.sede || (els.find((e) => e.ini >= x.fim - 1) || els[els.length - 1] || {}).sede || '';
+      return [
+        ...els.map((e) => ({ ini: e.ini, fim: e.fim, sede: e.sede || '', eh: e.nomeEh || `EH ${e.eh}`, tipo: e.tipo })),
+        ...(incluirRH ? rhsGeo.map((x) => ({ ini: x.ini, fim: x.fim, sede: sedePerto(x), eh: x.eh ? `EH ${x.eh}` : '', tipo: 'RH', patio: true, nome: x.nome || nomes.rh((x.ini + x.fim) / 2) })) : [])
+      ].sort((a, c) => a.ini - c.ini);
+    }
     const out = [];
     els.forEach((e, k) => {
       const ant = els[k - 1];
@@ -4909,6 +4970,24 @@ window.App = window.App || {};
     });
     return out;
   };
+
+  /**
+   * Conferência da geometria: por ramal e linha, início, fim, extensão (tangentes + curvas + RH),
+   * quantidades e sedes, para comparar com a planilha. rhDaGeometria = as RH vieram da própria geometria.
+   */
+  C.resumoGeometria = (planta) => Object.keys(planta.ramais).sort().flatMap((ramal) => planta.ramais[ramal].map((linha) => {
+    const nec = C.necessario(planta, ramal, linha);
+    const conta = (t) => nec.filter((x) => x.tipo === t).length;
+    return {
+      ramal, linha,
+      ini: nec.length ? Math.min(...nec.map((x) => x.ini)) : null,
+      fim: nec.length ? Math.max(...nec.map((x) => x.fim)) : null,
+      extensao: C.extensao(C.uniao(nec.map((x) => [x.ini, x.fim]), 0.5)),
+      tangentes: conta('T'), curvas: conta('C'), rh: conta('RH'),
+      rhDaGeometria: (planta.rhs || []).some((x) => x.ramal === ramal && String(x.linha) === String(linha)),
+      sedes: C.sedes(nec).map((x) => ({ sede: C.normSede(x.sede), ini: x.ini, fim: x.fim }))
+    };
+  }));
 
   /** Sedes (corretivas) de um ramal e linha, em ordem de km: [{ sede, ini, fim, trechos }]. */
   C.sedes = (necessario) => {
@@ -5965,7 +6044,8 @@ window.App = window.App || {};
         } catch (e) { ultimoErro = e; }
       }
       if (!lida) throw ultimoErro || new Error('Planta não encontrada no arquivo.');
-      planta = { nome: f.name, importadoEm: U.agora(), elementos: lida.elementos, ramais: lida.ramais, fonte: lida.fonte || 'planta' };
+      // rhs: RH da geometria com o km de cada linha (a Montagem usa); avisos da leitura aparecem na conferência
+      planta = { nome: f.name, importadoEm: U.agora(), elementos: lida.elementos, ramais: lida.ramais, fonte: lida.fonte || 'planta', rhs: lida.rhs || null, avisos: lida.avisos || [] };
       await store.set(CHAVE_PLANTA, planta);
       cacheAjuste.clear();
       // Geometria do carro controle: os elementos vêm dela (pelo km).
@@ -7640,11 +7720,16 @@ window.App = window.App || {};
 
   /* ---------------- Arquivos ---------------- */
 
-  async function adicionar(lista) {
+  /** Assinatura do conteúdo do arquivo: o mesmo arquivo com outro nome também é reconhecido como repetido. */
+  const assinatura = (pontos, kmIni, kmFim, meta) => [pontos, Math.round(kmIni * 100), Math.round(kmFim * 100), meta.data, meta.corretiva, meta.ramal].join('|');
+  const assinaturaDe = (a) => assinatura(a.resumo.pontos, a.resumo.kmIni, a.resumo.kmFim, a.resumo.meta || {});
+
+  /** substituir: true = já confirmado (ex.: "Adicionar de novo" de um arquivo antigo), sem perguntar. */
+  async function adicionar(lista, { substituir = false } = {}) {
     if (!planta) { ui.toast('Importe a geometria na Análise do arquivo primeiro.', 'erro', 6000); return; }
     processando = true;
     render();
-    let ok = 0;
+    let ok = 0; let mantidos = 0;
     for (let k = 0; k < lista.length; k++) {
       const f = lista[k];
       ui.toast(`Processando ${k + 1}/${lista.length}: ${f.name}…`, 'info', 4000);
@@ -7653,8 +7738,19 @@ window.App = window.App || {};
         const { nome, texto } = await App.analise.textoDoArquivo(f);
         const arq = B().lerCSV(texto);
         const rg = regras();
-        const existente = arquivos.findIndex((a) => a.nome === nome && (a.ciclo || '') === ciclo());
+        // repetido no ciclo: mesmo nome ou mesmo conteúdo (com outro nome)
+        const sig = assinatura(arq.pos.length, arq.pos[0], arq.pos[arq.pos.length - 1], arq.meta);
+        const doCicloAtual = (a) => (a.ciclo || '') === ciclo();
+        let existente = arquivos.findIndex((a) => a.nome === nome && doCicloAtual(a));
+        if (existente < 0) existente = arquivos.findIndex((a) => doCicloAtual(a) && !a.antigo && assinaturaDe(a) === sig);
         const anterior = existente >= 0 ? arquivos[existente] : null;
+        if (anterior && !substituir) {
+          const outroNome = anterior.nome !== nome ? ` com o nome ${anterior.nome} (mesmo conteúdo)` : '';
+          const sim = await ui.confirmar('Arquivo já carregado',
+            `${nome} já está na Montagem${outroNome}, adicionado em ${U.fmtDataHora(anterior.adicionadoEm) || '—'}. Substituir o arquivo existente? O recorte, as compensações e a correção da linha são mantidos.`,
+            { ok: 'Substituir' });
+          if (!sim) { mantidos++; continue; }
+        }
         // o mesmo arquivo adicionado de novo mantém o recorte, a correção da linha e as compensações que ainda existem nele
         const linhas = anterior ? anterior.linhas || null : null;
         const resumo = C().resumirArquivo(arq, planta, nome, { compensacao: rg, linhas });
@@ -7670,7 +7766,8 @@ window.App = window.App || {};
     }
     processando = false;
     await gravar();
-    if (ok) ui.toast(`${ok} arquivo(s) adicionado(s).`, 'ok');
+    if (ok) ui.toast(`${ok} arquivo(s) adicionado(s).${mantidos ? ` ${mantidos} repetido(s) não substituído(s).` : ''}`, 'ok');
+    else if (mantidos) ui.toast(`${mantidos} arquivo(s) repetido(s): o existente foi mantido.`, 'info', 5000);
     render();
   }
 
@@ -7690,7 +7787,7 @@ window.App = window.App || {};
       if (!f) return;
       const base = (n) => String(n || '').replace(/\.(zip|csv|txt)$/i, '').toLowerCase();
       if (base(f.name) !== base(a.nome) && !(await ui.confirmar('Arquivo diferente', `Você escolheu ${f.name}, mas este é ${a.nome}. Usar mesmo assim?`, { ok: 'Usar' }))) return;
-      await adicionar([f]);
+      await adicionar([f], { substituir: true });
     } });
     document.body.appendChild(input);
     input.click();
@@ -7801,13 +7898,10 @@ window.App = window.App || {};
     linha.sedes.filter(dentro).flatMap((s) => s.rh || []).forEach((p) => {
       const meio = (p.ini + p.fim) / 2;
       if (meio < ini || meio > fim) return;
-      const t = svg('line', { x1: x(meio), x2: x(meio), y1: 1, y2: 13, class: 'mt-rh' });
-      const dica = document.createElementNS(NS, 'title');
-      dica.textContent = `${p.nome || 'RH'} · ${km(p.ini)} – ${km(p.fim)}`;
-      t.appendChild(dica);
-      el.appendChild(t);
+      el.appendChild(svg('line', { x1: x(meio), x2: x(meio), y1: 1, y2: 13, class: 'mt-rh' }));
     });
-    if (!divisas) return el;
+    const comDica = dicaFaixa(el, linha, ini, fim);
+    if (!divisas) return comDica;
     // nomes das sedes em HTML (o SVG é esticado na largura e deformaria o texto)
     const rotulos = h('div', { class: 'mt-rotulos' });
     linha.sedes.filter(dentro).forEach((s, k) => {
@@ -7815,9 +7909,54 @@ window.App = window.App || {};
       if (k) el.appendChild(svg('line', { x1: xa, x2: xa, y1: 0, y2: 16, class: 'mt-div' }));
       rotulos.appendChild(h('span', { style: `left:${xa / 10}%;width:${(xb - xa) / 10}%`, text: C().normSede(s.sede), title: `${s.sede} ${km(s.ini)} – ${km(s.fim)}` }));
     });
-    return h('div', { class: 'mt-faixa-caixa' }, el, rotulos);
-    return el;
+    return h('div', { class: 'mt-faixa-caixa' }, comDica, rotulos);
   }
+
+  /**
+   * Dica da faixa: passando o mouse ou tocando, mostra o km daquele ponto, se está medido, buraco ou falta medir,
+   * a sede e o RH (pátio) em que está ou o mais próximo.
+   */
+  function dicaFaixa(el, linha, ini, fim) {
+    const dica = h('div', { class: 'mt-dica', hidden: true, role: 'status' });
+    const cursor = h('div', { class: 'mt-dica-cursor', hidden: true });
+    const caixa = h('div', { class: 'mt-faixa-dica' }, el, cursor, dica);
+    const dentroDe = (p, iv) => iv.some(([a, b]) => p >= a && p <= b);
+    const mostrar = (e) => {
+      const ret = el.getBoundingClientRect();
+      if (!ret.width) return;
+      const fr = Math.min(1, Math.max(0, (e.clientX - ret.left) / ret.width));
+      const p = ini + fr * (fim - ini);
+      const sede = linha.sedes.find((s) => p >= s.ini && p <= s.fim);
+      let situacao = 'fora do que precisa medir';
+      if (sede) {
+        if (linha.sobreposicoes.some((o) => p >= o.ini && p <= o.fim)) situacao = 'medido 2×';
+        else if (dentroDe(p, sede.cobertos || [])) situacao = 'medido';
+        else if (sede.coberto > 0 && linha.buracos.some((b) => p >= b.ini && p <= b.fim)) situacao = 'buraco';
+        else situacao = 'falta medir';
+      }
+      const rhs = linha.sedes.flatMap((s) => s.rh || []);
+      const noRh = rhs.find((q) => p >= q.ini && p <= q.fim);
+      const perto = noRh ? null : rhs.reduce((m, q) => (!m || Math.abs((q.ini + q.fim) / 2 - p) < Math.abs((m.ini + m.fim) / 2 - p) ? q : m), null);
+      const rhTxt = noRh ? `no ${noRh.nome || 'RH'}` : perto ? `${mTxt(Math.abs((perto.ini + perto.fim) / 2 - p))} ${(perto.ini + perto.fim) / 2 > p ? 'antes' : 'depois'} do ${perto.nome || 'RH'}` : '';
+      ui.trocar(dica, h('strong', { text: `km ${km(p)}` }), h('span', { text: [situacao, sede ? C().normSede(sede.sede) : '', rhTxt].filter(Boolean).join(' · ') }));
+      dica.hidden = false; cursor.hidden = false;
+      const xr = fr * ret.width;
+      cursor.style.left = `${xr}px`;
+      dica.style.left = `${Math.min(Math.max(xr - dica.offsetWidth / 2, 0), Math.max(0, ret.width - dica.offsetWidth))}px`;
+    };
+    const esconder = () => { dica.hidden = true; cursor.hidden = true; };
+    el.addEventListener('pointermove', mostrar);
+    el.addEventListener('pointerdown', mostrar);
+    el.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') esconder(); });
+    return caixa;
+  }
+  // no toque, a dica fica até tocar fora da faixa (um só ouvinte para todas as faixas)
+  document.addEventListener('pointerdown', (e) => {
+    document.querySelectorAll('.mt-faixa-dica').forEach((c) => {
+      if (c.contains(e.target)) return;
+      c.querySelectorAll('.mt-dica, .mt-dica-cursor').forEach((x) => { x.hidden = true; });
+    });
+  });
 
   /* ---------------- Telas ---------------- */
 
@@ -7960,48 +8099,51 @@ window.App = window.App || {};
       h('span', { class: 'mt-sub', role: 'status', text: fSede || fData ? `Mostrando ${lista.length} de ${todos.length} arquivo(s)` : '' }));
     const ordem = [...lista].sort((a, b) => (a.resumo.ramal + a.resumo.linhaRef).localeCompare(b.resumo.ramal + b.resumo.linhaRef) || Math.min(a.resumo.kmIni, a.resumo.kmFim) - Math.min(b.resumo.kmIni, b.resumo.kmFim));
     const antigos = todos.filter((a) => a.antigo);
-    const input = h('input', { type: 'file', multiple: true, hidden: true, onchange: (e) => { const l = [...e.target.files]; e.target.value = ''; if (l.length) adicionar(l); } });
-    return h('section', { class: 'cartao pilha' },
-      h('h2', { text: `Arquivos (${todos.length})` }),
-      todos.length > 1 ? filtros : null,
-      !lista.length ? h('p', { class: 'vazio', text: 'Nenhum arquivo com esse filtro.' }) : null,
-      atualizando ? h('p', { class: 'aviso', role: 'status', text: `Atualizando os arquivos para a versão nova do app: ${atualizando.feitos} de ${atualizando.total}…` }) : null,
-      antigos.length ? h('div', { class: 'aviso pilha' },
-        h('span', { text: `${antigos.length} arquivo(s) foram adicionados numa versão anterior do app. Para ter o ajuste do km (Compensar), os alertas de geometria e a Tela do carro, adicione de novo os mesmos arquivos (pode selecionar todos de uma vez). O recorte de cada um é mantido.` }),
-        h('div', null, h('button', { class: 'btn btn-primario btn-pequeno', disabled: processando || null, onclick: () => input.click() }, ui.icone('upload'), 'Adicionar de novo'), input)) : null,
-      ordem.map((a) => {
-        const r = a.resumo;
-        const conf = conferencia.find((c) => c.id === a.id) || { trechos: [], avisos: [] };
-        const avisos = [...conf.avisos, ...r.inconsistencias];
-        const ondeCaiu = [...new Map(conf.trechos.map((t) => [`${t.linha}|${t.sede}`, t])).values()].map((t) => `L${t.linha} ${C().normSede(t.sede)} ${kmTxt(t.m)}`).join(' · ');
-        const erros = avisos.filter((x) => x.tipo === 'erro').length; const alertas = avisos.filter((x) => x.tipo === 'alerta').length;
-        const mudarRecorte = async (campo, v) => {
-          a.recorte = { de: null, ate: null, ...(a.recorte || {}), [campo]: v };
-          if (a.recorte.de === null && a.recorte.ate === null) a.recorte = null;
-          await gravar(); render();
-        };
-        return h('details', { class: 'mt-arquivo', open: abertos.has(`arq|${a.id}`) || null, ontoggle: (e) => { if (e.target.open) abertos.add(`arq|${a.id}`); else abertos.delete(`arq|${a.id}`); } },
-          h('summary', null,
-            h('span', { class: `mt-ponto ${erros ? 'mt-erro' : alertas ? 'mt-alerta' : 'mt-ok'}` }),
-            h('strong', { text: a.nome }),
-            h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}${a.linhas ? ' · linha corrigida' : ''}` }),
-            h('span', { class: 'mt-data', text: [r.meta.data, sentidoTxt(r)].filter(Boolean).join(' · ') }),
-            a.antigo ? h('span', { class: 'mt-cont', text: 'adicionar de novo' }) : compensaveisUsados(a).some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${compensaveisUsados(a).filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
-              : avisos.length ? h('span', { class: 'mt-cont', text: `${avisos.length} aviso(s)` }) : null),
-          h('div', { class: 'pilha mt-arquivo-corpo' },
-            h('p', { class: 'mt-sub', text: `Caiu em: ${ondeCaiu || '—'} · correção do km pela geometria ${Math.round(r.correcao.min)} a ${Math.round(r.correcao.max)} m · ${r.correcao.casadas}/${r.correcao.curvas} curvas casadas` }),
-            avisos.length ? h('ul', { class: 'mt-lista' }, avisos.map((x) => h('li', { class: x.tipo === 'erro' ? 'mt-erro-txt' : x.tipo === 'alerta' ? 'mt-atencao-txt' : 'mt-sub', text: x.texto }))) : h('p', { class: 'mt-sub', text: 'Sem inconsistências.' }),
-            a.antigo ? h('div', { class: 'aviso' }, 'Adicionado numa versão anterior: sem o ajuste do km (Compensar) e sem a Tela do carro. ',
-              h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => reAdicionar(a) }, ui.icone('upload'), 'Adicionar de novo')) : null,
-            r.compensaveis.length ? listaCompensaveis(a) : null,
-            a.antigo ? null : cartaoLinhaArquivo(a),
-            h('div', { class: 'linha-acoes' },
-              h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
-            h('div', { class: 'grade-3' },
-              ui.campo('Usar a partir do km', campoKm(a.recorte && a.recorte.de, (v) => mudarRecorte('de', v), 'início')),
-              ui.campo('Até o km', campoKm(a.recorte && a.recorte.ate, (v) => mudarRecorte('ate', v), 'fim')),
-              h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-fantasma', onclick: () => remover(a) }, ui.icone('lixo'), 'Remover')))));
-      }));
+    const input = h('input', { type: 'file', multiple: true, hidden: true, onchange: (e) => { const l = [...e.target.files]; e.target.value = ''; if (l.length) adicionar(l, { substituir: true }); } });
+    const aberto = U.pref.get('montagem:arquivosAberto', true);
+    return h('details', { class: 'cartao mt-arquivos', open: aberto || null, ontoggle: (e) => U.pref.set('montagem:arquivosAberto', e.target.open) },
+      h('summary', { class: 'mt-recolhe' }, h('h2', { text: `Arquivos (${todos.length})` }),
+        lista.length !== todos.length ? h('span', { class: 'mt-sub', text: `${lista.length} no filtro` }) : null),
+      h('div', { class: 'pilha' },
+        todos.length > 1 ? filtros : null,
+        !lista.length ? h('p', { class: 'vazio', text: 'Nenhum arquivo com esse filtro.' }) : null,
+        atualizando ? h('p', { class: 'aviso', role: 'status', text: `Atualizando os arquivos para a versão nova do app: ${atualizando.feitos} de ${atualizando.total}…` }) : null,
+        antigos.length ? h('div', { class: 'aviso pilha' },
+          h('span', { text: `${antigos.length} arquivo(s) foram adicionados numa versão anterior do app. Para ter o ajuste do km (Compensar), os alertas de geometria e a Tela do carro, adicione de novo os mesmos arquivos (pode selecionar todos de uma vez). O recorte de cada um é mantido.` }),
+          h('div', null, h('button', { class: 'btn btn-primario btn-pequeno', disabled: processando || null, onclick: () => input.click() }, ui.icone('upload'), 'Adicionar de novo'), input)) : null,
+        ordem.map((a) => {
+          const r = a.resumo;
+          const conf = conferencia.find((c) => c.id === a.id) || { trechos: [], avisos: [] };
+          const avisos = [...conf.avisos, ...r.inconsistencias];
+          const ondeCaiu = [...new Map(conf.trechos.map((t) => [`${t.linha}|${t.sede}`, t])).values()].map((t) => `L${t.linha} ${C().normSede(t.sede)} ${kmTxt(t.m)}`).join(' · ');
+          const erros = avisos.filter((x) => x.tipo === 'erro').length; const alertas = avisos.filter((x) => x.tipo === 'alerta').length;
+          const mudarRecorte = async (campo, v) => {
+            a.recorte = { de: null, ate: null, ...(a.recorte || {}), [campo]: v };
+            if (a.recorte.de === null && a.recorte.ate === null) a.recorte = null;
+            await gravar(); render();
+          };
+          return h('details', { class: 'mt-arquivo', open: abertos.has(`arq|${a.id}`) || null, ontoggle: (e) => { if (e.target.open) abertos.add(`arq|${a.id}`); else abertos.delete(`arq|${a.id}`); } },
+            h('summary', null,
+              h('span', { class: `mt-ponto ${erros ? 'mt-erro' : alertas ? 'mt-alerta' : 'mt-ok'}` }),
+              h('strong', { text: a.nome }),
+              h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}${a.linhas ? ' · linha corrigida' : ''}` }),
+              h('span', { class: 'mt-data', text: [r.meta.data, sentidoTxt(r)].filter(Boolean).join(' · ') }),
+              a.antigo ? h('span', { class: 'mt-cont', text: 'adicionar de novo' }) : compensaveisUsados(a).some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${compensaveisUsados(a).filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
+                : avisos.length ? h('span', { class: 'mt-cont', text: `${avisos.length} aviso(s)` }) : null),
+            h('div', { class: 'pilha mt-arquivo-corpo' },
+              h('p', { class: 'mt-sub', text: `Caiu em: ${ondeCaiu || '—'} · correção do km pela geometria ${Math.round(r.correcao.min)} a ${Math.round(r.correcao.max)} m · ${r.correcao.casadas}/${r.correcao.curvas} curvas casadas` }),
+              avisos.length ? h('ul', { class: 'mt-lista' }, avisos.map((x) => h('li', { class: x.tipo === 'erro' ? 'mt-erro-txt' : x.tipo === 'alerta' ? 'mt-atencao-txt' : 'mt-sub', text: x.texto }))) : h('p', { class: 'mt-sub', text: 'Sem inconsistências.' }),
+              a.antigo ? h('div', { class: 'aviso' }, 'Adicionado numa versão anterior: sem o ajuste do km (Compensar) e sem a Tela do carro. ',
+                h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => reAdicionar(a) }, ui.icone('upload'), 'Adicionar de novo')) : null,
+              r.compensaveis.length ? listaCompensaveis(a) : null,
+              a.antigo ? null : cartaoLinhaArquivo(a),
+              h('div', { class: 'linha-acoes' },
+                h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
+              h('div', { class: 'grade-3' },
+                ui.campo('Usar a partir do km', campoKm(a.recorte && a.recorte.de, (v) => mudarRecorte('de', v), 'início')),
+                ui.campo('Até o km', campoKm(a.recorte && a.recorte.ate, (v) => mudarRecorte('ate', v), 'fim')),
+                h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-fantasma', onclick: () => remover(a) }, ui.icone('lixo'), 'Remover')))));
+        })));
   }
 
   /** Sentido da inspeção: coluna SEQUÊNCIA do arquivo (C/D) e o km crescente ou decrescente. */
@@ -8031,7 +8173,7 @@ window.App = window.App || {};
     const DESL = B().DESLOCAMENTO;
     const nomeLinha = (l) => (B().ehDeslocamento(l) ? 'desconsiderar (deslocamento)' : `linha ${l}`);
     const auto = (v) => (B().ehDeslocamento(v) ? 'desconsiderar' : B().linhaDaPlanta(v, linhasPlanta) ? `linha ${B().linhaDaPlanta(v, linhasPlanta)}` : `linha ${r.linhaRef}`);
-    const opcoesLinha = () => [...linhasPlanta.map((l) => [l, `Linha ${l}`]), [DESL, 'Desconsiderar (deslocamento)']];
+    const opcoesLinha = () => [...linhasPlanta.map((l) => [l, `Linha ${l}`]), [DESL, 'Desconsiderar (LOCOM)']];
     const rotuloValor = (v) => (String(v).trim() === '' ? '(vazio)' : v);
 
     const linhasValores = r.valoresLinha.map((x) => {
@@ -8050,15 +8192,26 @@ window.App = window.App || {};
         sel);
     });
 
-    // linha num trecho de km
-    const novo = { de: null, ate: null, linha: linhasPlanta[0] || DESL };
-    const selTrecho = h('select', { onchange: (e) => { novo.linha = e.target.value; } },
-      opcoesLinha().map(([v, t]) => h('option', { value: v, text: t })));
-    const aplicarTrecho = () => {
-      if (novo.de === null || novo.ate === null) { ui.toast('Informe o km inicial e o final do trecho.', 'erro'); return; }
+    // linha num ou mais trechos de km: várias linhas (início, fim, linha) aplicadas de uma vez
+    const novos = [{ de: null, ate: null, linha: linhasPlanta[0] || DESL }];
+    const caixaNovos = h('div', { class: 'mt-trechos-novos' });
+    const desenharNovos = () => ui.trocar(caixaNovos,
+      h('div', { class: 'mt-trecho-cab', 'aria-hidden': 'true' }, h('span', { text: 'Início (km)' }), h('span', { text: 'Fim (km)' }), h('span', { text: 'Linha' }), h('span')),
+      novos.map((t, k) => h('div', { class: 'mt-trecho-linha' },
+        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Início do trecho ${k + 1}`, placeholder: 'Início (km)', value: t.de === null ? '' : km(t.de), onchange: (e) => { t.de = lerKm(e.target, t.de); } }),
+        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Fim do trecho ${k + 1}`, placeholder: 'Fim (km)', value: t.ate === null ? '' : km(t.ate), onchange: (e) => { t.ate = lerKm(e.target, t.ate); } }),
+        h('select', { 'aria-label': `Linha do trecho ${k + 1}`, onchange: (e) => { t.linha = e.target.value; } },
+          opcoesLinha().map(([v, txt]) => h('option', { value: v, selected: v === t.linha || null, text: txt }))),
+        novos.length > 1 ? h('button', { type: 'button', class: 'btn-icone', 'aria-label': `Tirar a linha ${k + 1}`, title: 'Tirar esta linha', onclick: () => { novos.splice(k, 1); desenharNovos(); } }, ui.icone('x')) : h('span'))));
+    desenharNovos();
+    const aplicarTrechos = () => {
+      const preenchidos = novos.filter((t) => t.de !== null || t.ate !== null);
+      if (!preenchidos.length) { ui.toast('Informe o km inicial e o final do trecho.', 'erro'); return; }
+      if (preenchidos.some((t) => t.de === null || t.ate === null)) { ui.toast('Cada trecho precisa do km inicial e do final.', 'erro'); return; }
       const nova = regra();
-      nova.trechos.push({ de: Math.min(novo.de, novo.ate), ate: Math.max(novo.de, novo.ate), linha: novo.linha });
-      mudarLinhas(a, nova, `Trecho ${km(Math.min(novo.de, novo.ate))} – ${km(Math.max(novo.de, novo.ate))}: ${nomeLinha(novo.linha)}.`);
+      preenchidos.forEach((t) => nova.trechos.push({ de: Math.min(t.de, t.ate), ate: Math.max(t.de, t.ate), linha: t.linha }));
+      const desc = preenchidos.map((t) => `${km(Math.min(t.de, t.ate))} – ${km(Math.max(t.de, t.ate))}: ${nomeLinha(t.linha)}`).join('; ');
+      mudarLinhas(a, nova, preenchidos.length > 1 ? `${preenchidos.length} trechos aplicados (${desc}).` : `Trecho ${desc}.`);
     };
     const trechos = (atual.trechos || []).map((t, k) => h('li', null,
       h('span', { text: `${km(t.de)} – ${km(t.ate)} → ${nomeLinha(t.linha)}` }),
@@ -8073,11 +8226,19 @@ window.App = window.App || {};
       h('div', { class: 'mt-valores-linha' }, linhasValores),
       h('strong', { class: 'mt-sub-titulo', text: 'Linha num trecho de km' }),
       trechos.length ? h('ul', { class: 'mt-lista mt-trechos' }, trechos) : null,
-      h('div', { class: 'grade-4 mt-trecho-novo' },
-        ui.campo('Início (km)', campoKm(null, (v) => { novo.de = v; }, 'ex.: 320+100')),
-        ui.campo('Fim (km)', campoKm(null, (v) => { novo.ate = v; }, 'ex.: 321+400')),
-        ui.campo('Linha do trecho', selTrecho),
-        h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-secundario', disabled: processando || null, onclick: aplicarTrecho }, 'Aplicar no trecho'))));
+      caixaNovos,
+      h('div', { class: 'linha-acoes' },
+        h('button', { type: 'button', class: 'btn btn-secundario btn-pequeno', onclick: () => { novos.push({ de: null, ate: null, linha: novos[novos.length - 1].linha }); desenharNovos(); } }, ui.icone('plus'), 'Outro trecho'),
+        h('button', { type: 'button', class: 'btn btn-primario btn-pequeno', disabled: processando || null, onclick: aplicarTrechos }, 'Aplicar')));
+  }
+
+  /** Km digitado num campo (290+500 ou 290,5); inválido avisa e volta ao valor anterior. */
+  function lerKm(input, anterior) {
+    const t = input.value.trim();
+    if (!t) return null;
+    const m = B().kmParaMetros(t);
+    if (m === null || Number.isNaN(m)) { ui.toast('Km inválido. Use 290+000 ou 290,5.', 'erro'); input.value = anterior === null ? '' : km(anterior); return anterior; }
+    return m;
   }
 
   /* ---------------- Compensação de saltos e voltas do km ---------------- */
@@ -8131,6 +8292,33 @@ window.App = window.App || {};
         campoNum('Margem de erro (m)', rg.margem, (v) => salvar('margem', v), 'Salto ou volta até este valor não é compensado.'),
         campoNum('Máximo por ponto (% do espaçamento)', n2(rg.passoMax * 100, 1), (v) => salvar('passoMax', v / 100), 'Acima disso o app pede confirmação. 1% de 0,25 m = 0,0025 m por ponto.'),
         campoNum('Maior salto/volta (m)', rg.maxSalto, (v) => salvar('maxSalto', v), 'Acima disso é passada repetida ou falta de arquivo: use o recorte.')));
+  }
+
+  /* ---------------- Conferência da geometria ---------------- */
+
+  /** Km de cada ramal e linha pela geometria importada, para comparar com a planilha. */
+  function cartaoGeometria() {
+    const lista = C().resumoGeometria(planta);
+    const semRhGeo = planta.fonte === 'geometria' && !planta.rhs;
+    return h('details', { class: 'cartao detalhes mt-geo', open: abertos.has('geo') || null, ontoggle: (e) => { if (e.target.open) abertos.add('geo'); else abertos.delete('geo'); } },
+      h('summary', null, h('strong', { text: 'Conferência da geometria' }), h('span', { class: 'sub', text: ` · km de cada ramal e linha (${lista.length})` })),
+      h('div', { class: 'pilha', style: { marginTop: '12px' } },
+        h('p', { class: 'mt-sub', text: 'O que precisa ser medido, pela geometria importada: início, fim e extensão de cada ramal e linha (tangentes, curvas e RH). Compare com a planilha; se algum km não bater, me avise com o ramal e a linha.' }),
+        semRhGeo ? h('p', { class: 'aviso', text: 'A geometria foi importada numa versão anterior do app, sem as RH: elas estão sendo deduzidas pelos vãos entre os elementos. Importe a geometria de novo na Análise do arquivo para usar as RH da planilha (inclusive no início e no fim de cada ramal).' }) : null,
+        (planta.avisos || []).length ? h('ul', { class: 'mt-lista' }, planta.avisos.map((t) => h('li', { class: 'mt-atencao-txt', text: t }))) : null,
+        h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela' },
+          h('thead', null, h('tr', null, ['Ramal', 'Linha', 'Início', 'Fim', 'Extensão', 'Tang.', 'Curvas', 'RH', 'Sedes'].map((t) => h('th', { text: t })))),
+          h('tbody', null, lista.map((g) => h('tr', null,
+            h('td', null, h('strong', { text: g.ramal })),
+            h('td', { text: g.linha || '—' }),
+            h('td', { text: g.ini === null ? '—' : km(g.ini) }),
+            h('td', { text: g.fim === null ? '—' : km(g.fim) }),
+            h('td', { class: 'num', text: kmTxt(g.extensao) }),
+            h('td', { class: 'num', text: n0(g.tangentes) }),
+            h('td', { class: 'num', text: n0(g.curvas) }),
+            h('td', { class: 'num', text: `${n0(g.rh)}${g.rh && !g.rhDaGeometria ? '*' : ''}` }),
+            h('td', { class: 'mt-sub', text: g.sedes.map((x) => `${x.sede || '—'} ${km(x.ini)}–${km(x.fim)}`).join(' · ') })))))),
+        lista.some((g) => g.rh && !g.rhDaGeometria) ? h('p', { class: 'mt-sub', text: '* RH deduzidos pelos vãos entre elementos (a geometria importada não tem as RH desta linha).' }) : null));
   }
 
   /* ---------------- Alertas de geometria ---------------- */
@@ -8203,6 +8391,7 @@ window.App = window.App || {};
         linhas.forEach((l) => partes.push(cartaoLinha(l)));
         partes.push(cartaoArquivos(lista, conferencia));
         partes.push(cartaoRegras());
+        partes.push(cartaoGeometria());
       }
     }
     ui.trocar(raiz, ...partes);
