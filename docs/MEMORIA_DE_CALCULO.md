@@ -389,9 +389,13 @@ Cada arquivo fica guardado no aparelho de duas formas:
 
 ### 15.1 O que precisa ser medido
 
-Pela geometria, o app junta tudo o que precisa de medição, por ramal e linha:
+Pela geometria, o app junta tudo o que precisa de medição, por ramal e linha, **cada linha com os seus km** (ex.: no RBH e no RFA a linha 1 e a linha 2 têm km diferentes):
 - as tangentes e curvas;
-- os RH, pelo km da geometria ou, sem ele, pelo vão de até 1.000 m entre dois elementos.
+- os RH: as linhas "RH" da própria geometria (aba elementos_revia), com o km de cada linha, **inclusive no início e no fim do ramal** (ex.: o ramal de BH começa no km 0, numa RH). Só numa planta antiga, sem as RH, elas são deduzidas pelo vão de até 1.000 m entre dois elementos.
+
+**Linha de cada elemento** (coluna eh_linha): aceita "49/50 L1", "49/50 L 2", "49/50 L02" e "49/50 LINHA 2" (ou uma coluna "linha" separada). Linha não identificada é avisada.
+
+**Conferência da geometria** (Montagem, no fim da tela): para cada ramal e linha, início, fim, extensão (tangentes + curvas + RH), quantidade de tangentes, curvas e RH, e as sedes com o km. Serve para comparar com a planilha. Uma geometria importada antes desta versão não tem as RH guardadas: o quadro avisa, e basta importar a geometria de novo na Análise do arquivo.
 
 ### 15.2 Medido, falta, buraco e sobreposição
 
@@ -433,6 +437,9 @@ Falta = metros que precisam ser medidos − metros medidos
 ### 15.4 Data, sentido e RH nas barras
 
 - Cada arquivo mostra a **data da inspeção** (coluna DATA) e o **sentido** (coluna SEQUÊNCIA, C ou D, e se o km cresce ou decresce no arquivo).
+- **Arquivo repetido:** ao adicionar um arquivo que já está no ciclo (mesmo nome, ou o mesmo conteúdo com outro nome: mesmos pontos, km inicial e final, data, sede e ramal), o app pergunta se substitui o existente. Substituir mantém o recorte, as compensações e a correção da linha.
+- **Lista de arquivos recolhível** (setinha no título "Arquivos").
+- **Dica das barras:** passando o mouse ou tocando na barra, aparece o km daquele ponto, se está medido, buraco ou falta medir, a sede e o RH em que está (ou a distância até o RH mais próximo).
 - **Filtro da lista de arquivos** por **sede** (coluna CORRETIVA: GV1, GV2, CP, CS…; sem ela, a sede onde o arquivo caiu na geometria) e por **data da inspeção** (só as datas que existem nos arquivos, da mais recente para a mais antiga). O filtro vale só para a lista; a cobertura, os buracos e os alertas continuam com o ciclo todo.
 - Nas barras de cada linha e de cada sede, um **traço fino marca cada RH (pátio)**: o vão entre dois EH diferentes (a RH-43 fica entre o EH 42/43 e o EH 43/44). Passando o dedo ou o mouse, aparece o nome e o km do RH.
 - Abrindo uma sede, cada trecho medido mostra **de qual RH até qual RH** ele vai (ex.: "Medido 320+100 – 334+500 (14,4 km) · RH-40 → RH-42").
@@ -444,7 +451,7 @@ Falta = metros que precisam ser medidos − metros medidos
 **Correção.** O operador pode errar ou confundir a linha. Em "Linha do arquivo", cada arquivo permite:
 
 1. **Trocar um valor da coluna LINHA** para uma linha da geometria ou para "Desconsiderar (deslocamento)". Ex.: "TESTE01" → Linha 2; "LOCOM" → Linha 1 (se o carro estava medindo).
-2. **Definir a linha num trecho de km** (km do arquivo, o mesmo do recorte). Ex.: de 320+100 a 321+400 → Linha 2.
+2. **Definir a linha em trechos de km** (km do arquivo, o mesmo do recorte). Ex.: de 320+100 a 321+400 → Linha 2. O botão "Outro trecho" acrescenta mais linhas (início, fim, linha), e "Aplicar" aplica todas de uma vez.
 
 Ordem: primeiro a troca de valor; depois os trechos (o trecho vale mais; entre dois trechos, o último).
 

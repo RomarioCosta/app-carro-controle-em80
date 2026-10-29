@@ -654,39 +654,60 @@
    * Lê a tabela "Geometria da EFVM – Carro Controle" (aba elementos_revia).
    * Colunas: ramal (RLT), sede, elemento (CURVA 1, TANGENTE 2, RH-50), tipo_ativo (CURVA/TANGENTE/RH),
    * sentido (Esquerda/Direita), km_inicial e km_final (metros), raio, eh_linha ("49/50 L1").
-   * As RH (circuitos) não viram elemento: ficam como trecho sem elemento, como na planta.
+   * As RH (circuitos) não viram elemento (a análise as trata como trecho sem elemento, como na planta), mas ficam
+   * guardadas em "rhs", com o km de cada linha: a Montagem usa essas RH como estão na geometria
+   * (inclusive no início e no fim do ramal), em vez de deduzir pelos vãos entre elementos.
    */
   B.lerGeometria = (linhas, idxCab) => {
     const ks = (linhas[idxCab] || []).map((v) => U.chaveTitulo(v));
     const col = (k) => ks.indexOf(k);
     const c = {
       ramal: col('ramal'), elemento: col('elemento'), tipo: col('tipoativo'), sentido: col('sentido'),
-      ini: col('kminicial'), fim: col('kmfinal'), raio: col('raio'), ehLinha: col('ehlinha'), sede: col('sede')
+      ini: col('kminicial'), fim: col('kmfinal'), raio: col('raio'), ehLinha: col('ehlinha'), sede: col('sede'), linha: col('linha')
     };
     ['ramal', 'tipo', 'ini', 'fim', 'ehLinha'].forEach((k) => {
       if (c[k] < 0) throw new Error(`Coluna da geometria não encontrada: ${k}.`);
     });
     const n = (v) => (typeof v === 'number' ? v : U.numero(v));
     const elementos = [];
-    let descartados = 0; let circuitos = 0;
+    const rhs = [];
+    let descartados = 0; let circuitos = 0; let semLinha = 0;
+    const ramalDe = (bruto) => (bruto.length > 2 && bruto.startsWith('R') ? bruto.slice(1) : bruto); // RLT → LT
+    /** "49/50 L1", "49/50 L 2", "49/50 L02", "49/50 LINHA 2" → { eh: '49/50', linha: '2' }; coluna "linha" separada, se houver. */
+    const ehELinha = (l) => {
+      const txt = String(l[c.ehLinha] ?? '').trim();
+      const m = /^(\S+)\s+L(?:INHA)?\s*0*(\d+)\s*$/i.exec(txt);
+      if (m) return { eh: m[1], linha: m[2] };
+      const sep = c.linha >= 0 && c.linha !== c.ehLinha ? /0*(\d+)\s*$/.exec(String(l[c.linha] ?? '').trim()) : null;
+      return { eh: txt.split(/\s+/)[0] || '', linha: sep ? sep[1] : '' };
+    };
     linhas.slice(idxCab + 1).forEach((l) => {
       if (!l) return;
       const tipoAtivo = String(l[c.tipo] ?? '').trim().toUpperCase();
       const ramalBruto = String(l[c.ramal] ?? '').trim().toUpperCase();
       if (!ramalBruto || !tipoAtivo) return;
-      if (tipoAtivo === 'RH') { circuitos++; return; }
-      const tipo = tipoAtivo.startsWith('CURVA') ? 'C' : tipoAtivo.startsWith('TANGENTE') ? 'T' : '';
       const ini = n(l[c.ini]); const fim = n(l[c.fim]);
+      if (tipoAtivo === 'RH') {
+        circuitos++;
+        if (ini === null || fim === null || fim <= ini) return;
+        const { eh, linha } = ehELinha(l);
+        if (!linha) semLinha++;
+        rhs.push({
+          ramal: ramalDe(ramalBruto), linha, eh: eh.split('/')[0], ini, fim,
+          nome: c.elemento >= 0 ? String(l[c.elemento] ?? '').trim().toUpperCase().replace(/^RH\s*-?\s*/, 'RH-') : '',
+          sede: c.sede >= 0 ? String(l[c.sede] ?? '').trim() : ''
+        });
+        return;
+      }
+      const tipo = tipoAtivo.startsWith('CURVA') ? 'C' : tipoAtivo.startsWith('TANGENTE') ? 'T' : '';
       if (!tipo) return;
       if (ini === null || fim === null || fim <= ini) { descartados++; return; }
-      // "49/50 L1" → EH 49/50, linha 1
-      const m = /^\s*([^\s]+)\s+L(\w+)\s*$/i.exec(String(l[c.ehLinha] ?? ''));
-      const eh = m ? m[1] : String(l[c.ehLinha] ?? '').trim();
-      const linha = m ? String(m[2]).replace(/^0+(?=\d)/, '') : '';
+      const { eh, linha } = ehELinha(l);
+      if (!linha) semLinha++;
       const sentido = c.sentido >= 0 ? String(l[c.sentido] ?? '').trim().toUpperCase() : '';
       const num = c.elemento >= 0 ? (/(\d+)\s*$/.exec(String(l[c.elemento] ?? '')) || [])[1] || '' : '';
       elementos.push({
-        ramal: ramalBruto.length > 2 && ramalBruto.startsWith('R') ? ramalBruto.slice(1) : ramalBruto, // RLT → LT
+        ramal: ramalDe(ramalBruto),
         linha,
         eh: eh.split('/')[0],
         nomeEh: `EH ${eh}`,
@@ -706,11 +727,13 @@
       ramais[e.ramal] = ramais[e.ramal] || [];
       if (!ramais[e.ramal].includes(e.linha)) ramais[e.ramal].push(e.linha);
     });
+    rhs.forEach((x) => { if (ramais[x.ramal] && !ramais[x.ramal].includes(x.linha)) ramais[x.ramal].push(x.linha); });
     Object.values(ramais).forEach((l) => l.sort());
-    return {
-      elementos, ramais, fonte: 'geometria', circuitos,
-      avisos: descartados ? [`${descartados} linha(s) da geometria sem km válido foram ignoradas.`] : []
-    };
+    rhs.sort((a, b) => a.ramal.localeCompare(b.ramal) || String(a.linha).localeCompare(String(b.linha)) || a.ini - b.ini);
+    const avisos = [];
+    if (descartados) avisos.push(`${descartados} linha(s) da geometria sem km válido foram ignoradas.`);
+    if (semLinha) avisos.push(`${semLinha} linha(s) da geometria sem a linha identificada (coluna eh_linha, ex.: "49/50 L1").`);
+    return { elementos, ramais, fonte: 'geometria', circuitos, rhs, avisos };
   };
 
   /** Ramal da planta correspondente ao do arquivo (ex.: "RLT" → "LT"). */

@@ -333,7 +333,6 @@
     el.addEventListener('pointermove', mostrar);
     el.addEventListener('pointerdown', mostrar);
     el.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') esconder(); });
-    caixa.addEventListener('click', (e) => e.stopPropagation()); // na tabela, tocar na barra mostra a dica sem abrir a sede
     return caixa;
   }
   // no toque, a dica fica até tocar fora da faixa (um só ouvinte para todas as faixas)
@@ -559,7 +558,7 @@
     const DESL = B().DESLOCAMENTO;
     const nomeLinha = (l) => (B().ehDeslocamento(l) ? 'desconsiderar (deslocamento)' : `linha ${l}`);
     const auto = (v) => (B().ehDeslocamento(v) ? 'desconsiderar' : B().linhaDaPlanta(v, linhasPlanta) ? `linha ${B().linhaDaPlanta(v, linhasPlanta)}` : `linha ${r.linhaRef}`);
-    const opcoesLinha = () => [...linhasPlanta.map((l) => [l, `Linha ${l}`]), [DESL, 'Desconsiderar (deslocamento)']];
+    const opcoesLinha = () => [...linhasPlanta.map((l) => [l, `Linha ${l}`]), [DESL, 'Desconsiderar (LOCOM)']];
     const rotuloValor = (v) => (String(v).trim() === '' ? '(vazio)' : v);
 
     const linhasValores = r.valoresLinha.map((x) => {
@@ -584,8 +583,8 @@
     const desenharNovos = () => ui.trocar(caixaNovos,
       h('div', { class: 'mt-trecho-cab', 'aria-hidden': 'true' }, h('span', { text: 'Início (km)' }), h('span', { text: 'Fim (km)' }), h('span', { text: 'Linha' }), h('span')),
       novos.map((t, k) => h('div', { class: 'mt-trecho-linha' },
-        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Início do trecho ${k + 1}`, placeholder: 'ex.: 320+100', value: t.de === null ? '' : km(t.de), onchange: (e) => { t.de = lerKm(e.target, t.de); } }),
-        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Fim do trecho ${k + 1}`, placeholder: 'ex.: 321+400', value: t.ate === null ? '' : km(t.ate), onchange: (e) => { t.ate = lerKm(e.target, t.ate); } }),
+        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Início do trecho ${k + 1}`, placeholder: 'Início (km)', value: t.de === null ? '' : km(t.de), onchange: (e) => { t.de = lerKm(e.target, t.de); } }),
+        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Fim do trecho ${k + 1}`, placeholder: 'Fim (km)', value: t.ate === null ? '' : km(t.ate), onchange: (e) => { t.ate = lerKm(e.target, t.ate); } }),
         h('select', { 'aria-label': `Linha do trecho ${k + 1}`, onchange: (e) => { t.linha = e.target.value; } },
           opcoesLinha().map(([v, txt]) => h('option', { value: v, selected: v === t.linha || null, text: txt }))),
         novos.length > 1 ? h('button', { type: 'button', class: 'btn-icone', 'aria-label': `Tirar a linha ${k + 1}`, title: 'Tirar esta linha', onclick: () => { novos.splice(k, 1); desenharNovos(); } }, ui.icone('x')) : h('span'))));
@@ -680,6 +679,33 @@
         campoNum('Maior salto/volta (m)', rg.maxSalto, (v) => salvar('maxSalto', v), 'Acima disso é passada repetida ou falta de arquivo: use o recorte.')));
   }
 
+  /* ---------------- Conferência da geometria ---------------- */
+
+  /** Km de cada ramal e linha pela geometria importada, para comparar com a planilha. */
+  function cartaoGeometria() {
+    const lista = C().resumoGeometria(planta);
+    const semRhGeo = planta.fonte === 'geometria' && !planta.rhs;
+    return h('details', { class: 'cartao detalhes mt-geo', open: abertos.has('geo') || null, ontoggle: (e) => { if (e.target.open) abertos.add('geo'); else abertos.delete('geo'); } },
+      h('summary', null, h('strong', { text: 'Conferência da geometria' }), h('span', { class: 'sub', text: ` · km de cada ramal e linha (${lista.length})` })),
+      h('div', { class: 'pilha', style: { marginTop: '12px' } },
+        h('p', { class: 'mt-sub', text: 'O que precisa ser medido, pela geometria importada: início, fim e extensão de cada ramal e linha (tangentes, curvas e RH). Compare com a planilha; se algum km não bater, me avise com o ramal e a linha.' }),
+        semRhGeo ? h('p', { class: 'aviso', text: 'A geometria foi importada numa versão anterior do app, sem as RH: elas estão sendo deduzidas pelos vãos entre os elementos. Importe a geometria de novo na Análise do arquivo para usar as RH da planilha (inclusive no início e no fim de cada ramal).' }) : null,
+        (planta.avisos || []).length ? h('ul', { class: 'mt-lista' }, planta.avisos.map((t) => h('li', { class: 'mt-atencao-txt', text: t }))) : null,
+        h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela' },
+          h('thead', null, h('tr', null, ['Ramal', 'Linha', 'Início', 'Fim', 'Extensão', 'Tang.', 'Curvas', 'RH', 'Sedes'].map((t) => h('th', { text: t })))),
+          h('tbody', null, lista.map((g) => h('tr', null,
+            h('td', null, h('strong', { text: g.ramal })),
+            h('td', { text: g.linha || '—' }),
+            h('td', { text: g.ini === null ? '—' : km(g.ini) }),
+            h('td', { text: g.fim === null ? '—' : km(g.fim) }),
+            h('td', { class: 'num', text: kmTxt(g.extensao) }),
+            h('td', { class: 'num', text: n0(g.tangentes) }),
+            h('td', { class: 'num', text: n0(g.curvas) }),
+            h('td', { class: 'num', text: `${n0(g.rh)}${g.rh && !g.rhDaGeometria ? '*' : ''}` }),
+            h('td', { class: 'mt-sub', text: g.sedes.map((x) => `${x.sede || '—'} ${km(x.ini)}–${km(x.fim)}`).join(' · ') })))))),
+        lista.some((g) => g.rh && !g.rhDaGeometria) ? h('p', { class: 'mt-sub', text: '* RH deduzidos pelos vãos entre elementos (a geometria importada não tem as RH desta linha).' }) : null));
+  }
+
   /* ---------------- Alertas de geometria ---------------- */
 
   function cartaoAlertas(lista) {
@@ -750,6 +776,7 @@
         linhas.forEach((l) => partes.push(cartaoLinha(l)));
         partes.push(cartaoArquivos(lista, conferencia));
         partes.push(cartaoRegras());
+        partes.push(cartaoGeometria());
       }
     }
     ui.trocar(raiz, ...partes);

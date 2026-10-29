@@ -160,3 +160,34 @@ test('RH (pátio) de cada sede, com o nome, para as marcas nas barras', () => {
   assert.deepEqual(j(l.sedes[0].rh.map((p) => p.nome)), ['RH-1', 'RH-2', 'RH-3', 'RH-4']);
   assert.ok(Math.abs(l.sedes[0].rh[0].ini - 1000) < 1e-9 && Math.abs(l.sedes[0].rh[0].fim - 1100) < 1e-9);
 });
+
+test('geometria: RH da planilha (inclusive no km 0) e km diferentes por linha (RBH)', () => {
+  const B = ctx.App.bitola;
+  const linhas = [
+    ['Geometria da EFVM'],
+    ['ramal', 'sede', 'elemento', 'tipo_ativo', 'sentido', 'km_inicial', 'km_final', 'raio', 'eh_linha'],
+    ['RBH', 'GV I', 'RH-1', 'RH', '', 0, 300, '', '00/01 L1'],
+    ['RBH', 'GV I', 'TANGENTE 1', 'TANGENTE', '', 300, 1000, '', '01/02 L1'],
+    ['RBH', 'GV I', 'CURVA 1', 'CURVA', 'Direita', 1000, 1400, 500, '01/02 L1'],
+    ['RBH', 'GV I', 'RH-2', 'RH', '', 1400, 1700, '', '01/02 L1'],
+    ['RBH', 'GV I', 'TANGENTE 1', 'TANGENTE', '', 5300, 6000, '', '01/02 L 2'],
+    ['RBH', 'GV I', 'CURVA 1', 'CURVA', 'Esquerda', 6000, 6500, 400, '01/02 L02'],
+    ['RBH', '', 'RH-2', 'RH', '', 6500, 6800, '', '01/02 LINHA 2']
+  ];
+  const p = B.lerPlanta(linhas);
+  assert.deepEqual(j(p.ramais), { BH: ['1', '2'] });
+  assert.equal(p.rhs.length, 3);
+  assert.equal(p.avisos.length, 0); // todas as linhas identificadas
+  const nec1 = C.necessario(p, 'BH', '1');
+  assert.equal(nec1[0].tipo, 'RH'); // o ramal começa no km 0, numa RH
+  assert.equal(nec1[0].ini, 0);
+  assert.equal(nec1[0].nome, 'RH-1');
+  const [g1, g2] = C.resumoGeometria(p);
+  assert.deepEqual(j([g1.ramal, g1.linha, g1.ini, g1.fim, g1.extensao, g1.tangentes, g1.curvas, g1.rh, g1.rhDaGeometria]), ['BH', '1', 0, 1700, 1700, 1, 1, 2, true]);
+  assert.deepEqual(j([g2.linha, g2.ini, g2.fim, g2.extensao, g2.rh]), ['2', 5300, 6800, 1500, 1]);
+  assert.equal(g2.sedes[0].sede, 'GV1'); // RH sem sede fica com a do elemento vizinho
+  assert.equal(g2.sedes.length, 1);
+  // linha não identificada é avisada
+  const p2 = B.lerPlanta([...linhas, ['RBH', 'GV I', 'TANGENTE 9', 'TANGENTE', '', 9000, 9500, '', '09/10']]);
+  assert.match(p2.avisos[0], /1 linha\(s\) da geometria sem a linha identificada/);
+});

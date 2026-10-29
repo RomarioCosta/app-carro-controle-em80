@@ -874,6 +874,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-trecho-cab, .mt-trecho-linha { display: grid; grid-template-columns: 1fr 1fr 1.3fr 32px; gap: 6px; align-items: center; }
 .mt-trecho-cab span { font-size: .8rem; font-weight: 600; color: var(--texto2); }
 .mt-trecho-linha input, .mt-trecho-linha select { min-width: 0; width: 100%; }
+.mt-trecho-linha input { padding-left: 10px; padding-right: 10px; }
+/* celular: início e fim lado a lado, a linha embaixo */
+@media (max-width: 559px) {
+  .mt-trecho-cab { display: none; }
+  .mt-trecho-linha { grid-template-columns: 1fr 1fr 28px; grid-template-areas: 'ini fim x' 'lin lin lin'; padding-bottom: 8px; border-bottom: 1px solid var(--borda); }
+  .mt-trecho-linha > :nth-child(1) { grid-area: ini; } .mt-trecho-linha > :nth-child(2) { grid-area: fim; }
+  .mt-trecho-linha > :nth-child(3) { grid-area: lin; } .mt-trecho-linha > :nth-child(4) { grid-area: x; }
+}
 .mt-linha-arq select { min-width: 0; }
 /* Montagem: lista de arquivos recolhível */
 .mt-arquivos > summary.mt-recolhe { cursor: pointer; list-style: none; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }

@@ -892,6 +892,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-trecho-cab, .mt-trecho-linha { display: grid; grid-template-columns: 1fr 1fr 1.3fr 32px; gap: 6px; align-items: center; }
 .mt-trecho-cab span { font-size: .8rem; font-weight: 600; color: var(--texto2); }
 .mt-trecho-linha input, .mt-trecho-linha select { min-width: 0; width: 100%; }
+.mt-trecho-linha input { padding-left: 10px; padding-right: 10px; }
+/* celular: início e fim lado a lado, a linha embaixo */
+@media (max-width: 559px) {
+  .mt-trecho-cab { display: none; }
+  .mt-trecho-linha { grid-template-columns: 1fr 1fr 28px; grid-template-areas: 'ini fim x' 'lin lin lin'; padding-bottom: 8px; border-bottom: 1px solid var(--borda); }
+  .mt-trecho-linha > :nth-child(1) { grid-area: ini; } .mt-trecho-linha > :nth-child(2) { grid-area: fim; }
+  .mt-trecho-linha > :nth-child(3) { grid-area: lin; } .mt-trecho-linha > :nth-child(4) { grid-area: x; }
+}
 .mt-linha-arq select { min-width: 0; }
 /* Montagem: lista de arquivos recolhível */
 .mt-arquivos > summary.mt-recolhe { cursor: pointer; list-style: none; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
@@ -1164,7 +1172,7 @@ window.App = window.App || {};
     versao: '2026.10.28',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-1c1c4ae387', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-26f6c50933', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -3946,39 +3954,60 @@ window.App = window.App || {};
    * Lê a tabela "Geometria da EFVM – Carro Controle" (aba elementos_revia).
    * Colunas: ramal (RLT), sede, elemento (CURVA 1, TANGENTE 2, RH-50), tipo_ativo (CURVA/TANGENTE/RH),
    * sentido (Esquerda/Direita), km_inicial e km_final (metros), raio, eh_linha ("49/50 L1").
-   * As RH (circuitos) não viram elemento: ficam como trecho sem elemento, como na planta.
+   * As RH (circuitos) não viram elemento (a análise as trata como trecho sem elemento, como na planta), mas ficam
+   * guardadas em "rhs", com o km de cada linha: a Montagem usa essas RH como estão na geometria
+   * (inclusive no início e no fim do ramal), em vez de deduzir pelos vãos entre elementos.
    */
   B.lerGeometria = (linhas, idxCab) => {
     const ks = (linhas[idxCab] || []).map((v) => U.chaveTitulo(v));
     const col = (k) => ks.indexOf(k);
     const c = {
       ramal: col('ramal'), elemento: col('elemento'), tipo: col('tipoativo'), sentido: col('sentido'),
-      ini: col('kminicial'), fim: col('kmfinal'), raio: col('raio'), ehLinha: col('ehlinha'), sede: col('sede')
+      ini: col('kminicial'), fim: col('kmfinal'), raio: col('raio'), ehLinha: col('ehlinha'), sede: col('sede'), linha: col('linha')
     };
     ['ramal', 'tipo', 'ini', 'fim', 'ehLinha'].forEach((k) => {
       if (c[k] < 0) throw new Error(`Coluna da geometria não encontrada: ${k}.`);
     });
     const n = (v) => (typeof v === 'number' ? v : U.numero(v));
     const elementos = [];
-    let descartados = 0; let circuitos = 0;
+    const rhs = [];
+    let descartados = 0; let circuitos = 0; let semLinha = 0;
+    const ramalDe = (bruto) => (bruto.length > 2 && bruto.startsWith('R') ? bruto.slice(1) : bruto); // RLT → LT
+    /** "49/50 L1", "49/50 L 2", "49/50 L02", "49/50 LINHA 2" → { eh: '49/50', linha: '2' }; coluna "linha" separada, se houver. */
+    const ehELinha = (l) => {
+      const txt = String(l[c.ehLinha] ?? '').trim();
+      const m = /^(\S+)\s+L(?:INHA)?\s*0*(\d+)\s*$/i.exec(txt);
+      if (m) return { eh: m[1], linha: m[2] };
+      const sep = c.linha >= 0 && c.linha !== c.ehLinha ? /0*(\d+)\s*$/.exec(String(l[c.linha] ?? '').trim()) : null;
+      return { eh: txt.split(/\s+/)[0] || '', linha: sep ? sep[1] : '' };
+    };
     linhas.slice(idxCab + 1).forEach((l) => {
       if (!l) return;
       const tipoAtivo = String(l[c.tipo] ?? '').trim().toUpperCase();
       const ramalBruto = String(l[c.ramal] ?? '').trim().toUpperCase();
       if (!ramalBruto || !tipoAtivo) return;
-      if (tipoAtivo === 'RH') { circuitos++; return; }
-      const tipo = tipoAtivo.startsWith('CURVA') ? 'C' : tipoAtivo.startsWith('TANGENTE') ? 'T' : '';
       const ini = n(l[c.ini]); const fim = n(l[c.fim]);
+      if (tipoAtivo === 'RH') {
+        circuitos++;
+        if (ini === null || fim === null || fim <= ini) return;
+        const { eh, linha } = ehELinha(l);
+        if (!linha) semLinha++;
+        rhs.push({
+          ramal: ramalDe(ramalBruto), linha, eh: eh.split('/')[0], ini, fim,
+          nome: c.elemento >= 0 ? String(l[c.elemento] ?? '').trim().toUpperCase().replace(/^RH\s*-?\s*/, 'RH-') : '',
+          sede: c.sede >= 0 ? String(l[c.sede] ?? '').trim() : ''
+        });
+        return;
+      }
+      const tipo = tipoAtivo.startsWith('CURVA') ? 'C' : tipoAtivo.startsWith('TANGENTE') ? 'T' : '';
       if (!tipo) return;
       if (ini === null || fim === null || fim <= ini) { descartados++; return; }
-      // "49/50 L1" → EH 49/50, linha 1
-      const m = /^\s*([^\s]+)\s+L(\w+)\s*$/i.exec(String(l[c.ehLinha] ?? ''));
-      const eh = m ? m[1] : String(l[c.ehLinha] ?? '').trim();
-      const linha = m ? String(m[2]).replace(/^0+(?=\d)/, '') : '';
+      const { eh, linha } = ehELinha(l);
+      if (!linha) semLinha++;
       const sentido = c.sentido >= 0 ? String(l[c.sentido] ?? '').trim().toUpperCase() : '';
       const num = c.elemento >= 0 ? (/(\d+)\s*$/.exec(String(l[c.elemento] ?? '')) || [])[1] || '' : '';
       elementos.push({
-        ramal: ramalBruto.length > 2 && ramalBruto.startsWith('R') ? ramalBruto.slice(1) : ramalBruto, // RLT → LT
+        ramal: ramalDe(ramalBruto),
         linha,
         eh: eh.split('/')[0],
         nomeEh: `EH ${eh}`,
@@ -3998,11 +4027,13 @@ window.App = window.App || {};
       ramais[e.ramal] = ramais[e.ramal] || [];
       if (!ramais[e.ramal].includes(e.linha)) ramais[e.ramal].push(e.linha);
     });
+    rhs.forEach((x) => { if (ramais[x.ramal] && !ramais[x.ramal].includes(x.linha)) ramais[x.ramal].push(x.linha); });
     Object.values(ramais).forEach((l) => l.sort());
-    return {
-      elementos, ramais, fonte: 'geometria', circuitos,
-      avisos: descartados ? [`${descartados} linha(s) da geometria sem km válido foram ignoradas.`] : []
-    };
+    rhs.sort((a, b) => a.ramal.localeCompare(b.ramal) || String(a.linha).localeCompare(String(b.linha)) || a.ini - b.ini);
+    const avisos = [];
+    if (descartados) avisos.push(`${descartados} linha(s) da geometria sem km válido foram ignoradas.`);
+    if (semLinha) avisos.push(`${semLinha} linha(s) da geometria sem a linha identificada (coluna eh_linha, ex.: "49/50 L1").`);
+    return { elementos, ramais, fonte: 'geometria', circuitos, rhs, avisos };
   };
 
   /** Ramal da planta correspondente ao do arquivo (ex.: "RLT" → "LT"). */
@@ -4912,6 +4943,16 @@ window.App = window.App || {};
   C.necessario = (planta, ramal, linha, { rhMax = 1000, incluirRH = true } = {}) => {
     const els = B().elementosDaPlanta(planta, ramal, linha);
     const nomes = B().nomesTrechos(els);
+    // geometria com as RH (aba elementos_revia): usa as RH como estão nela, com o km de cada linha,
+    // inclusive no início e no fim do ramal; sem elas (planta antiga), deduz pelos vãos entre elementos
+    const rhsGeo = (planta.rhs || []).filter((x) => x.ramal === ramal && String(x.linha) === String(linha));
+    if (rhsGeo.length) {
+      const sedePerto = (x) => x.sede || (els.find((e) => e.ini >= x.fim - 1) || els[els.length - 1] || {}).sede || '';
+      return [
+        ...els.map((e) => ({ ini: e.ini, fim: e.fim, sede: e.sede || '', eh: e.nomeEh || `EH ${e.eh}`, tipo: e.tipo })),
+        ...(incluirRH ? rhsGeo.map((x) => ({ ini: x.ini, fim: x.fim, sede: sedePerto(x), eh: x.eh ? `EH ${x.eh}` : '', tipo: 'RH', patio: true, nome: x.nome || nomes.rh((x.ini + x.fim) / 2) })) : [])
+      ].sort((a, c) => a.ini - c.ini);
+    }
     const out = [];
     els.forEach((e, k) => {
       const ant = els[k - 1];
@@ -4924,6 +4965,24 @@ window.App = window.App || {};
     });
     return out;
   };
+
+  /**
+   * Conferência da geometria: por ramal e linha, início, fim, extensão (tangentes + curvas + RH),
+   * quantidades e sedes, para comparar com a planilha. rhDaGeometria = as RH vieram da própria geometria.
+   */
+  C.resumoGeometria = (planta) => Object.keys(planta.ramais).sort().flatMap((ramal) => planta.ramais[ramal].map((linha) => {
+    const nec = C.necessario(planta, ramal, linha);
+    const conta = (t) => nec.filter((x) => x.tipo === t).length;
+    return {
+      ramal, linha,
+      ini: nec.length ? Math.min(...nec.map((x) => x.ini)) : null,
+      fim: nec.length ? Math.max(...nec.map((x) => x.fim)) : null,
+      extensao: C.extensao(C.uniao(nec.map((x) => [x.ini, x.fim]), 0.5)),
+      tangentes: conta('T'), curvas: conta('C'), rh: conta('RH'),
+      rhDaGeometria: (planta.rhs || []).some((x) => x.ramal === ramal && String(x.linha) === String(linha)),
+      sedes: C.sedes(nec).map((x) => ({ sede: C.normSede(x.sede), ini: x.ini, fim: x.fim }))
+    };
+  }));
 
   /** Sedes (corretivas) de um ramal e linha, em ordem de km: [{ sede, ini, fim, trechos }]. */
   C.sedes = (necessario) => {
@@ -7883,7 +7942,6 @@ window.App = window.App || {};
     el.addEventListener('pointermove', mostrar);
     el.addEventListener('pointerdown', mostrar);
     el.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') esconder(); });
-    caixa.addEventListener('click', (e) => e.stopPropagation()); // na tabela, tocar na barra mostra a dica sem abrir a sede
     return caixa;
   }
   // no toque, a dica fica até tocar fora da faixa (um só ouvinte para todas as faixas)
@@ -8109,7 +8167,7 @@ window.App = window.App || {};
     const DESL = B().DESLOCAMENTO;
     const nomeLinha = (l) => (B().ehDeslocamento(l) ? 'desconsiderar (deslocamento)' : `linha ${l}`);
     const auto = (v) => (B().ehDeslocamento(v) ? 'desconsiderar' : B().linhaDaPlanta(v, linhasPlanta) ? `linha ${B().linhaDaPlanta(v, linhasPlanta)}` : `linha ${r.linhaRef}`);
-    const opcoesLinha = () => [...linhasPlanta.map((l) => [l, `Linha ${l}`]), [DESL, 'Desconsiderar (deslocamento)']];
+    const opcoesLinha = () => [...linhasPlanta.map((l) => [l, `Linha ${l}`]), [DESL, 'Desconsiderar (LOCOM)']];
     const rotuloValor = (v) => (String(v).trim() === '' ? '(vazio)' : v);
 
     const linhasValores = r.valoresLinha.map((x) => {
@@ -8134,8 +8192,8 @@ window.App = window.App || {};
     const desenharNovos = () => ui.trocar(caixaNovos,
       h('div', { class: 'mt-trecho-cab', 'aria-hidden': 'true' }, h('span', { text: 'Início (km)' }), h('span', { text: 'Fim (km)' }), h('span', { text: 'Linha' }), h('span')),
       novos.map((t, k) => h('div', { class: 'mt-trecho-linha' },
-        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Início do trecho ${k + 1}`, placeholder: 'ex.: 320+100', value: t.de === null ? '' : km(t.de), onchange: (e) => { t.de = lerKm(e.target, t.de); } }),
-        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Fim do trecho ${k + 1}`, placeholder: 'ex.: 321+400', value: t.ate === null ? '' : km(t.ate), onchange: (e) => { t.ate = lerKm(e.target, t.ate); } }),
+        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Início do trecho ${k + 1}`, placeholder: 'Início (km)', value: t.de === null ? '' : km(t.de), onchange: (e) => { t.de = lerKm(e.target, t.de); } }),
+        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Fim do trecho ${k + 1}`, placeholder: 'Fim (km)', value: t.ate === null ? '' : km(t.ate), onchange: (e) => { t.ate = lerKm(e.target, t.ate); } }),
         h('select', { 'aria-label': `Linha do trecho ${k + 1}`, onchange: (e) => { t.linha = e.target.value; } },
           opcoesLinha().map(([v, txt]) => h('option', { value: v, selected: v === t.linha || null, text: txt }))),
         novos.length > 1 ? h('button', { type: 'button', class: 'btn-icone', 'aria-label': `Tirar a linha ${k + 1}`, title: 'Tirar esta linha', onclick: () => { novos.splice(k, 1); desenharNovos(); } }, ui.icone('x')) : h('span'))));
@@ -8230,6 +8288,33 @@ window.App = window.App || {};
         campoNum('Maior salto/volta (m)', rg.maxSalto, (v) => salvar('maxSalto', v), 'Acima disso é passada repetida ou falta de arquivo: use o recorte.')));
   }
 
+  /* ---------------- Conferência da geometria ---------------- */
+
+  /** Km de cada ramal e linha pela geometria importada, para comparar com a planilha. */
+  function cartaoGeometria() {
+    const lista = C().resumoGeometria(planta);
+    const semRhGeo = planta.fonte === 'geometria' && !planta.rhs;
+    return h('details', { class: 'cartao detalhes mt-geo', open: abertos.has('geo') || null, ontoggle: (e) => { if (e.target.open) abertos.add('geo'); else abertos.delete('geo'); } },
+      h('summary', null, h('strong', { text: 'Conferência da geometria' }), h('span', { class: 'sub', text: ` · km de cada ramal e linha (${lista.length})` })),
+      h('div', { class: 'pilha', style: { marginTop: '12px' } },
+        h('p', { class: 'mt-sub', text: 'O que precisa ser medido, pela geometria importada: início, fim e extensão de cada ramal e linha (tangentes, curvas e RH). Compare com a planilha; se algum km não bater, me avise com o ramal e a linha.' }),
+        semRhGeo ? h('p', { class: 'aviso', text: 'A geometria foi importada numa versão anterior do app, sem as RH: elas estão sendo deduzidas pelos vãos entre os elementos. Importe a geometria de novo na Análise do arquivo para usar as RH da planilha (inclusive no início e no fim de cada ramal).' }) : null,
+        (planta.avisos || []).length ? h('ul', { class: 'mt-lista' }, planta.avisos.map((t) => h('li', { class: 'mt-atencao-txt', text: t }))) : null,
+        h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela' },
+          h('thead', null, h('tr', null, ['Ramal', 'Linha', 'Início', 'Fim', 'Extensão', 'Tang.', 'Curvas', 'RH', 'Sedes'].map((t) => h('th', { text: t })))),
+          h('tbody', null, lista.map((g) => h('tr', null,
+            h('td', null, h('strong', { text: g.ramal })),
+            h('td', { text: g.linha || '—' }),
+            h('td', { text: g.ini === null ? '—' : km(g.ini) }),
+            h('td', { text: g.fim === null ? '—' : km(g.fim) }),
+            h('td', { class: 'num', text: kmTxt(g.extensao) }),
+            h('td', { class: 'num', text: n0(g.tangentes) }),
+            h('td', { class: 'num', text: n0(g.curvas) }),
+            h('td', { class: 'num', text: `${n0(g.rh)}${g.rh && !g.rhDaGeometria ? '*' : ''}` }),
+            h('td', { class: 'mt-sub', text: g.sedes.map((x) => `${x.sede || '—'} ${km(x.ini)}–${km(x.fim)}`).join(' · ') })))))),
+        lista.some((g) => g.rh && !g.rhDaGeometria) ? h('p', { class: 'mt-sub', text: '* RH deduzidos pelos vãos entre elementos (a geometria importada não tem as RH desta linha).' }) : null));
+  }
+
   /* ---------------- Alertas de geometria ---------------- */
 
   function cartaoAlertas(lista) {
@@ -8300,6 +8385,7 @@ window.App = window.App || {};
         linhas.forEach((l) => partes.push(cartaoLinha(l)));
         partes.push(cartaoArquivos(lista, conferencia));
         partes.push(cartaoRegras());
+        partes.push(cartaoGeometria());
       }
     }
     ui.trocar(raiz, ...partes);

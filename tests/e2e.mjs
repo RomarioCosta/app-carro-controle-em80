@@ -772,6 +772,10 @@ async function main() {
       const arqTeste = page.locator('.mt-arquivo', { hasText: 'TESTE.csv' });
       assert.match(await arqTeste.locator('.mt-data').textContent(), /^01\/09\/2026 · Sentido D \(km decrescente\)$/);
       assert.ok(await page.locator('.mt-faixa .mt-rh').count() > 0);
+      // conferência da geometria: km de cada ramal e linha
+      await page.locator('details.mt-geo > summary').click();
+      const linhaGeo = page.locator('details.mt-geo tbody tr').first();
+      assert.match(await linhaGeo.textContent(), /^TST1\d+\+\d{3}\d+\+\d{3}/);
       // linha do arquivo: valor da coluna LINHA como deslocamento, depois de volta ao automático
       const pctMedido = async () => Number((await page.locator('.kpi:visible').filter({ hasText: 'Medido' }).locator('.kpi-valor').textContent()).replace('%', '').replace(',', '.'));
       const antes = await pctMedido();
@@ -795,6 +799,7 @@ async function main() {
       await preencher('Início do trecho 2', '1+700');
       await preencher('Fim do trecho 2', '1+650');
       assert.equal(await arqTeste.getByLabel('Linha do trecho 2').inputValue(), 'LOCOM'); // repete a linha da anterior
+      await arqTeste.locator('.mt-linha-arq').screenshot({ path: `${SAIDA}16d-montagem-trechos.png`, style: '.toasts, .cab { display: none !important; }' });
       await arqTeste.getByRole('button', { name: 'Aplicar', exact: true }).click();
       await page.getByText(/^2 trechos aplicados/).waitFor();
       await arqTeste.getByText('1+800 – 1+900 → desconsiderar (deslocamento)').waitFor();
