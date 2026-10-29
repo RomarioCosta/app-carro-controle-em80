@@ -437,10 +437,11 @@ Falta = metros que precisam ser medidos − metros medidos
 ### 15.4 Data, sentido e RH nas barras
 
 - Cada arquivo mostra a **data da inspeção** (coluna DATA) e o **sentido** (coluna SEQUÊNCIA, C ou D, e se o km cresce ou decresce no arquivo).
-- **Arquivo repetido:** ao adicionar um arquivo que já está no ciclo (mesmo nome, ou o mesmo conteúdo com outro nome: mesmos pontos, km inicial e final, data, sede e ramal), o app pergunta se substitui o existente. Substituir mantém o recorte, as compensações e a correção da linha.
+- **Arquivo repetido:** ao adicionar um arquivo que já está no ciclo (mesmo nome, ou o mesmo conteúdo com outro nome: mesmos pontos, km inicial e final, data, sede e ramal), o app pergunta se substitui o existente. Substituir carrega o arquivo **do zero**: o corte, as compensações e a correção da linha do arquivo anterior são descartados. (Só o "Adicionar de novo" de um arquivo de versão muito antiga do app mantém esses ajustes.)
+- **Corte do arquivo:** "Usar a partir do km" e "Até o km" (km do arquivo) só valem ao clicar em **Aplicar corte**; **Limpar corte** volta a usar o arquivo inteiro. O arquivo mostra o corte atual.
 - **Lista de arquivos recolhível** (setinha no título "Arquivos").
 - **Dica das barras:** passando o mouse ou tocando na barra, aparece o km daquele ponto, se está medido, buraco ou falta medir, a sede e o RH em que está (ou a distância até o RH mais próximo).
-- **Filtro da lista de arquivos** por **sede** (coluna CORRETIVA: GV1, GV2, CP, CS…; sem ela, a sede onde o arquivo caiu na geometria) e por **data da inspeção** (só as datas que existem nos arquivos, da mais recente para a mais antiga). O filtro vale só para a lista; a cobertura, os buracos e os alertas continuam com o ciclo todo.
+- **Filtro da lista de arquivos** por **sede**, digitando (em branco = todas; busca na sede, pela coluna CORRETIVA: GV1, GV2, CP, CS… ou, sem ela, pela sede onde o arquivo caiu na geometria, e no nome do arquivo, sem diferenciar maiúsculas e acentos) e por **data da inspeção** (só as datas que existem nos arquivos, da mais recente para a mais antiga). O filtro vale só para a lista; a cobertura, os buracos e os alertas continuam com o ciclo todo.
 - Nas barras de cada linha e de cada sede, um **traço fino marca cada RH (pátio)**: o vão entre dois EH diferentes (a RH-43 fica entre o EH 42/43 e o EH 43/44). Passando o dedo ou o mouse, aparece o nome e o km do RH.
 - Abrindo uma sede, cada trecho medido mostra **de qual RH até qual RH** ele vai (ex.: "Medido 320+100 – 334+500 (14,4 km) · RH-40 → RH-42").
 

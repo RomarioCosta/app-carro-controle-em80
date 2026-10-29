@@ -742,7 +742,12 @@ async function main() {
       await page.locator('.mt-arquivo summary').click();
       await page.locator('.mt-arquivo').getByLabel('Até o km').fill('2+000');
       await page.locator('.mt-arquivo').getByLabel('Até o km').dispatchEvent('change');
+      assert.ok(!(await page.locator('.mt-arquivo summary').textContent()).includes('recortado')); // só vale ao aplicar
+      await page.locator('.mt-arquivo').getByRole('button', { name: 'Aplicar corte' }).click();
+      await page.getByText('Corte aplicado em TESTE.csv: até o km 2+000.').waitFor();
       await page.locator('.mt-arquivo summary', { hasText: 'recortado' }).waitFor();
+      await page.locator('.mt-arquivo').getByText('Corte atual: até o km 2+000 (km do arquivo).').waitFor();
+      await page.locator('.mt-corte').first().screenshot({ path: `${SAIDA}16e-montagem-corte.png`, style: '.toasts, .cab { display: none !important; }' });
       await page.screenshot({ path: `${SAIDA}16-montagem.png`, fullPage: true });
       await page.reload();
       await page.getByRole('heading', { name: 'Montagem dos dados' }).waitFor();
@@ -753,12 +758,27 @@ async function main() {
       await page.locator('.modal').getByRole('button', { name: 'Cancelar' }).click();
       await page.getByText('1 arquivo(s) repetido(s): o existente foi mantido.').waitFor();
       assert.equal(await page.locator('.mt-arquivo').count(), 1);
-      // mesmo nome → "Substituir": continua um arquivo só, com o recorte
+      // mesmo nome → "Substituir": continua um arquivo só, carregado do zero (sem o corte do anterior)
       await page.locator('input[name="arquivo-montagem"]').setInputFiles([{ name: 'TESTE.zip', mimeType: 'application/zip', buffer: zipar('TESTE.csv', Buffer.from(gerarCSV(), 'latin1')) }]);
+      await page.locator('.modal', { hasText: 'Arquivo já carregado' }).getByText(/carregado do zero/).waitFor();
       await page.locator('.modal', { hasText: 'Arquivo já carregado' }).getByRole('button', { name: 'Substituir' }).click();
       await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
       assert.equal(await page.locator('.mt-arquivo').count(), 1);
+      assert.ok(!(await page.locator('.mt-arquivo summary').textContent()).includes('recortado'));
+      await page.locator('.mt-arquivo summary').click();
+      await page.locator('.mt-arquivo').getByText('Sem corte: o arquivo inteiro é usado.').waitFor();
+      // corta de novo (o restante do teste usa o arquivo até 2+000) e confere o "Limpar corte"
+      await page.locator('.mt-arquivo').getByLabel('Até o km').fill('2+000');
+      await page.locator('.mt-arquivo').getByLabel('Até o km').dispatchEvent('change');
+      await page.locator('.mt-arquivo').getByRole('button', { name: 'Aplicar corte' }).click();
       await page.locator('.mt-arquivo summary', { hasText: 'recortado' }).waitFor();
+      await page.locator('.mt-arquivo').getByRole('button', { name: 'Limpar corte' }).click();
+      await page.getByText('Corte retirado de TESTE.csv: o arquivo inteiro é usado.').waitFor();
+      await page.locator('.mt-arquivo').getByLabel('Até o km').fill('2+000');
+      await page.locator('.mt-arquivo').getByLabel('Até o km').dispatchEvent('change');
+      await page.locator('.mt-arquivo').getByRole('button', { name: 'Aplicar corte' }).click();
+      await page.locator('.mt-arquivo summary', { hasText: 'recortado' }).waitFor();
+      await page.locator('.mt-arquivo summary').click();
       // setinha recolhe e abre a lista de arquivos
       await page.locator('details.mt-arquivos > summary').click();
       assert.equal(await page.locator('details.mt-arquivos').evaluate((el) => el.open), false);
@@ -830,15 +850,19 @@ async function main() {
       await page.locator('input[name="arquivo-montagem"]').setInputFiles([{ name: 'SALTO.csv', mimeType: 'text/csv', buffer: Buffer.from(csvSalto, 'latin1') }]);
       await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
       // filtro por sede e data
-      await page.getByLabel('Sede', { exact: true }).selectOption('CS');
+      const campoSede = page.getByLabel('Sede', { exact: true });
+      assert.equal(await campoSede.inputValue(), ''); // em branco = todas
+      await campoSede.pressSequentially('cs', { delay: 60 }); // minúsculo também acha
       await page.getByText('Mostrando 1 de 2 arquivo(s)').waitFor();
+      assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.name), 'filtroSede'); // continua digitando
       assert.equal(await page.locator('.mt-arquivo').count(), 1);
       assert.ok((await page.locator('.mt-arquivo summary').textContent()).includes('SALTO.csv'));
       await page.locator('.mt-filtros').screenshot({ path: `${SAIDA}16c-montagem-filtro.png` });
       await page.getByLabel('Data da inspeção').selectOption('01/09/2026');
       await page.getByText('Nenhum arquivo com esse filtro.').waitFor();
-      await page.getByLabel('Sede', { exact: true }).selectOption('');
+      await page.getByLabel('Sede', { exact: true }).fill('');
       await page.getByText('Mostrando 1 de 2 arquivo(s)').waitFor();
+      await page.waitForFunction(() => document.querySelectorAll('.mt-arquivo').length === 1 && document.querySelector('.mt-arquivo summary').textContent.includes('TESTE.csv'));
       assert.ok((await page.locator('.mt-arquivo summary').textContent()).includes('TESTE.csv'));
       assert.deepEqual(await page.getByLabel('Data da inspeção').locator('option').allTextContents(), ['Todas', '02/09/2026', '01/09/2026']);
       await page.getByRole('button', { name: 'Limpar filtros' }).click();
@@ -853,10 +877,10 @@ async function main() {
       // recorte que deixa o salto de fora (só o lado depois do pulo): sai da lista de compensação
       await salto.getByLabel('Até o km').fill('1+898');
       await salto.getByLabel('Até o km').dispatchEvent('change');
+      await salto.getByRole('button', { name: 'Aplicar corte' }).click();
       await salto.getByText('1 salto(s)/volta(s) fora do trecho usado').waitFor();
       assert.equal(await salto.locator('.mt-comp-item').count(), 0);
-      await salto.getByLabel('Até o km').fill('');
-      await salto.getByLabel('Até o km').dispatchEvent('change');
+      await salto.getByRole('button', { name: 'Limpar corte' }).click();
       await salto.locator('.mt-comp-item', { hasText: 'Compensado' }).waitFor();
       // alertas de geometria (sem bitola e sem alinhamento)
       await page.getByRole('tab', { name: 'Alertas de geometria' }).click();

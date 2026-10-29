@@ -1172,7 +1172,7 @@ window.App = window.App || {};
     versao: '2026.10.29',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-661a36d282', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-7d28cc1f98', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -7747,16 +7747,19 @@ window.App = window.App || {};
         if (anterior && !substituir) {
           const outroNome = anterior.nome !== nome ? ` com o nome ${anterior.nome} (mesmo conteúdo)` : '';
           const sim = await ui.confirmar('Arquivo já carregado',
-            `${nome} já está na Montagem${outroNome}, adicionado em ${U.fmtDataHora(anterior.adicionadoEm) || '—'}. Substituir o arquivo existente? O recorte, as compensações e a correção da linha são mantidos.`,
+            `${nome} já está na Montagem${outroNome}, adicionado em ${U.fmtDataHora(anterior.adicionadoEm) || '—'}. Substituir o arquivo existente? Ele é carregado do zero: o corte, as compensações e a correção da linha do arquivo atual são descartados.`,
             { ok: 'Substituir' });
           if (!sim) { mantidos++; continue; }
         }
-        // o mesmo arquivo adicionado de novo mantém o recorte, a correção da linha e as compensações que ainda existem nele
-        const linhas = anterior ? anterior.linhas || null : null;
+        // substituir = carregar do zero; só o "Adicionar de novo" (arquivo de versão antiga) mantém o recorte,
+        // a correção da linha e as compensações que ainda existem nele
+        const manter = anterior && substituir ? anterior : null;
+        const linhas = manter ? manter.linhas || null : null;
         const resumo = C().resumirArquivo(arq, planta, nome, { compensacao: rg, linhas });
-        const compensar = anterior ? (anterior.compensar || []).filter((ch) => resumo.compensaveis.some((c) => c.chave === ch)) : [];
+        const compensar = manter ? (manter.compensar || []).filter((ch) => resumo.compensaveis.some((c) => c.chave === ch)) : [];
         const final = compensar.length ? C().resumirArquivo(arq, planta, nome, { compensar, compensacao: rg, linhas }) : resumo;
-        const item = { id: anterior ? anterior.id : `${Date.now()}-${k}`, nome, ciclo: ciclo(), adicionadoEm: U.agora(), recorte: anterior ? anterior.recorte : null, compensar, regras: rg, linhas, resumo: final };
+        const item = { id: manter ? manter.id : `${Date.now()}-${k}`, nome, ciclo: ciclo(), adicionadoEm: U.agora(), recorte: manter ? manter.recorte : null, compensar, regras: rg, linhas, resumo: final };
+        if (anterior && !manter) await store.del(CHAVE_CSV(anterior.id)).catch(() => {}); // CSV do arquivo substituído
         await guardarCsv(item.id, texto);
         if (existente >= 0) arquivos[existente] = item; else arquivos.push(item);
         ok++;
@@ -7774,6 +7777,7 @@ window.App = window.App || {};
   async function remover(a) {
     if (!(await ui.confirmar('Remover arquivo', `Remover ${a.nome} da montagem?`, { ok: 'Remover', perigo: true }))) return;
     arquivos = arquivos.filter((x) => x !== a);
+    cortes.delete(a.id);
     await store.del(CHAVE_CSV(a.id)).catch(() => {});
     await gravar();
     render();
@@ -8077,6 +8081,13 @@ window.App = window.App || {};
     const t = conf && [...conf.trechos].sort((x, y) => y.m - x.m)[0];
     return t ? C().normSede(t.sede) : '';
   };
+  /** Busca da sede enquanto digita: redesenha e devolve o foco (com o cursor no fim) ao campo. */
+  const buscarSede = U.debounce((texto) => {
+    U.pref.set('montagem:filtroSedeTexto', texto);
+    render();
+    const campo = raiz && raiz.querySelector('input[name="filtroSede"]');
+    if (campo) { campo.focus(); campo.setSelectionRange(campo.value.length, campo.value.length); }
+  }, 250);
   /** Data da inspeção (coluna DATA, dd/mm/aaaa) em aaaa-mm-dd, para ordenar. */
   const dataIso = (d) => { const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(String(d || '').trim()); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
 
@@ -8087,15 +8098,24 @@ window.App = window.App || {};
     // filtro por data e sede (só a lista de arquivos; a cobertura continua com o ciclo todo)
     const sedes = [...new Set(todos.map((a) => sedeDo(a, conferencia)).filter(Boolean))].sort();
     const datas = [...new Set(todos.map((a) => (a.resumo.meta && a.resumo.meta.data) || '').filter(Boolean))].sort((x, y) => dataIso(y).localeCompare(dataIso(x)));
-    const fSede = sedes.includes(U.pref.get('montagem:filtroSede', '')) ? U.pref.get('montagem:filtroSede', '') : '';
+    // sede: texto livre (em branco = todas); busca na sede e no nome do arquivo, sem diferenciar maiúsculas e acentos
+    const fSede = String(U.pref.get('montagem:filtroSedeTexto', '') || '');
+    const busca = U.normalizar(fSede).replace(/\s+/g, '');
     const fData = datas.includes(U.pref.get('montagem:filtroData', '')) ? U.pref.get('montagem:filtroData', '') : '';
-    const lista = todos.filter((a) => (!fSede || sedeDo(a, conferencia) === fSede) && (!fData || (a.resumo.meta && a.resumo.meta.data) === fData));
+    const semExtensao = (n) => String(n || '').replace(/\.(csv|txt|zip)$/i, ''); // ".csv" não pode casar com a sede CS
+    const casaSede = (a) => !busca || [sedeDo(a, conferencia), semExtensao(a.nome)].some((t) => U.normalizar(t).replace(/\s+/g, '').includes(busca));
+    const lista = todos.filter((a) => casaSede(a) && (!fData || (a.resumo.meta && a.resumo.meta.data) === fData));
     const filtroSel = (rotulo, valor, opcoes, chave) => ui.campo(rotulo, h('select', { onchange: (e) => { U.pref.set(chave, e.target.value); render(); } },
       [['', 'Todas'], ...opcoes.map((o) => [o, o])].map(([v, t]) => h('option', { value: v, selected: v === valor || null, text: t }))));
+    const campoSede = ui.campo('Sede', h('input', {
+      type: 'search', name: 'filtroSede', value: fSede, placeholder: 'ex.: GV2, CS', list: 'mt-sedes', autocomplete: 'off',
+      oninput: (e) => buscarSede(e.target.value)
+    }));
     const filtros = h('div', { class: 'mt-filtros' },
-      filtroSel('Sede', fSede, sedes, 'montagem:filtroSede'),
+      campoSede,
+      h('datalist', { id: 'mt-sedes' }, sedes.map((x) => h('option', { value: x }))),
       filtroSel('Data da inspeção', fData, datas, 'montagem:filtroData'),
-      fSede || fData ? h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => { U.pref.set('montagem:filtroSede', ''); U.pref.set('montagem:filtroData', ''); render(); } }, ui.icone('x'), 'Limpar filtros') : null,
+      fSede || fData ? h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => { U.pref.set('montagem:filtroSedeTexto', ''); U.pref.set('montagem:filtroData', ''); render(); } }, ui.icone('x'), 'Limpar filtros') : null,
       h('span', { class: 'mt-sub', role: 'status', text: fSede || fData ? `Mostrando ${lista.length} de ${todos.length} arquivo(s)` : '' }));
     const ordem = [...lista].sort((a, b) => (a.resumo.ramal + a.resumo.linhaRef).localeCompare(b.resumo.ramal + b.resumo.linhaRef) || Math.min(a.resumo.kmIni, a.resumo.kmFim) - Math.min(b.resumo.kmIni, b.resumo.kmFim));
     const antigos = todos.filter((a) => a.antigo);
@@ -8117,10 +8137,16 @@ window.App = window.App || {};
           const avisos = [...conf.avisos, ...r.inconsistencias];
           const ondeCaiu = [...new Map(conf.trechos.map((t) => [`${t.linha}|${t.sede}`, t])).values()].map((t) => `L${t.linha} ${C().normSede(t.sede)} ${kmTxt(t.m)}`).join(' · ');
           const erros = avisos.filter((x) => x.tipo === 'erro').length; const alertas = avisos.filter((x) => x.tipo === 'alerta').length;
-          const mudarRecorte = async (campo, v) => {
-            a.recorte = { de: null, ate: null, ...(a.recorte || {}), [campo]: v };
-            if (a.recorte.de === null && a.recorte.ate === null) a.recorte = null;
+          // corte: os campos guardam o valor digitado; só vale ao clicar em "Aplicar corte"
+          const pend = cortes.get(a.id) || { de: a.recorte ? a.recorte.de ?? null : null, ate: a.recorte ? a.recorte.ate ?? null : null };
+          const editar = (campo, v) => { pend[campo] = v; cortes.set(a.id, pend); };
+          const aplicarCorte = async (novo) => {
+            let { de, ate } = novo;
+            if (de !== null && ate !== null && de > ate) [de, ate] = [ate, de];
+            a.recorte = de === null && ate === null ? null : { de, ate };
+            cortes.delete(a.id);
             await gravar(); render();
+            ui.toast(a.recorte ? `Corte aplicado em ${a.nome}: ${corteTxt(a.recorte)}.` : `Corte retirado de ${a.nome}: o arquivo inteiro é usado.`, 'ok');
           };
           return h('details', { class: 'mt-arquivo', open: abertos.has(`arq|${a.id}`) || null, ontoggle: (e) => { if (e.target.open) abertos.add(`arq|${a.id}`); else abertos.delete(`arq|${a.id}`); } },
             h('summary', null,
@@ -8139,12 +8165,22 @@ window.App = window.App || {};
               a.antigo ? null : cartaoLinhaArquivo(a),
               h('div', { class: 'linha-acoes' },
                 h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
-              h('div', { class: 'grade-3' },
-                ui.campo('Usar a partir do km', campoKm(a.recorte && a.recorte.de, (v) => mudarRecorte('de', v), 'início')),
-                ui.campo('Até o km', campoKm(a.recorte && a.recorte.ate, (v) => mudarRecorte('ate', v), 'fim')),
-                h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-fantasma', onclick: () => remover(a) }, ui.icone('lixo'), 'Remover')))));
+              h('div', { class: 'pilha mt-comp mt-corte' },
+                h('strong', { text: 'Corte do arquivo' }),
+                h('span', { class: 'mt-sub', text: a.recorte ? `Corte atual: ${corteTxt(a.recorte)} (km do arquivo).` : 'Sem corte: o arquivo inteiro é usado.' }),
+                h('div', { class: 'grade-2' },
+                  ui.campo('Usar a partir do km', campoKm(pend.de, (v) => editar('de', v), 'início')),
+                  ui.campo('Até o km', campoKm(pend.ate, (v) => editar('ate', v), 'fim'))),
+                h('div', { class: 'linha-acoes' },
+                  h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => aplicarCorte(pend) }, ui.icone('check'), 'Aplicar corte'),
+                  a.recorte ? h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => aplicarCorte({ de: null, ate: null }) }, ui.icone('x'), 'Limpar corte') : null)),
+              h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-fantasma', onclick: () => remover(a) }, ui.icone('lixo'), 'Remover arquivo'))));
         })));
   }
+
+  /** Corte digitado e ainda não aplicado, por arquivo (id → { de, ate }). */
+  const cortes = new Map();
+  const corteTxt = (rc) => [rc.de !== null && rc.de !== undefined ? `a partir do km ${km(rc.de)}` : '', rc.ate !== null && rc.ate !== undefined ? `até o km ${km(rc.ate)}` : ''].filter(Boolean).join(' ');
 
   /** Sentido da inspeção: coluna SEQUÊNCIA do arquivo (C/D) e o km crescente ou decrescente. */
   function sentidoTxt(r) {
