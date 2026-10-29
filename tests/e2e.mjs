@@ -747,6 +747,27 @@ async function main() {
       await page.reload();
       await page.getByRole('heading', { name: 'Montagem dos dados' }).waitFor();
       await page.locator('.mt-arquivo summary', { hasText: 'recortado' }).waitFor();
+      // arquivo repetido: mesmo conteúdo com outro nome → pergunta; "Cancelar" mantém o existente
+      await page.locator('input[name="arquivo-montagem"]').setInputFiles([{ name: 'COPIA.csv', mimeType: 'text/csv', buffer: Buffer.from(gerarCSV(), 'latin1') }]);
+      await page.locator('.modal', { hasText: 'Arquivo já carregado' }).getByText('COPIA.csv já está na Montagem com o nome TESTE.csv (mesmo conteúdo)').waitFor();
+      await page.locator('.modal').getByRole('button', { name: 'Cancelar' }).click();
+      await page.getByText('1 arquivo(s) repetido(s): o existente foi mantido.').waitFor();
+      assert.equal(await page.locator('.mt-arquivo').count(), 1);
+      // mesmo nome → "Substituir": continua um arquivo só, com o recorte
+      await page.locator('input[name="arquivo-montagem"]').setInputFiles([{ name: 'TESTE.zip', mimeType: 'application/zip', buffer: zipar('TESTE.csv', Buffer.from(gerarCSV(), 'latin1')) }]);
+      await page.locator('.modal', { hasText: 'Arquivo já carregado' }).getByRole('button', { name: 'Substituir' }).click();
+      await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
+      assert.equal(await page.locator('.mt-arquivo').count(), 1);
+      await page.locator('.mt-arquivo summary', { hasText: 'recortado' }).waitFor();
+      // setinha recolhe e abre a lista de arquivos
+      await page.locator('details.mt-arquivos > summary').click();
+      assert.equal(await page.locator('details.mt-arquivos').evaluate((el) => el.open), false);
+      await page.locator('details.mt-arquivos > summary').click();
+      // dica da barra: km, situação e RH sob o mouse
+      const barra = page.locator('.mt-faixa-dica .mt-faixa').first();
+      await barra.hover({ position: { x: 20, y: 6 } });
+      assert.match(await page.locator('.mt-dica:visible').first().textContent(), /^km \d+\+\d{3}(medido|buraco|falta medir|medido 2×|fora do que precisa medir)/);
+      await page.mouse.move(0, 0);
       // data e sentido da inspeção no arquivo; marcas de RH nas barras
       const arqTeste = page.locator('.mt-arquivo', { hasText: 'TESTE.csv' });
       assert.match(await arqTeste.locator('.mt-data').textContent(), /^01\/09\/2026 · Sentido D \(km decrescente\)$/);
@@ -764,18 +785,27 @@ async function main() {
       await arqTeste.locator('.mt-linha-arq').getByLabel('Usar o valor 1 como').selectOption('');
       await page.getByText('"1" agora vale como automático.').waitFor();
       assert.equal(await pctMedido(), antes);
-      // linha num trecho de km: 1+900 a 1+800 em deslocamento
-      await arqTeste.getByLabel('Início (km)').fill('1+900');
-      await arqTeste.getByLabel('Início (km)').dispatchEvent('change');
-      await arqTeste.getByLabel('Fim (km)').fill('1+800');
-      await arqTeste.getByLabel('Fim (km)').dispatchEvent('change');
-      await arqTeste.getByLabel('Linha do trecho').selectOption('LOCOM');
-      await arqTeste.getByRole('button', { name: 'Aplicar no trecho' }).click();
+      // linha em dois trechos de km de uma vez: 1+900 a 1+800 e 1+700 a 1+650 em deslocamento
+      const preencher = async (rotulo, valor) => { const c = arqTeste.getByLabel(rotulo, { exact: true }); await c.fill(valor); await c.dispatchEvent('change'); };
+      await preencher('Início do trecho 1', '1+900');
+      await preencher('Fim do trecho 1', '1+800');
+      await arqTeste.getByLabel('Linha do trecho 1').selectOption('LOCOM');
+      await arqTeste.getByRole('button', { name: 'Outro trecho' }).click();
+      assert.equal(await arqTeste.getByLabel('Início do trecho 1').inputValue(), '1+900'); // o que foi digitado continua
+      await preencher('Início do trecho 2', '1+700');
+      await preencher('Fim do trecho 2', '1+650');
+      assert.equal(await arqTeste.getByLabel('Linha do trecho 2').inputValue(), 'LOCOM'); // repete a linha da anterior
+      await arqTeste.getByRole('button', { name: 'Aplicar', exact: true }).click();
+      await page.getByText(/^2 trechos aplicados/).waitFor();
       await arqTeste.getByText('1+800 – 1+900 → desconsiderar (deslocamento)').waitFor();
+      await arqTeste.getByText('1+650 – 1+700 → desconsiderar (deslocamento)').waitFor();
       assert.ok(await pctMedido() < antes);
       await page.screenshot({ path: `${SAIDA}16b-montagem-linha.png`, fullPage: true });
       await arqTeste.getByRole('button', { name: 'Remover o trecho 1+800 – 1+900' }).click();
-      await page.getByText('Trecho removido.').waitFor();
+      await arqTeste.getByText('1+800 – 1+900 → desconsiderar (deslocamento)').waitFor({ state: 'detached' });
+      await arqTeste.getByRole('button', { name: 'Remover o trecho 1+650 – 1+700' }).click();
+      await arqTeste.getByText('1+650 – 1+700 → desconsiderar (deslocamento)').waitFor({ state: 'detached' });
+      await page.waitForFunction(() => !document.querySelector('.mt-arquivo summary')?.textContent.includes('linha corrigida'));
       assert.equal(await pctMedido(), antes);
       await page.locator('.mt-arquivo summary', { hasText: 'linha corrigida' }).waitFor({ state: 'detached' });
       // arquivo calculado numa versão anterior (sem a lista da coluna LINHA): o app atualiza sozinho ao abrir a Montagem

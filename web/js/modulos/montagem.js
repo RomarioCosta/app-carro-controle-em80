@@ -105,11 +105,16 @@
 
   /* ---------------- Arquivos ---------------- */
 
-  async function adicionar(lista) {
+  /** Assinatura do conteúdo do arquivo: o mesmo arquivo com outro nome também é reconhecido como repetido. */
+  const assinatura = (pontos, kmIni, kmFim, meta) => [pontos, Math.round(kmIni * 100), Math.round(kmFim * 100), meta.data, meta.corretiva, meta.ramal].join('|');
+  const assinaturaDe = (a) => assinatura(a.resumo.pontos, a.resumo.kmIni, a.resumo.kmFim, a.resumo.meta || {});
+
+  /** substituir: true = já confirmado (ex.: "Adicionar de novo" de um arquivo antigo), sem perguntar. */
+  async function adicionar(lista, { substituir = false } = {}) {
     if (!planta) { ui.toast('Importe a geometria na Análise do arquivo primeiro.', 'erro', 6000); return; }
     processando = true;
     render();
-    let ok = 0;
+    let ok = 0; let mantidos = 0;
     for (let k = 0; k < lista.length; k++) {
       const f = lista[k];
       ui.toast(`Processando ${k + 1}/${lista.length}: ${f.name}…`, 'info', 4000);
@@ -118,8 +123,19 @@
         const { nome, texto } = await App.analise.textoDoArquivo(f);
         const arq = B().lerCSV(texto);
         const rg = regras();
-        const existente = arquivos.findIndex((a) => a.nome === nome && (a.ciclo || '') === ciclo());
+        // repetido no ciclo: mesmo nome ou mesmo conteúdo (com outro nome)
+        const sig = assinatura(arq.pos.length, arq.pos[0], arq.pos[arq.pos.length - 1], arq.meta);
+        const doCicloAtual = (a) => (a.ciclo || '') === ciclo();
+        let existente = arquivos.findIndex((a) => a.nome === nome && doCicloAtual(a));
+        if (existente < 0) existente = arquivos.findIndex((a) => doCicloAtual(a) && !a.antigo && assinaturaDe(a) === sig);
         const anterior = existente >= 0 ? arquivos[existente] : null;
+        if (anterior && !substituir) {
+          const outroNome = anterior.nome !== nome ? ` com o nome ${anterior.nome} (mesmo conteúdo)` : '';
+          const sim = await ui.confirmar('Arquivo já carregado',
+            `${nome} já está na Montagem${outroNome}, adicionado em ${U.fmtDataHora(anterior.adicionadoEm) || '—'}. Substituir o arquivo existente? O recorte, as compensações e a correção da linha são mantidos.`,
+            { ok: 'Substituir' });
+          if (!sim) { mantidos++; continue; }
+        }
         // o mesmo arquivo adicionado de novo mantém o recorte, a correção da linha e as compensações que ainda existem nele
         const linhas = anterior ? anterior.linhas || null : null;
         const resumo = C().resumirArquivo(arq, planta, nome, { compensacao: rg, linhas });
@@ -135,7 +151,8 @@
     }
     processando = false;
     await gravar();
-    if (ok) ui.toast(`${ok} arquivo(s) adicionado(s).`, 'ok');
+    if (ok) ui.toast(`${ok} arquivo(s) adicionado(s).${mantidos ? ` ${mantidos} repetido(s) não substituído(s).` : ''}`, 'ok');
+    else if (mantidos) ui.toast(`${mantidos} arquivo(s) repetido(s): o existente foi mantido.`, 'info', 5000);
     render();
   }
 
@@ -155,7 +172,7 @@
       if (!f) return;
       const base = (n) => String(n || '').replace(/\.(zip|csv|txt)$/i, '').toLowerCase();
       if (base(f.name) !== base(a.nome) && !(await ui.confirmar('Arquivo diferente', `Você escolheu ${f.name}, mas este é ${a.nome}. Usar mesmo assim?`, { ok: 'Usar' }))) return;
-      await adicionar([f]);
+      await adicionar([f], { substituir: true });
     } });
     document.body.appendChild(input);
     input.click();
@@ -266,13 +283,10 @@
     linha.sedes.filter(dentro).flatMap((s) => s.rh || []).forEach((p) => {
       const meio = (p.ini + p.fim) / 2;
       if (meio < ini || meio > fim) return;
-      const t = svg('line', { x1: x(meio), x2: x(meio), y1: 1, y2: 13, class: 'mt-rh' });
-      const dica = document.createElementNS(NS, 'title');
-      dica.textContent = `${p.nome || 'RH'} · ${km(p.ini)} – ${km(p.fim)}`;
-      t.appendChild(dica);
-      el.appendChild(t);
+      el.appendChild(svg('line', { x1: x(meio), x2: x(meio), y1: 1, y2: 13, class: 'mt-rh' }));
     });
-    if (!divisas) return el;
+    const comDica = dicaFaixa(el, linha, ini, fim);
+    if (!divisas) return comDica;
     // nomes das sedes em HTML (o SVG é esticado na largura e deformaria o texto)
     const rotulos = h('div', { class: 'mt-rotulos' });
     linha.sedes.filter(dentro).forEach((s, k) => {
@@ -280,9 +294,55 @@
       if (k) el.appendChild(svg('line', { x1: xa, x2: xa, y1: 0, y2: 16, class: 'mt-div' }));
       rotulos.appendChild(h('span', { style: `left:${xa / 10}%;width:${(xb - xa) / 10}%`, text: C().normSede(s.sede), title: `${s.sede} ${km(s.ini)} – ${km(s.fim)}` }));
     });
-    return h('div', { class: 'mt-faixa-caixa' }, el, rotulos);
-    return el;
+    return h('div', { class: 'mt-faixa-caixa' }, comDica, rotulos);
   }
+
+  /**
+   * Dica da faixa: passando o mouse ou tocando, mostra o km daquele ponto, se está medido, buraco ou falta medir,
+   * a sede e o RH (pátio) em que está ou o mais próximo.
+   */
+  function dicaFaixa(el, linha, ini, fim) {
+    const dica = h('div', { class: 'mt-dica', hidden: true, role: 'status' });
+    const cursor = h('div', { class: 'mt-dica-cursor', hidden: true });
+    const caixa = h('div', { class: 'mt-faixa-dica' }, el, cursor, dica);
+    const dentroDe = (p, iv) => iv.some(([a, b]) => p >= a && p <= b);
+    const mostrar = (e) => {
+      const ret = el.getBoundingClientRect();
+      if (!ret.width) return;
+      const fr = Math.min(1, Math.max(0, (e.clientX - ret.left) / ret.width));
+      const p = ini + fr * (fim - ini);
+      const sede = linha.sedes.find((s) => p >= s.ini && p <= s.fim);
+      let situacao = 'fora do que precisa medir';
+      if (sede) {
+        if (linha.sobreposicoes.some((o) => p >= o.ini && p <= o.fim)) situacao = 'medido 2×';
+        else if (dentroDe(p, sede.cobertos || [])) situacao = 'medido';
+        else if (sede.coberto > 0 && linha.buracos.some((b) => p >= b.ini && p <= b.fim)) situacao = 'buraco';
+        else situacao = 'falta medir';
+      }
+      const rhs = linha.sedes.flatMap((s) => s.rh || []);
+      const noRh = rhs.find((q) => p >= q.ini && p <= q.fim);
+      const perto = noRh ? null : rhs.reduce((m, q) => (!m || Math.abs((q.ini + q.fim) / 2 - p) < Math.abs((m.ini + m.fim) / 2 - p) ? q : m), null);
+      const rhTxt = noRh ? `no ${noRh.nome || 'RH'}` : perto ? `${mTxt(Math.abs((perto.ini + perto.fim) / 2 - p))} ${(perto.ini + perto.fim) / 2 > p ? 'antes' : 'depois'} do ${perto.nome || 'RH'}` : '';
+      ui.trocar(dica, h('strong', { text: `km ${km(p)}` }), h('span', { text: [situacao, sede ? C().normSede(sede.sede) : '', rhTxt].filter(Boolean).join(' · ') }));
+      dica.hidden = false; cursor.hidden = false;
+      const xr = fr * ret.width;
+      cursor.style.left = `${xr}px`;
+      dica.style.left = `${Math.min(Math.max(xr - dica.offsetWidth / 2, 0), Math.max(0, ret.width - dica.offsetWidth))}px`;
+    };
+    const esconder = () => { dica.hidden = true; cursor.hidden = true; };
+    el.addEventListener('pointermove', mostrar);
+    el.addEventListener('pointerdown', mostrar);
+    el.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') esconder(); });
+    caixa.addEventListener('click', (e) => e.stopPropagation()); // na tabela, tocar na barra mostra a dica sem abrir a sede
+    return caixa;
+  }
+  // no toque, a dica fica até tocar fora da faixa (um só ouvinte para todas as faixas)
+  document.addEventListener('pointerdown', (e) => {
+    document.querySelectorAll('.mt-faixa-dica').forEach((c) => {
+      if (c.contains(e.target)) return;
+      c.querySelectorAll('.mt-dica, .mt-dica-cursor').forEach((x) => { x.hidden = true; });
+    });
+  });
 
   /* ---------------- Telas ---------------- */
 
@@ -425,48 +485,51 @@
       h('span', { class: 'mt-sub', role: 'status', text: fSede || fData ? `Mostrando ${lista.length} de ${todos.length} arquivo(s)` : '' }));
     const ordem = [...lista].sort((a, b) => (a.resumo.ramal + a.resumo.linhaRef).localeCompare(b.resumo.ramal + b.resumo.linhaRef) || Math.min(a.resumo.kmIni, a.resumo.kmFim) - Math.min(b.resumo.kmIni, b.resumo.kmFim));
     const antigos = todos.filter((a) => a.antigo);
-    const input = h('input', { type: 'file', multiple: true, hidden: true, onchange: (e) => { const l = [...e.target.files]; e.target.value = ''; if (l.length) adicionar(l); } });
-    return h('section', { class: 'cartao pilha' },
-      h('h2', { text: `Arquivos (${todos.length})` }),
-      todos.length > 1 ? filtros : null,
-      !lista.length ? h('p', { class: 'vazio', text: 'Nenhum arquivo com esse filtro.' }) : null,
-      atualizando ? h('p', { class: 'aviso', role: 'status', text: `Atualizando os arquivos para a versão nova do app: ${atualizando.feitos} de ${atualizando.total}…` }) : null,
-      antigos.length ? h('div', { class: 'aviso pilha' },
-        h('span', { text: `${antigos.length} arquivo(s) foram adicionados numa versão anterior do app. Para ter o ajuste do km (Compensar), os alertas de geometria e a Tela do carro, adicione de novo os mesmos arquivos (pode selecionar todos de uma vez). O recorte de cada um é mantido.` }),
-        h('div', null, h('button', { class: 'btn btn-primario btn-pequeno', disabled: processando || null, onclick: () => input.click() }, ui.icone('upload'), 'Adicionar de novo'), input)) : null,
-      ordem.map((a) => {
-        const r = a.resumo;
-        const conf = conferencia.find((c) => c.id === a.id) || { trechos: [], avisos: [] };
-        const avisos = [...conf.avisos, ...r.inconsistencias];
-        const ondeCaiu = [...new Map(conf.trechos.map((t) => [`${t.linha}|${t.sede}`, t])).values()].map((t) => `L${t.linha} ${C().normSede(t.sede)} ${kmTxt(t.m)}`).join(' · ');
-        const erros = avisos.filter((x) => x.tipo === 'erro').length; const alertas = avisos.filter((x) => x.tipo === 'alerta').length;
-        const mudarRecorte = async (campo, v) => {
-          a.recorte = { de: null, ate: null, ...(a.recorte || {}), [campo]: v };
-          if (a.recorte.de === null && a.recorte.ate === null) a.recorte = null;
-          await gravar(); render();
-        };
-        return h('details', { class: 'mt-arquivo', open: abertos.has(`arq|${a.id}`) || null, ontoggle: (e) => { if (e.target.open) abertos.add(`arq|${a.id}`); else abertos.delete(`arq|${a.id}`); } },
-          h('summary', null,
-            h('span', { class: `mt-ponto ${erros ? 'mt-erro' : alertas ? 'mt-alerta' : 'mt-ok'}` }),
-            h('strong', { text: a.nome }),
-            h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}${a.linhas ? ' · linha corrigida' : ''}` }),
-            h('span', { class: 'mt-data', text: [r.meta.data, sentidoTxt(r)].filter(Boolean).join(' · ') }),
-            a.antigo ? h('span', { class: 'mt-cont', text: 'adicionar de novo' }) : compensaveisUsados(a).some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${compensaveisUsados(a).filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
-              : avisos.length ? h('span', { class: 'mt-cont', text: `${avisos.length} aviso(s)` }) : null),
-          h('div', { class: 'pilha mt-arquivo-corpo' },
-            h('p', { class: 'mt-sub', text: `Caiu em: ${ondeCaiu || '—'} · correção do km pela geometria ${Math.round(r.correcao.min)} a ${Math.round(r.correcao.max)} m · ${r.correcao.casadas}/${r.correcao.curvas} curvas casadas` }),
-            avisos.length ? h('ul', { class: 'mt-lista' }, avisos.map((x) => h('li', { class: x.tipo === 'erro' ? 'mt-erro-txt' : x.tipo === 'alerta' ? 'mt-atencao-txt' : 'mt-sub', text: x.texto }))) : h('p', { class: 'mt-sub', text: 'Sem inconsistências.' }),
-            a.antigo ? h('div', { class: 'aviso' }, 'Adicionado numa versão anterior: sem o ajuste do km (Compensar) e sem a Tela do carro. ',
-              h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => reAdicionar(a) }, ui.icone('upload'), 'Adicionar de novo')) : null,
-            r.compensaveis.length ? listaCompensaveis(a) : null,
-            a.antigo ? null : cartaoLinhaArquivo(a),
-            h('div', { class: 'linha-acoes' },
-              h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
-            h('div', { class: 'grade-3' },
-              ui.campo('Usar a partir do km', campoKm(a.recorte && a.recorte.de, (v) => mudarRecorte('de', v), 'início')),
-              ui.campo('Até o km', campoKm(a.recorte && a.recorte.ate, (v) => mudarRecorte('ate', v), 'fim')),
-              h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-fantasma', onclick: () => remover(a) }, ui.icone('lixo'), 'Remover')))));
-      }));
+    const input = h('input', { type: 'file', multiple: true, hidden: true, onchange: (e) => { const l = [...e.target.files]; e.target.value = ''; if (l.length) adicionar(l, { substituir: true }); } });
+    const aberto = U.pref.get('montagem:arquivosAberto', true);
+    return h('details', { class: 'cartao mt-arquivos', open: aberto || null, ontoggle: (e) => U.pref.set('montagem:arquivosAberto', e.target.open) },
+      h('summary', { class: 'mt-recolhe' }, h('h2', { text: `Arquivos (${todos.length})` }),
+        lista.length !== todos.length ? h('span', { class: 'mt-sub', text: `${lista.length} no filtro` }) : null),
+      h('div', { class: 'pilha' },
+        todos.length > 1 ? filtros : null,
+        !lista.length ? h('p', { class: 'vazio', text: 'Nenhum arquivo com esse filtro.' }) : null,
+        atualizando ? h('p', { class: 'aviso', role: 'status', text: `Atualizando os arquivos para a versão nova do app: ${atualizando.feitos} de ${atualizando.total}…` }) : null,
+        antigos.length ? h('div', { class: 'aviso pilha' },
+          h('span', { text: `${antigos.length} arquivo(s) foram adicionados numa versão anterior do app. Para ter o ajuste do km (Compensar), os alertas de geometria e a Tela do carro, adicione de novo os mesmos arquivos (pode selecionar todos de uma vez). O recorte de cada um é mantido.` }),
+          h('div', null, h('button', { class: 'btn btn-primario btn-pequeno', disabled: processando || null, onclick: () => input.click() }, ui.icone('upload'), 'Adicionar de novo'), input)) : null,
+        ordem.map((a) => {
+          const r = a.resumo;
+          const conf = conferencia.find((c) => c.id === a.id) || { trechos: [], avisos: [] };
+          const avisos = [...conf.avisos, ...r.inconsistencias];
+          const ondeCaiu = [...new Map(conf.trechos.map((t) => [`${t.linha}|${t.sede}`, t])).values()].map((t) => `L${t.linha} ${C().normSede(t.sede)} ${kmTxt(t.m)}`).join(' · ');
+          const erros = avisos.filter((x) => x.tipo === 'erro').length; const alertas = avisos.filter((x) => x.tipo === 'alerta').length;
+          const mudarRecorte = async (campo, v) => {
+            a.recorte = { de: null, ate: null, ...(a.recorte || {}), [campo]: v };
+            if (a.recorte.de === null && a.recorte.ate === null) a.recorte = null;
+            await gravar(); render();
+          };
+          return h('details', { class: 'mt-arquivo', open: abertos.has(`arq|${a.id}`) || null, ontoggle: (e) => { if (e.target.open) abertos.add(`arq|${a.id}`); else abertos.delete(`arq|${a.id}`); } },
+            h('summary', null,
+              h('span', { class: `mt-ponto ${erros ? 'mt-erro' : alertas ? 'mt-alerta' : 'mt-ok'}` }),
+              h('strong', { text: a.nome }),
+              h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}${a.linhas ? ' · linha corrigida' : ''}` }),
+              h('span', { class: 'mt-data', text: [r.meta.data, sentidoTxt(r)].filter(Boolean).join(' · ') }),
+              a.antigo ? h('span', { class: 'mt-cont', text: 'adicionar de novo' }) : compensaveisUsados(a).some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${compensaveisUsados(a).filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
+                : avisos.length ? h('span', { class: 'mt-cont', text: `${avisos.length} aviso(s)` }) : null),
+            h('div', { class: 'pilha mt-arquivo-corpo' },
+              h('p', { class: 'mt-sub', text: `Caiu em: ${ondeCaiu || '—'} · correção do km pela geometria ${Math.round(r.correcao.min)} a ${Math.round(r.correcao.max)} m · ${r.correcao.casadas}/${r.correcao.curvas} curvas casadas` }),
+              avisos.length ? h('ul', { class: 'mt-lista' }, avisos.map((x) => h('li', { class: x.tipo === 'erro' ? 'mt-erro-txt' : x.tipo === 'alerta' ? 'mt-atencao-txt' : 'mt-sub', text: x.texto }))) : h('p', { class: 'mt-sub', text: 'Sem inconsistências.' }),
+              a.antigo ? h('div', { class: 'aviso' }, 'Adicionado numa versão anterior: sem o ajuste do km (Compensar) e sem a Tela do carro. ',
+                h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => reAdicionar(a) }, ui.icone('upload'), 'Adicionar de novo')) : null,
+              r.compensaveis.length ? listaCompensaveis(a) : null,
+              a.antigo ? null : cartaoLinhaArquivo(a),
+              h('div', { class: 'linha-acoes' },
+                h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
+              h('div', { class: 'grade-3' },
+                ui.campo('Usar a partir do km', campoKm(a.recorte && a.recorte.de, (v) => mudarRecorte('de', v), 'início')),
+                ui.campo('Até o km', campoKm(a.recorte && a.recorte.ate, (v) => mudarRecorte('ate', v), 'fim')),
+                h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-fantasma', onclick: () => remover(a) }, ui.icone('lixo'), 'Remover')))));
+        })));
   }
 
   /** Sentido da inspeção: coluna SEQUÊNCIA do arquivo (C/D) e o km crescente ou decrescente. */
@@ -515,15 +578,26 @@
         sel);
     });
 
-    // linha num trecho de km
-    const novo = { de: null, ate: null, linha: linhasPlanta[0] || DESL };
-    const selTrecho = h('select', { onchange: (e) => { novo.linha = e.target.value; } },
-      opcoesLinha().map(([v, t]) => h('option', { value: v, text: t })));
-    const aplicarTrecho = () => {
-      if (novo.de === null || novo.ate === null) { ui.toast('Informe o km inicial e o final do trecho.', 'erro'); return; }
+    // linha num ou mais trechos de km: várias linhas (início, fim, linha) aplicadas de uma vez
+    const novos = [{ de: null, ate: null, linha: linhasPlanta[0] || DESL }];
+    const caixaNovos = h('div', { class: 'mt-trechos-novos' });
+    const desenharNovos = () => ui.trocar(caixaNovos,
+      h('div', { class: 'mt-trecho-cab', 'aria-hidden': 'true' }, h('span', { text: 'Início (km)' }), h('span', { text: 'Fim (km)' }), h('span', { text: 'Linha' }), h('span')),
+      novos.map((t, k) => h('div', { class: 'mt-trecho-linha' },
+        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Início do trecho ${k + 1}`, placeholder: 'ex.: 320+100', value: t.de === null ? '' : km(t.de), onchange: (e) => { t.de = lerKm(e.target, t.de); } }),
+        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Fim do trecho ${k + 1}`, placeholder: 'ex.: 321+400', value: t.ate === null ? '' : km(t.ate), onchange: (e) => { t.ate = lerKm(e.target, t.ate); } }),
+        h('select', { 'aria-label': `Linha do trecho ${k + 1}`, onchange: (e) => { t.linha = e.target.value; } },
+          opcoesLinha().map(([v, txt]) => h('option', { value: v, selected: v === t.linha || null, text: txt }))),
+        novos.length > 1 ? h('button', { type: 'button', class: 'btn-icone', 'aria-label': `Tirar a linha ${k + 1}`, title: 'Tirar esta linha', onclick: () => { novos.splice(k, 1); desenharNovos(); } }, ui.icone('x')) : h('span'))));
+    desenharNovos();
+    const aplicarTrechos = () => {
+      const preenchidos = novos.filter((t) => t.de !== null || t.ate !== null);
+      if (!preenchidos.length) { ui.toast('Informe o km inicial e o final do trecho.', 'erro'); return; }
+      if (preenchidos.some((t) => t.de === null || t.ate === null)) { ui.toast('Cada trecho precisa do km inicial e do final.', 'erro'); return; }
       const nova = regra();
-      nova.trechos.push({ de: Math.min(novo.de, novo.ate), ate: Math.max(novo.de, novo.ate), linha: novo.linha });
-      mudarLinhas(a, nova, `Trecho ${km(Math.min(novo.de, novo.ate))} – ${km(Math.max(novo.de, novo.ate))}: ${nomeLinha(novo.linha)}.`);
+      preenchidos.forEach((t) => nova.trechos.push({ de: Math.min(t.de, t.ate), ate: Math.max(t.de, t.ate), linha: t.linha }));
+      const desc = preenchidos.map((t) => `${km(Math.min(t.de, t.ate))} – ${km(Math.max(t.de, t.ate))}: ${nomeLinha(t.linha)}`).join('; ');
+      mudarLinhas(a, nova, preenchidos.length > 1 ? `${preenchidos.length} trechos aplicados (${desc}).` : `Trecho ${desc}.`);
     };
     const trechos = (atual.trechos || []).map((t, k) => h('li', null,
       h('span', { text: `${km(t.de)} – ${km(t.ate)} → ${nomeLinha(t.linha)}` }),
@@ -538,11 +612,19 @@
       h('div', { class: 'mt-valores-linha' }, linhasValores),
       h('strong', { class: 'mt-sub-titulo', text: 'Linha num trecho de km' }),
       trechos.length ? h('ul', { class: 'mt-lista mt-trechos' }, trechos) : null,
-      h('div', { class: 'grade-4 mt-trecho-novo' },
-        ui.campo('Início (km)', campoKm(null, (v) => { novo.de = v; }, 'ex.: 320+100')),
-        ui.campo('Fim (km)', campoKm(null, (v) => { novo.ate = v; }, 'ex.: 321+400')),
-        ui.campo('Linha do trecho', selTrecho),
-        h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-secundario', disabled: processando || null, onclick: aplicarTrecho }, 'Aplicar no trecho'))));
+      caixaNovos,
+      h('div', { class: 'linha-acoes' },
+        h('button', { type: 'button', class: 'btn btn-secundario btn-pequeno', onclick: () => { novos.push({ de: null, ate: null, linha: novos[novos.length - 1].linha }); desenharNovos(); } }, ui.icone('plus'), 'Outro trecho'),
+        h('button', { type: 'button', class: 'btn btn-primario btn-pequeno', disabled: processando || null, onclick: aplicarTrechos }, 'Aplicar')));
+  }
+
+  /** Km digitado num campo (290+500 ou 290,5); inválido avisa e volta ao valor anterior. */
+  function lerKm(input, anterior) {
+    const t = input.value.trim();
+    if (!t) return null;
+    const m = B().kmParaMetros(t);
+    if (m === null || Number.isNaN(m)) { ui.toast('Km inválido. Use 290+000 ou 290,5.', 'erro'); input.value = anterior === null ? '' : km(anterior); return anterior; }
+    return m;
   }
 
   /* ---------------- Compensação de saltos e voltas do km ---------------- */
