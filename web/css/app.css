@@ -859,6 +859,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-bur { fill: var(--erro); }
 .mt-sob { fill: var(--alerta); }
 .mt-div { stroke: var(--texto2); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+/* Tela do carro: trecho em deslocamento (LOCOM) */
+.tc-locom-fundo { fill: #8a8f98; opacity: .16; }
+.tc-locom-rotulo { font-size: 10px; font-weight: 800; fill: #6b7280; letter-spacing: .5px; }
 .mt-rh { stroke: var(--texto); stroke-width: 1; opacity: .35; vector-effect: non-scaling-stroke; }
 .mt-faixa-dica { position: relative; }
 .mt-faixa-dica .mt-faixa { cursor: crosshair; touch-action: pan-y; }
@@ -895,6 +898,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-valores-linha { display: flex; flex-direction: column; border-top: 1px solid var(--borda); }
 .mt-valor-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 8px 0; border-bottom: 1px solid var(--borda); }
 .mt-valor-linha select { flex: 0 1 260px; }
+.mt-trechos-arquivo > summary { cursor: pointer; padding: 6px 0; }
+.mt-rolagem { max-height: 360px; overflow-y: auto; }
+.mt-trecho-locom { opacity: .7; }
 .mt-legenda { display: flex; flex-wrap: wrap; gap: 14px; font-size: .8rem; color: var(--texto2); }
 .mt-legenda i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; }
 .mt-legenda i.mt-nec { background: var(--grade); } .mt-legenda i.mt-cob { background: var(--ok); }

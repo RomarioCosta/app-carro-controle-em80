@@ -40,7 +40,7 @@ O código está em `web/js/bitola.js` (análise), `web/js/cobertura.js` (montage
 | Espaçamento | A distância mais comum entre pontos seguidos (a mediana). |
 | Ramal | Coluna `RAMAL` (ex.: `RLT` → `LT` da geometria). |
 | Linha | Coluna `LINHA`, lida em todos os pontos. Pode ser 0, 1, 2, 3 ou texto (ex.: `TESTE01`). |
-| Cabeçalho repetido | Quando o carro começa a gravar antes de ser configurado, o arquivo traz um cabeçalho e linhas de medição **sem ramal** (km 0), e depois o cabeçalho de novo com as linhas reais. As linhas `D` sem ramal ficam de fora (o app avisa quantas), e ramal, linha, sede e data vêm da 1ª linha com ramal. |
+| Cabeçalho repetido | Quando o carro começa a gravar antes de ser configurado, o arquivo traz um cabeçalho e linhas de medição **sem ramal** (km 0), e depois o cabeçalho de novo com as linhas reais. As linhas `D` sem ramal **do início do arquivo** (antes da 1ª linha com ramal) ficam de fora (o app avisa quantas), e ramal, linha, sede e data vêm da 1ª linha com ramal. Linhas sem ramal no meio do arquivo continuam: são medição. |
 | Arquivo salvo no Excel | O Excel apaga o ponto decimal de parte dos números (Bitola F `3.5547` → `35547`). O carro grava os parâmetros sempre com 4 casas, então um parâmetro **inteiro** só vem do Excel e volta ao valor certo ÷ 10.000 (`35547` → 3,5547). A correção só entra quando o arquivo tem esse sinal (algum parâmetro inteiro com 4 dígitos ou mais) e nunca mexe em KM e LOCALIZACAO; o app avisa quantos valores corrigiu. A conferência da Análise usa as mesmas regras. |
 | Planilha (.xlsx/.xls) | O CSV aberto e salvo como planilha também é aceito: cada linha vira uma linha do CSV (colunas separadas por ";"), a data pelo código de data do Excel, e os números passam pela correção acima. |
 | Valores fora da faixa | Se mesmo assim mais de 1% das bitolas passarem de ±60 mm, o app avisa. **Prefira sempre o arquivo original do carro** e, para tirar um trecho, use o corte (Montagem) ou "Analisar a partir do km" em vez de editar o CSV. |
@@ -450,7 +450,9 @@ Falta = metros que precisam ser medidos − metros medidos
 
 ### 15.5 Linha do arquivo: LOCOM e correção da linha
 
-**LOCOM.** Na coluna LINHA, "LOCOM" quer dizer que o carro só passou em deslocamento: esses pontos **não contam** como medido, não geram alerta de geometria e ficam fora da Análise, do laudo e da Tela do carro (a Análise mostra quantos pontos foram desconsiderados).
+**LOCOM.** Na coluna LINHA, "LOCOM" quer dizer que o carro só passou em deslocamento: esses pontos **não contam** como medido, não geram alerta de geometria e ficam fora das estatísticas da Análise e do laudo (a Análise mostra quantos pontos foram desconsiderados). Na **Tela do carro** eles aparecem, com fundo cinza e o rótulo "LOCOM", sem limites e sem marcação de excesso; "Ir para o km" encontra esses pontos e a leitura mostra "LOCOM (deslocamento)".
+
+**A LINHA alterna.** Num mesmo arquivo a coluna LINHA pode alternar várias vezes (LOCOM, 1, 2, 3, LOCOM…). Em "Linha do arquivo", **Trechos da coluna LINHA** lista cada trecho contínuo na ordem do arquivo (valor, km inicial e final, extensão e pontos), e a linha pode ser escolhida **trecho por trecho** (ex.: só o 2º LOCOM era medição na linha 2). Na lista de valores, um valor que aparece em vários trechos mostra "em N trechos" em vez de uma faixa de km única.
 
 **Correção.** O operador pode errar ou confundir a linha. Em "Linha do arquivo", cada arquivo permite:
 

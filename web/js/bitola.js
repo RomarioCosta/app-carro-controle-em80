@@ -174,15 +174,18 @@
     });
 
     if (!cab) throw new Error('Cabeçalho (linha "H") não encontrado. Confira se é o arquivo gerado pelo carro controle.');
-    // Linhas de medição sem ramal: o carro ainda não estava configurado (km 0, antes do cabeçalho repetido).
-    // Ficam de fora quando o arquivo tem linhas com ramal; o ramal, a linha e a data vêm da 1ª linha com ramal.
+    // Linhas de medição sem ramal NO INÍCIO do arquivo: o carro ainda não estava configurado (km 0, antes do
+    // cabeçalho repetido). Ficam de fora; o ramal, a linha e a data vêm da 1ª linha com ramal. Linhas sem ramal
+    // depois disso (no meio do arquivo) continuam: são medição.
     const iRamal = cab.indexOf('ramal');
     const comRamal = (c) => iRamal >= 0 && String(c[iRamal] ?? '').trim() !== '';
     const temRamal = registros.some((x) => x.tipo === 'D' && comRamal(x.c));
     let semRamal = 0;
+    let comecou = !temRamal; // já passou da 1ª linha com ramal
     registros.forEach(({ tipo, c }) => {
       if (tipo === 'D') {
-        if (temRamal && !comRamal(c)) { semRamal++; return; }
+        if (!comecou && !comRamal(c)) { semRamal++; return; }
+        comecou = true;
         brutos.push(c);
       } else { c.antesDe = brutos.length; eventos.push(c); } // antesDe: linha "D" seguinte
     });
@@ -1480,9 +1483,10 @@
    * Só os pontos do arquivo com km dentro do trecho [de, ate] (metros; null = sem limite).
    * Serve para descartar o começo/fim do arquivo sem editar o CSV (o Excel altera os números ao salvar).
    */
-  B.recortar = (arquivo, de, ate) => {
+  B.recortar = (arquivo, de, ate, { comDeslocamento = false } = {}) => {
     const desloc = (arquivo.linhasValores || []).map(B.ehDeslocamento);
-    const temDesloc = !!arquivo.linhaIdx && desloc.some(Boolean);
+    // comDeslocamento: mantém os pontos em LOCOM (Tela do carro, que mostra o trecho marcado)
+    const temDesloc = !comDeslocamento && !!arquivo.linhaIdx && desloc.some(Boolean);
     if ((de === null || de === undefined) && (ate === null || ate === undefined) && !temDesloc) return arquivo;
     const dentro = (p) => (de === null || de === undefined || p >= de) && (ate === null || ate === undefined || p <= ate);
     // o recorte é sempre no km do arquivo (o mesmo da Montagem), mesmo com o km compensado
@@ -1539,7 +1543,9 @@
       const colunas = Object.entries(B.COLUNAS).filter(([k]) => k !== 'km' && k !== 'loc')
         .map(([, ch]) => (Array.isArray(ch) ? ch : [ch]).map((x) => chaves.indexOf(x)).find((i) => i >= 0) ?? -1).filter((i) => i >= 0);
       temRamal = iRamal >= 0 && linhasD.some((c) => String(c[iRamal] ?? '').trim() !== '');
-      doExcel = B.salvoNoExcel(temRamal ? linhasD.filter((c) => String(c[iRamal] ?? '').trim() !== '') : linhasD, colunas);
+      // como na leitura: só as linhas sem ramal do início do arquivo (antes da 1ª com ramal) ficam de fora
+      if (temRamal) linhasD.splice(0, linhasD.findIndex((c) => String(c[iRamal] ?? '').trim() !== ''));
+      doExcel = B.salvoNoExcel(linhasD, colunas);
     }
     const ler = (v) => {
       const t = String(v || '').trim();
@@ -1551,7 +1557,6 @@
     const pontos = [];
     for (const c of linhasD) {
       if (iF < 0) break;
-      if (temRamal && String(c[iRamal] ?? '').trim() === '') continue;
       const km = parseFloat(String(c[iKm]).replace(',', '.'));
       const loc = parseFloat(String(c[iLoc]).replace(',', '.'));
       if (!Number.isFinite(km) || !Number.isFinite(loc)) continue;

@@ -607,9 +607,31 @@
           mudarLinhas(a, nova, `"${rotuloValor(x.valor)}" agora vale como ${e.target.value ? nomeLinha(e.target.value) : 'automático'}.`);
         }
       }, [['', `Automático (${auto(x.valor)})`], ...opcoesLinha()].map(([v, t]) => h('option', { value: v, selected: v === escolhido || null, text: t })));
+      // o mesmo valor pode aparecer em vários trechos: a faixa de km só aparece quando é um trecho só
+      const nTrechos = (r.trechosLinha || []).filter((t) => t.valor === x.valor).length;
+      const onde = nTrechos > 1 ? `em ${n0(nTrechos)} trechos` : `${km(x.de)} – ${km(x.ate)}`;
       return h('div', { class: 'mt-valor-linha', role: 'group', 'aria-label': `Valor ${rotuloValor(x.valor)}` },
         h('div', null, h('strong', { text: rotuloValor(x.valor) }),
-          h('span', { class: 'mt-sub', text: ` · ${n0(x.pontos)} pontos · ${km(x.de)} – ${km(x.ate)}` })),
+          h('span', { class: 'mt-sub', text: ` · ${n0(x.pontos)} pontos · ${onde}` })),
+        sel);
+    });
+
+    // cada trecho contínuo da coluna LINHA, na ordem do arquivo, com a linha escolhida para aquele trecho
+    const mesmoTrecho = (t, x) => Math.abs(t.de - x.de) < 0.01 && Math.abs(t.ate - x.ate) < 0.01;
+    const trechosArquivo = (r.trechosLinha || []).map((x, k) => {
+      const regraDoTrecho = (atual.trechos || []).find((t) => mesmoTrecho(t, x));
+      const sel = h('select', {
+        'aria-label': `Linha do trecho ${rotuloValor(x.valor)} ${km(x.de)} – ${km(x.ate)}`,
+        onchange: (e) => {
+          const nova = regra();
+          nova.trechos = nova.trechos.filter((t) => !mesmoTrecho(t, x));
+          if (e.target.value) nova.trechos.push({ de: x.de, ate: x.ate, linha: e.target.value });
+          mudarLinhas(a, nova, `Trecho ${km(x.de)} – ${km(x.ate)} (${rotuloValor(x.valor)}): ${e.target.value ? nomeLinha(e.target.value) : 'como o valor do arquivo'}.`);
+        }
+      }, [['', `Como "${rotuloValor(x.valor)}"`], ...opcoesLinha()].map(([v, t]) => h('option', { value: v, selected: v === (regraDoTrecho ? regraDoTrecho.linha : '') || null, text: t })));
+      return h('div', { class: `mt-valor-linha${B().ehDeslocamento(regraDoTrecho ? regraDoTrecho.linha : x.valor) ? ' mt-trecho-locom' : ''}` },
+        h('div', null, h('span', { class: 'mt-sub', text: `${k + 1}. ` }), h('strong', { text: rotuloValor(x.valor) }),
+          h('span', { class: 'mt-sub', text: ` · ${km(x.de)} – ${km(x.ate)} (${mTxt(x.ate - x.de)}) · ${n0(x.pontos)} pontos` })),
         sel);
     });
 
@@ -645,6 +667,9 @@
       h('strong', { text: 'Linha do arquivo' }),
       h('span', { class: 'mt-sub', text: 'Valores da coluna LINHA. "LOCOM" é o carro em deslocamento e fica fora da cobertura e dos alertas. Se o operador errou a linha, troque o valor ou defina a linha num trecho de km: vale para a cobertura, os alertas, a Tela do carro e a Análise.' }),
       h('div', { class: 'mt-valores-linha' }, linhasValores),
+      trechosArquivo.length > 1 ? h('details', { class: 'mt-trechos-arquivo', open: abertos.has(`trechos|${a.id}`) || null, ontoggle: (e) => { if (e.target.open) abertos.add(`trechos|${a.id}`); else abertos.delete(`trechos|${a.id}`); } },
+        h('summary', null, h('strong', { text: `Trechos da coluna LINHA (${n0(trechosArquivo.length)})` }), h('span', { class: 'mt-sub', text: ' · na ordem do arquivo; escolha a linha de cada trecho' })),
+        h('div', { class: 'mt-valores-linha mt-rolagem' }, trechosArquivo)) : null,
       h('strong', { class: 'mt-sub-titulo', text: 'Linha num trecho de km' }),
       trechos.length ? h('ul', { class: 'mt-lista mt-trechos' }, trechos) : null,
       caixaNovos,

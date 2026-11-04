@@ -711,3 +711,28 @@ test('planilha (.xlsx) do CSV do carro vira o texto do CSV, com a data pelo cód
   };
   assert.equal(B.planilhaParaCsv(XLSX, { SheetNames: ['P'], Sheets: { P: { '!ref': 'A1:C2', ...celulas } } }), 'H;DATA;Bitola F\r\nD;03/11/2026;35547');
 });
+
+test('linhas sem ramal só são tiradas no início: no meio do arquivo continuam (são medição)', () => {
+  let k = 0;
+  const texto = csvCabecalhoRepetido().split('\r\n').map((l) => {
+    if (!l.startsWith('D;TST')) return l;
+    const c = l.split(';');
+    if (k >= 2000 && k < 2100) { c[1] = ' '; c[2] = ' '; c[3] = ' '; } // carro sem ramal no meio (ex.: deslocamento)
+    k++;
+    return c.join(';');
+  }).join('\r\n');
+  const a = B.lerCSV(texto);
+  assert.equal(a.pos.length, 4000); // só as 2 linhas do início saíram
+  assert.ok(a.avisos.some((t) => /^2 linha\(s\) de medição sem ramal/.test(t)));
+  assert.equal(B.conferir(texto, B.analisar(a), 2).ok, true);
+});
+
+test('Tela do carro: o recorte com os pontos em deslocamento (LOCOM) mantém todos', () => {
+  const a = B.lerCSV(csvComLocom(1000, 1400));
+  assert.equal(B.recortar(a, null, null).pos.length, 3600);
+  const t = B.recortar(a, null, null, { comDeslocamento: true });
+  assert.equal(t.pos.length, 4000);
+  const t2 = B.recortar(a, 2000, null, { comDeslocamento: true }); // com corte: só o corte
+  assert.equal(t2.pos.length, 2001);
+  assert.equal(t2.recorte.deslocamento, 0);
+});

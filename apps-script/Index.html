@@ -877,6 +877,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-bur { fill: var(--erro); }
 .mt-sob { fill: var(--alerta); }
 .mt-div { stroke: var(--texto2); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+/* Tela do carro: trecho em deslocamento (LOCOM) */
+.tc-locom-fundo { fill: #8a8f98; opacity: .16; }
+.tc-locom-rotulo { font-size: 10px; font-weight: 800; fill: #6b7280; letter-spacing: .5px; }
 .mt-rh { stroke: var(--texto); stroke-width: 1; opacity: .35; vector-effect: non-scaling-stroke; }
 .mt-faixa-dica { position: relative; }
 .mt-faixa-dica .mt-faixa { cursor: crosshair; touch-action: pan-y; }
@@ -913,6 +916,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-valores-linha { display: flex; flex-direction: column; border-top: 1px solid var(--borda); }
 .mt-valor-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 8px 0; border-bottom: 1px solid var(--borda); }
 .mt-valor-linha select { flex: 0 1 260px; }
+.mt-trechos-arquivo > summary { cursor: pointer; padding: 6px 0; }
+.mt-rolagem { max-height: 360px; overflow-y: auto; }
+.mt-trecho-locom { opacity: .7; }
 .mt-legenda { display: flex; flex-wrap: wrap; gap: 14px; font-size: .8rem; color: var(--texto2); }
 .mt-legenda i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; }
 .mt-legenda i.mt-nec { background: var(--grade); } .mt-legenda i.mt-cob { background: var(--ok); }
@@ -1172,7 +1178,7 @@ window.App = window.App || {};
     versao: '2026.11.04',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-de88e4d482', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-145d2e61b8', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -3474,15 +3480,18 @@ window.App = window.App || {};
     });
 
     if (!cab) throw new Error('Cabeçalho (linha "H") não encontrado. Confira se é o arquivo gerado pelo carro controle.');
-    // Linhas de medição sem ramal: o carro ainda não estava configurado (km 0, antes do cabeçalho repetido).
-    // Ficam de fora quando o arquivo tem linhas com ramal; o ramal, a linha e a data vêm da 1ª linha com ramal.
+    // Linhas de medição sem ramal NO INÍCIO do arquivo: o carro ainda não estava configurado (km 0, antes do
+    // cabeçalho repetido). Ficam de fora; o ramal, a linha e a data vêm da 1ª linha com ramal. Linhas sem ramal
+    // depois disso (no meio do arquivo) continuam: são medição.
     const iRamal = cab.indexOf('ramal');
     const comRamal = (c) => iRamal >= 0 && String(c[iRamal] ?? '').trim() !== '';
     const temRamal = registros.some((x) => x.tipo === 'D' && comRamal(x.c));
     let semRamal = 0;
+    let comecou = !temRamal; // já passou da 1ª linha com ramal
     registros.forEach(({ tipo, c }) => {
       if (tipo === 'D') {
-        if (temRamal && !comRamal(c)) { semRamal++; return; }
+        if (!comecou && !comRamal(c)) { semRamal++; return; }
+        comecou = true;
         brutos.push(c);
       } else { c.antesDe = brutos.length; eventos.push(c); } // antesDe: linha "D" seguinte
     });
@@ -4780,9 +4789,10 @@ window.App = window.App || {};
    * Só os pontos do arquivo com km dentro do trecho [de, ate] (metros; null = sem limite).
    * Serve para descartar o começo/fim do arquivo sem editar o CSV (o Excel altera os números ao salvar).
    */
-  B.recortar = (arquivo, de, ate) => {
+  B.recortar = (arquivo, de, ate, { comDeslocamento = false } = {}) => {
     const desloc = (arquivo.linhasValores || []).map(B.ehDeslocamento);
-    const temDesloc = !!arquivo.linhaIdx && desloc.some(Boolean);
+    // comDeslocamento: mantém os pontos em LOCOM (Tela do carro, que mostra o trecho marcado)
+    const temDesloc = !comDeslocamento && !!arquivo.linhaIdx && desloc.some(Boolean);
     if ((de === null || de === undefined) && (ate === null || ate === undefined) && !temDesloc) return arquivo;
     const dentro = (p) => (de === null || de === undefined || p >= de) && (ate === null || ate === undefined || p <= ate);
     // o recorte é sempre no km do arquivo (o mesmo da Montagem), mesmo com o km compensado
@@ -4839,7 +4849,9 @@ window.App = window.App || {};
       const colunas = Object.entries(B.COLUNAS).filter(([k]) => k !== 'km' && k !== 'loc')
         .map(([, ch]) => (Array.isArray(ch) ? ch : [ch]).map((x) => chaves.indexOf(x)).find((i) => i >= 0) ?? -1).filter((i) => i >= 0);
       temRamal = iRamal >= 0 && linhasD.some((c) => String(c[iRamal] ?? '').trim() !== '');
-      doExcel = B.salvoNoExcel(temRamal ? linhasD.filter((c) => String(c[iRamal] ?? '').trim() !== '') : linhasD, colunas);
+      // como na leitura: só as linhas sem ramal do início do arquivo (antes da 1ª com ramal) ficam de fora
+      if (temRamal) linhasD.splice(0, linhasD.findIndex((c) => String(c[iRamal] ?? '').trim() !== ''));
+      doExcel = B.salvoNoExcel(linhasD, colunas);
     }
     const ler = (v) => {
       const t = String(v || '').trim();
@@ -4851,7 +4863,6 @@ window.App = window.App || {};
     const pontos = [];
     for (const c of linhasD) {
       if (iF < 0) break;
-      if (temRamal && String(c[iRamal] ?? '').trim() === '') continue;
       const km = parseFloat(String(c[iKm]).replace(',', '.'));
       const loc = parseFloat(String(c[iLoc]).replace(',', '.'));
       if (!Number.isFinite(km) || !Number.isFinite(loc)) continue;
@@ -5075,15 +5086,17 @@ window.App = window.App || {};
    * amostras a cada ~1 m com o km do arquivo, a correção do km pela geometria e a linha; e as inconsistências.
    */
   /**
-   * Versão do cálculo do resumo. Sobe quando o cálculo muda (ex.: 2 = LOCOM e correção da linha):
+   * Versão do cálculo do resumo. Sobe quando o cálculo muda (2 = LOCOM e correção da linha; 3 = trechos da
+   * coluna LINHA e linhas sem ramal só no início do arquivo):
    * a Montagem recalcula sozinha, a partir do CSV guardado, os arquivos com versão anterior.
    */
-  C.VERSAO_RESUMO = 2;
+  C.VERSAO_RESUMO = 3;
 
   C.resumirArquivo = (arquivoOriginal, planta, nome, opcoes = {}) => {
     const b = B();
     // valores da coluna LINHA como vieram do carro (para a tela de correção): pontos e km de cada valor
     const valoresLinha = C.valoresDaLinha(arquivoOriginal);
+    const trechosLinha = C.trechosDaLinha(arquivoOriginal);
     // correção da linha feita na Montagem (valor trocado / linha num trecho de km)
     const arquivo = b.corrigirLinhas(arquivoOriginal, opcoes.linhas);
     const { pos, meta } = arquivo;
@@ -5182,8 +5195,26 @@ window.App = window.App || {};
       amostras,
       geometria,
       inconsistencias,
-      valoresLinha
+      valoresLinha,
+      trechosLinha
     };
+  };
+
+  /**
+   * Trechos contínuos da coluna LINHA, na ordem do arquivo: [{ valor, de, ate, pontos }] (de/ate = menor e maior
+   * km do arquivo no trecho). A LINHA pode alternar várias vezes (LOCOM, 1, 2, 3, LOCOM…).
+   */
+  C.trechosDaLinha = (arquivo) => {
+    const valores = arquivo.linhasValores || [String((arquivo.meta && arquivo.meta.linha) || '')];
+    const idx = arquivo.linhaIdx;
+    const out = [];
+    let atual = null;
+    arquivo.pos.forEach((p, i) => {
+      const k = idx ? idx[i] : 0;
+      if (!atual || atual.k !== k) { atual = { k, valor: valores[k], de: p, ate: p, pontos: 0 }; out.push(atual); }
+      atual.pontos++; if (p < atual.de) atual.de = p; if (p > atual.ate) atual.ate = p;
+    });
+    return out.map(({ k, ...t }) => t);
   };
 
   /** Valores da coluna LINHA do arquivo: [{ valor, pontos, de, ate }] (km do arquivo), do mais frequente ao menos. */
@@ -5953,6 +5984,8 @@ window.App = window.App || {};
   /** Trecho analisado (km inicial e final, em metros): descarta o resto do arquivo sem editar o CSV. */
   let recorte = { de: null, ate: null };
   let arquivoCompleto = null;
+  /** Arquivo da Tela do carro: o recortado, mas com os pontos em LOCOM (a análise não os usa). */
+  let arquivoTela = null;
   /** Saltos/voltas do km compensados na Montagem (chaves de B.saltosCompensaveis) e as regras usadas lá. */
   let compensar = [];
   let regrasComp = null;
@@ -5964,8 +5997,11 @@ window.App = window.App || {};
     if (!arquivo.pos.length) {
       ui.toast('Nenhum ponto do arquivo no trecho escolhido. O trecho foi limpo.', 'erro', 6000);
       recorte = { de: null, ate: null };
-      arquivo = arquivoCompleto;
+      arquivo = B.recortar(arquivoCompleto, null, null);
+      if (!arquivo.pos.length) arquivo = arquivoCompleto; // arquivo todo em deslocamento: analisa assim mesmo
     }
+    // Tela do carro: o mesmo recorte, mas com os pontos em deslocamento (LOCOM), que ela mostra marcados
+    arquivoTela = B.recortar(arquivoCompleto, recorte.de, recorte.ate, { comDeslocamento: true });
   }
 
   function processar(texto, nome, { salvar, trecho = null, compensar: comp = [], regras = null, linhas = null }) {
@@ -6944,7 +6980,7 @@ window.App = window.App || {};
   App.analise = {
     montar,
     /** Estado atual (arquivo carregado e análise), usado pela Tela do carro. */
-    estado: () => ({ arquivo, resultado, nomeArquivo, opcoes }),
+    estado: () => ({ arquivo, arquivoTela: arquivo ? arquivoTela : null, resultado, nomeArquivo, opcoes }),
     textoDoArquivo,
     /** Abre um arquivo vindo de outra tela (Montagem / Tela do carro), com o trecho e as compensações dela. */
     abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [], regras = null, linhas = null } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp, regras, linhas }),
@@ -7049,7 +7085,8 @@ window.App = window.App || {};
   let leituraEl;
   let rodapeEl;
   let controlesEl;
-  let arquivo = null;
+  let arquivo = null; // o da Tela: com os pontos em deslocamento (LOCOM), marcados
+  let arqAnalise = null; // o da análise (sem LOCOM): os elementos e valores do resultado são indexados por ele
   let resultado = null;
   let nomeArquivo = '';
   let prep = null; // dados preparados do arquivo
@@ -7222,8 +7259,9 @@ window.App = window.App || {};
   /** Lê o arquivo da Análise e prepara as séries. */
   function carregar() {
     const est = App.analise && App.analise.estado ? App.analise.estado() : {};
-    const mudou = est.arquivo !== arquivo || est.resultado !== resultado;
-    arquivo = est.arquivo || null; resultado = est.resultado || null; nomeArquivo = est.nomeArquivo || '';
+    const arqTela = est.arquivoTela || est.arquivo || null;
+    const mudou = arqTela !== arquivo || est.resultado !== resultado;
+    arquivo = arqTela; arqAnalise = est.arquivo || null; resultado = est.resultado || null; nomeArquivo = est.nomeArquivo || '';
     if (!arquivo) {
       prep = null;
       renderControles();
@@ -7236,6 +7274,24 @@ window.App = window.App || {};
     desenhar();
   }
 
+  /**
+   * Ponto da análise → ponto da Tela. Os dois são recortes do mesmo arquivo; a Tela tem também os pontos em
+   * deslocamento (LOCOM). Retorna null quando são o mesmo arquivo.
+   */
+  function mapaIndices(analise, tela) {
+    if (!analise || !tela || analise === tela) return null;
+    const ia = analise.idx; const it = tela.idx;
+    const na = analise.pos.length;
+    const m = new Int32Array(na);
+    let t = 0;
+    for (let k = 0; k < na; k++) {
+      const o = ia ? ia[k] : k;
+      while (t < tela.pos.length - 1 && (it ? it[t] : t) < o) t++;
+      m[k] = t;
+    }
+    return m;
+  }
+
   function preparar() {
     const { pos } = arquivo;
     const n = pos.length;
@@ -7243,10 +7299,34 @@ window.App = window.App || {};
     const dist = App.bitola.distanciaPercorrida(pos, esp);
     const tipo = new Uint8Array(n); // 0 tangente, 1 curva, 2 circuito
     const elementoDo = new Array(n);
-    (resultado ? resultado.elementos : []).forEach((e) => {
+    // ponto da análise → ponto da Tela (a Tela tem também os pontos em LOCOM)
+    const mapa = mapaIndices(arqAnalise, arquivo);
+    const naTela = (k) => (mapa ? mapa[k] : k);
+    (resultado ? resultado.elementos : []).forEach((e0) => {
+      const e = mapa ? { ...e0, i0: naTela(e0.i0), i1: naTela(e0.i1) } : e0;
       const t = e.tipo === 'C' ? 1 : (e.tipo === 'X' || e.rh ? 2 : 0);
       for (let i = e.i0; i <= e.i1; i++) { tipo[i] = t; elementoDo[i] = e; }
     });
+    // pontos em deslocamento (LINHA = LOCOM): aparecem, marcados, sem limite nem excesso
+    const deslocValor = (arquivo.linhasValores || []).map((v) => App.bitola.ehDeslocamento(v));
+    const desloc = new Uint8Array(n);
+    if (arquivo.linhaIdx && deslocValor.some(Boolean)) for (let i = 0; i < n; i++) desloc[i] = deslocValor[arquivo.linhaIdx[i]] ? 1 : 0;
+    // valores: os da análise (com offset aplicado) nos pontos dela; nos pontos em LOCOM, os do arquivo
+    const dadosTela = {};
+    Object.keys(arquivo.dados).forEach((c) => {
+      const da = resultado && resultado.dados && resultado.dados[c];
+      if (!mapa) { dadosTela[c] = da || arquivo.dados[c]; return; }
+      const v = Float64Array.from(arquivo.dados[c]);
+      if (da) for (let k = 0; k < da.length; k++) v[naTela(k)] = da[k];
+      dadosTela[c] = v;
+    });
+    // KLD: só leituras válidas (|valor| < 60 mm), como na análise
+    let kld = resultado && resultado.kldValido ? resultado.kldValido : arquivo.dados.kld;
+    if (mapa && kld) {
+      const v = Float64Array.from(arquivo.dados.kld || [], (x) => (Math.abs(x) <= 60 ? x : NaN));
+      if (resultado && resultado.kldValido) for (let k = 0; k < resultado.kldValido.length; k++) v[naTela(k)] = resultado.kldValido[k];
+      kld = v;
+    }
     // eventos do arquivo: índice do ponto mais próximo do km do evento
     const eventos = (arquivo.eventos || []).map((ev) => {
       let melhor = 0; let d = Infinity;
@@ -7267,13 +7347,13 @@ window.App = window.App || {};
       soltos.push(ev);
     });
     eventos.faixas = faixas; eventos.soltos = soltos;
-    prep = { n, esp, dist, tipo, elementoDo, eventos, total: dist[n - 1] || 0 };
+    prep = { n, esp, dist, tipo, elementoDo, eventos, desloc, dados: dadosTela, kld, total: dist[n - 1] || 0 };
     revelado = 0; // ao abrir, a tela começa vazia: o traçado aparece com o play, de baixo para cima
     topo = -janela;
     // escala automática: 98% dos valores do arquivo cabem com folga
     prep.escala = {};
     PARAMETROS.forEach((p) => {
-      const v = p.campo === 'kld' && resultado && resultado.kldValido ? resultado.kldValido : arquivo.dados[p.campo];
+      const v = p.campo === 'kld' ? prep.kld : arquivo.dados[p.campo];
       if (!v) { prep.escala[p.id] = p.escala; return; }
       const a = [];
       for (let i = 0; i < v.length; i += 7) if (!Number.isNaN(v[i])) a.push(Math.abs(v[i]));
@@ -7429,8 +7509,8 @@ window.App = window.App || {};
     if (!prep) return;
     const { lp, W, base } = geometria();
     const H = ALTURA;
-    const { dist, tipo, n } = prep;
-    const dados = (resultado && resultado.dados) || arquivo.dados;
+    const { dist, tipo, n, desloc } = prep;
+    const dados = prep.dados;
     const i0 = indicePorDist(Math.max(0, topo));
     // só o que o "carro" já percorreu (play): ao abrir, nada é desenhado
     const i1 = revelado > Math.max(topo, 0) ? Math.min(indicePorDist(topo + janela), indicePorDist(revelado)) : -1;
@@ -7476,6 +7556,17 @@ window.App = window.App || {};
       else svg.appendChild(s('rect', { x: xEl + 28, y: ya, width: 9, height: Math.max(1, yb - ya), class: `tc-el-${t}` }));
       if (yb - ya > 26) svg.appendChild(s('text', { x: xEl + 40, y: (ya + yb) / 2 + 3, class: 'tc-el-rotulo' }, t === 'rh' ? (e.trecho || 'RH').split(' · ')[0].replace('RH-', 'R') : e.sigla));
     }
+    // trechos em deslocamento (LOCOM): faixa cinza com o nome, como os eventos com extensão
+    for (let i = i0; i <= i1; i++) {
+      if (!desloc[i]) continue;
+      let j = i; while (j < i1 && desloc[j + 1]) j++;
+      const ya = Math.max(0, yDe(i)); const yb = Math.min(H, yDe(j));
+      const g = s('g', { class: 'tc-locom' }, s('title', {}, `Deslocamento (LOCOM): ${App.bitola.fmtKm(arquivo.pos[i])} → ${App.bitola.fmtKm(arquivo.pos[j])}`));
+      g.appendChild(s('rect', { x: COL_KM, y: Math.min(ya, yb), width: W - COL_KM, height: Math.max(2, Math.abs(yb - ya)), class: 'tc-locom-fundo' }));
+      if (Math.abs(yb - ya) > 40) g.appendChild(s('text', { x: xEl + 24, y: Math.max(ya, yb) - 4, transform: `rotate(-90 ${xEl + 24} ${Math.max(ya, yb) - 4})`, 'text-anchor': 'start', class: 'tc-locom-rotulo' }, 'LOCOM'));
+      svg.appendChild(g);
+      i = j;
+    }
     // eventos com extensão (INICIO/FIM): barra na lateral esquerda durante todo o trecho, com o nome na vertical
     const classeEv = (nome) => (/^EX\b/.test(nome) ? 'ex' : /TUNEL|TÚNEL/.test(nome) ? 'tunel' : /TRA?V/.test(nome) ? 'trav' : /AMV/.test(nome) ? 'amv' : /^RH/.test(nome) ? 'rh' : 'outro');
     (prep.eventos.faixas || []).forEach((fx) => {
@@ -7513,6 +7604,7 @@ window.App = window.App || {};
       // limites (pontilhado) de cada nível, por fila (mudam entre curva e tangente); fora da escala não aparecem
       const elF = new Array(filas + 1);
       for (let i = i0; i <= i1; i++) {
+        if (desloc[i]) continue; // deslocamento: sem limite
         const f = Math.max(0, Math.min(filas, Math.round(yDe(i))));
         if (!elF[f]) elF[f] = tipoLim(i);
       }
@@ -7530,7 +7622,7 @@ window.App = window.App || {};
       let algum = false;
       col.series.forEach((p) => {
         // KLD: só leituras válidas (|valor| < 60 mm), como na análise
-        const serie = p.campo === 'kld' && resultado && resultado.kldValido ? resultado.kldValido : dados[p.campo];
+        const serie = p.campo === 'kld' ? prep.kld : dados[p.campo];
         if (!serie) return;
         algum = true;
         // agrega por fila de pixel: mín, máx e excesso
@@ -7542,6 +7634,7 @@ window.App = window.App || {};
           const f = Math.max(0, Math.min(filas, Math.round(yDe(i))));
           if (Number.isNaN(minF[f]) || v < minF[f]) minF[f] = v;
           if (Number.isNaN(maxF[f]) || v > maxF[f]) maxF[f] = v;
+          if (desloc[i]) continue; // deslocamento: não conta excesso
           const g = grauExcesso(lims, tipoLim(i), v);
           if (g > exc[f]) exc[f] = g;
           if (g > excessoGeral[f]) excessoGeral[f] = g;
@@ -7582,7 +7675,7 @@ window.App = window.App || {};
     if (!svg || !prep) return;
     const g = svg.querySelector('.tc-cursor');
     while (g.firstChild) g.removeChild(g.firstChild);
-    const dados = (resultado && resultado.dados) || arquivo.dados;
+    const dados = prep.dados;
     const fmt = (v) => (Number.isNaN(v) || v === undefined ? '—' : v.toFixed(2).replace('.', ','));
     if (cursorI === null) {
       const i = indicePorDist(topo);
@@ -7595,7 +7688,7 @@ window.App = window.App || {};
     g.appendChild(s('line', { x1: COL_KM, x2: W, y1: y, y2: y, class: 'tc-cursor-linha' }));
     // leitura no topo: km + parâmetro sob o mouse (máx, mín e média do trecho na tela), como no Offboard
     const km = App.bitola.fmtKm(arquivo.pos[cursorI]);
-    const partes = [h('span', { class: 'tc-leitura-km', text: km })];
+    const partes = [h('span', { class: 'tc-leitura-km', text: prep.desloc[cursorI] ? `${km} · LOCOM (deslocamento)` : km })];
     if (colunaAtiva) {
       colunaAtiva.series.forEach((p) => {
         const serie = dados[p.campo];
@@ -8302,9 +8395,31 @@ window.App = window.App || {};
           mudarLinhas(a, nova, `"${rotuloValor(x.valor)}" agora vale como ${e.target.value ? nomeLinha(e.target.value) : 'automático'}.`);
         }
       }, [['', `Automático (${auto(x.valor)})`], ...opcoesLinha()].map(([v, t]) => h('option', { value: v, selected: v === escolhido || null, text: t })));
+      // o mesmo valor pode aparecer em vários trechos: a faixa de km só aparece quando é um trecho só
+      const nTrechos = (r.trechosLinha || []).filter((t) => t.valor === x.valor).length;
+      const onde = nTrechos > 1 ? `em ${n0(nTrechos)} trechos` : `${km(x.de)} – ${km(x.ate)}`;
       return h('div', { class: 'mt-valor-linha', role: 'group', 'aria-label': `Valor ${rotuloValor(x.valor)}` },
         h('div', null, h('strong', { text: rotuloValor(x.valor) }),
-          h('span', { class: 'mt-sub', text: ` · ${n0(x.pontos)} pontos · ${km(x.de)} – ${km(x.ate)}` })),
+          h('span', { class: 'mt-sub', text: ` · ${n0(x.pontos)} pontos · ${onde}` })),
+        sel);
+    });
+
+    // cada trecho contínuo da coluna LINHA, na ordem do arquivo, com a linha escolhida para aquele trecho
+    const mesmoTrecho = (t, x) => Math.abs(t.de - x.de) < 0.01 && Math.abs(t.ate - x.ate) < 0.01;
+    const trechosArquivo = (r.trechosLinha || []).map((x, k) => {
+      const regraDoTrecho = (atual.trechos || []).find((t) => mesmoTrecho(t, x));
+      const sel = h('select', {
+        'aria-label': `Linha do trecho ${rotuloValor(x.valor)} ${km(x.de)} – ${km(x.ate)}`,
+        onchange: (e) => {
+          const nova = regra();
+          nova.trechos = nova.trechos.filter((t) => !mesmoTrecho(t, x));
+          if (e.target.value) nova.trechos.push({ de: x.de, ate: x.ate, linha: e.target.value });
+          mudarLinhas(a, nova, `Trecho ${km(x.de)} – ${km(x.ate)} (${rotuloValor(x.valor)}): ${e.target.value ? nomeLinha(e.target.value) : 'como o valor do arquivo'}.`);
+        }
+      }, [['', `Como "${rotuloValor(x.valor)}"`], ...opcoesLinha()].map(([v, t]) => h('option', { value: v, selected: v === (regraDoTrecho ? regraDoTrecho.linha : '') || null, text: t })));
+      return h('div', { class: `mt-valor-linha${B().ehDeslocamento(regraDoTrecho ? regraDoTrecho.linha : x.valor) ? ' mt-trecho-locom' : ''}` },
+        h('div', null, h('span', { class: 'mt-sub', text: `${k + 1}. ` }), h('strong', { text: rotuloValor(x.valor) }),
+          h('span', { class: 'mt-sub', text: ` · ${km(x.de)} – ${km(x.ate)} (${mTxt(x.ate - x.de)}) · ${n0(x.pontos)} pontos` })),
         sel);
     });
 
@@ -8340,6 +8455,9 @@ window.App = window.App || {};
       h('strong', { text: 'Linha do arquivo' }),
       h('span', { class: 'mt-sub', text: 'Valores da coluna LINHA. "LOCOM" é o carro em deslocamento e fica fora da cobertura e dos alertas. Se o operador errou a linha, troque o valor ou defina a linha num trecho de km: vale para a cobertura, os alertas, a Tela do carro e a Análise.' }),
       h('div', { class: 'mt-valores-linha' }, linhasValores),
+      trechosArquivo.length > 1 ? h('details', { class: 'mt-trechos-arquivo', open: abertos.has(`trechos|${a.id}`) || null, ontoggle: (e) => { if (e.target.open) abertos.add(`trechos|${a.id}`); else abertos.delete(`trechos|${a.id}`); } },
+        h('summary', null, h('strong', { text: `Trechos da coluna LINHA (${n0(trechosArquivo.length)})` }), h('span', { class: 'mt-sub', text: ' · na ordem do arquivo; escolha a linha de cada trecho' })),
+        h('div', { class: 'mt-valores-linha mt-rolagem' }, trechosArquivo)) : null,
       h('strong', { class: 'mt-sub-titulo', text: 'Linha num trecho de km' }),
       trechos.length ? h('ul', { class: 'mt-lista mt-trechos' }, trechos) : null,
       caixaNovos,

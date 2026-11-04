@@ -125,6 +125,8 @@
   /** Trecho analisado (km inicial e final, em metros): descarta o resto do arquivo sem editar o CSV. */
   let recorte = { de: null, ate: null };
   let arquivoCompleto = null;
+  /** Arquivo da Tela do carro: o recortado, mas com os pontos em LOCOM (a análise não os usa). */
+  let arquivoTela = null;
   /** Saltos/voltas do km compensados na Montagem (chaves de B.saltosCompensaveis) e as regras usadas lá. */
   let compensar = [];
   let regrasComp = null;
@@ -136,8 +138,11 @@
     if (!arquivo.pos.length) {
       ui.toast('Nenhum ponto do arquivo no trecho escolhido. O trecho foi limpo.', 'erro', 6000);
       recorte = { de: null, ate: null };
-      arquivo = arquivoCompleto;
+      arquivo = B.recortar(arquivoCompleto, null, null);
+      if (!arquivo.pos.length) arquivo = arquivoCompleto; // arquivo todo em deslocamento: analisa assim mesmo
     }
+    // Tela do carro: o mesmo recorte, mas com os pontos em deslocamento (LOCOM), que ela mostra marcados
+    arquivoTela = B.recortar(arquivoCompleto, recorte.de, recorte.ate, { comDeslocamento: true });
   }
 
   function processar(texto, nome, { salvar, trecho = null, compensar: comp = [], regras = null, linhas = null }) {
@@ -1116,7 +1121,7 @@
   App.analise = {
     montar,
     /** Estado atual (arquivo carregado e análise), usado pela Tela do carro. */
-    estado: () => ({ arquivo, resultado, nomeArquivo, opcoes }),
+    estado: () => ({ arquivo, arquivoTela: arquivo ? arquivoTela : null, resultado, nomeArquivo, opcoes }),
     textoDoArquivo,
     /** Abre um arquivo vindo de outra tela (Montagem / Tela do carro), com o trecho e as compensações dela. */
     abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [], regras = null, linhas = null } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp, regras, linhas }),

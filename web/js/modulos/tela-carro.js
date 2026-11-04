@@ -92,7 +92,8 @@
   let leituraEl;
   let rodapeEl;
   let controlesEl;
-  let arquivo = null;
+  let arquivo = null; // o da Tela: com os pontos em deslocamento (LOCOM), marcados
+  let arqAnalise = null; // o da análise (sem LOCOM): os elementos e valores do resultado são indexados por ele
   let resultado = null;
   let nomeArquivo = '';
   let prep = null; // dados preparados do arquivo
@@ -265,8 +266,9 @@
   /** Lê o arquivo da Análise e prepara as séries. */
   function carregar() {
     const est = App.analise && App.analise.estado ? App.analise.estado() : {};
-    const mudou = est.arquivo !== arquivo || est.resultado !== resultado;
-    arquivo = est.arquivo || null; resultado = est.resultado || null; nomeArquivo = est.nomeArquivo || '';
+    const arqTela = est.arquivoTela || est.arquivo || null;
+    const mudou = arqTela !== arquivo || est.resultado !== resultado;
+    arquivo = arqTela; arqAnalise = est.arquivo || null; resultado = est.resultado || null; nomeArquivo = est.nomeArquivo || '';
     if (!arquivo) {
       prep = null;
       renderControles();
@@ -279,6 +281,24 @@
     desenhar();
   }
 
+  /**
+   * Ponto da análise → ponto da Tela. Os dois são recortes do mesmo arquivo; a Tela tem também os pontos em
+   * deslocamento (LOCOM). Retorna null quando são o mesmo arquivo.
+   */
+  function mapaIndices(analise, tela) {
+    if (!analise || !tela || analise === tela) return null;
+    const ia = analise.idx; const it = tela.idx;
+    const na = analise.pos.length;
+    const m = new Int32Array(na);
+    let t = 0;
+    for (let k = 0; k < na; k++) {
+      const o = ia ? ia[k] : k;
+      while (t < tela.pos.length - 1 && (it ? it[t] : t) < o) t++;
+      m[k] = t;
+    }
+    return m;
+  }
+
   function preparar() {
     const { pos } = arquivo;
     const n = pos.length;
@@ -286,10 +306,34 @@
     const dist = App.bitola.distanciaPercorrida(pos, esp);
     const tipo = new Uint8Array(n); // 0 tangente, 1 curva, 2 circuito
     const elementoDo = new Array(n);
-    (resultado ? resultado.elementos : []).forEach((e) => {
+    // ponto da análise → ponto da Tela (a Tela tem também os pontos em LOCOM)
+    const mapa = mapaIndices(arqAnalise, arquivo);
+    const naTela = (k) => (mapa ? mapa[k] : k);
+    (resultado ? resultado.elementos : []).forEach((e0) => {
+      const e = mapa ? { ...e0, i0: naTela(e0.i0), i1: naTela(e0.i1) } : e0;
       const t = e.tipo === 'C' ? 1 : (e.tipo === 'X' || e.rh ? 2 : 0);
       for (let i = e.i0; i <= e.i1; i++) { tipo[i] = t; elementoDo[i] = e; }
     });
+    // pontos em deslocamento (LINHA = LOCOM): aparecem, marcados, sem limite nem excesso
+    const deslocValor = (arquivo.linhasValores || []).map((v) => App.bitola.ehDeslocamento(v));
+    const desloc = new Uint8Array(n);
+    if (arquivo.linhaIdx && deslocValor.some(Boolean)) for (let i = 0; i < n; i++) desloc[i] = deslocValor[arquivo.linhaIdx[i]] ? 1 : 0;
+    // valores: os da análise (com offset aplicado) nos pontos dela; nos pontos em LOCOM, os do arquivo
+    const dadosTela = {};
+    Object.keys(arquivo.dados).forEach((c) => {
+      const da = resultado && resultado.dados && resultado.dados[c];
+      if (!mapa) { dadosTela[c] = da || arquivo.dados[c]; return; }
+      const v = Float64Array.from(arquivo.dados[c]);
+      if (da) for (let k = 0; k < da.length; k++) v[naTela(k)] = da[k];
+      dadosTela[c] = v;
+    });
+    // KLD: só leituras válidas (|valor| < 60 mm), como na análise
+    let kld = resultado && resultado.kldValido ? resultado.kldValido : arquivo.dados.kld;
+    if (mapa && kld) {
+      const v = Float64Array.from(arquivo.dados.kld || [], (x) => (Math.abs(x) <= 60 ? x : NaN));
+      if (resultado && resultado.kldValido) for (let k = 0; k < resultado.kldValido.length; k++) v[naTela(k)] = resultado.kldValido[k];
+      kld = v;
+    }
     // eventos do arquivo: índice do ponto mais próximo do km do evento
     const eventos = (arquivo.eventos || []).map((ev) => {
       let melhor = 0; let d = Infinity;
@@ -310,13 +354,13 @@
       soltos.push(ev);
     });
     eventos.faixas = faixas; eventos.soltos = soltos;
-    prep = { n, esp, dist, tipo, elementoDo, eventos, total: dist[n - 1] || 0 };
+    prep = { n, esp, dist, tipo, elementoDo, eventos, desloc, dados: dadosTela, kld, total: dist[n - 1] || 0 };
     revelado = 0; // ao abrir, a tela começa vazia: o traçado aparece com o play, de baixo para cima
     topo = -janela;
     // escala automática: 98% dos valores do arquivo cabem com folga
     prep.escala = {};
     PARAMETROS.forEach((p) => {
-      const v = p.campo === 'kld' && resultado && resultado.kldValido ? resultado.kldValido : arquivo.dados[p.campo];
+      const v = p.campo === 'kld' ? prep.kld : arquivo.dados[p.campo];
       if (!v) { prep.escala[p.id] = p.escala; return; }
       const a = [];
       for (let i = 0; i < v.length; i += 7) if (!Number.isNaN(v[i])) a.push(Math.abs(v[i]));
@@ -472,8 +516,8 @@
     if (!prep) return;
     const { lp, W, base } = geometria();
     const H = ALTURA;
-    const { dist, tipo, n } = prep;
-    const dados = (resultado && resultado.dados) || arquivo.dados;
+    const { dist, tipo, n, desloc } = prep;
+    const dados = prep.dados;
     const i0 = indicePorDist(Math.max(0, topo));
     // só o que o "carro" já percorreu (play): ao abrir, nada é desenhado
     const i1 = revelado > Math.max(topo, 0) ? Math.min(indicePorDist(topo + janela), indicePorDist(revelado)) : -1;
@@ -519,6 +563,17 @@
       else svg.appendChild(s('rect', { x: xEl + 28, y: ya, width: 9, height: Math.max(1, yb - ya), class: `tc-el-${t}` }));
       if (yb - ya > 26) svg.appendChild(s('text', { x: xEl + 40, y: (ya + yb) / 2 + 3, class: 'tc-el-rotulo' }, t === 'rh' ? (e.trecho || 'RH').split(' · ')[0].replace('RH-', 'R') : e.sigla));
     }
+    // trechos em deslocamento (LOCOM): faixa cinza com o nome, como os eventos com extensão
+    for (let i = i0; i <= i1; i++) {
+      if (!desloc[i]) continue;
+      let j = i; while (j < i1 && desloc[j + 1]) j++;
+      const ya = Math.max(0, yDe(i)); const yb = Math.min(H, yDe(j));
+      const g = s('g', { class: 'tc-locom' }, s('title', {}, `Deslocamento (LOCOM): ${App.bitola.fmtKm(arquivo.pos[i])} → ${App.bitola.fmtKm(arquivo.pos[j])}`));
+      g.appendChild(s('rect', { x: COL_KM, y: Math.min(ya, yb), width: W - COL_KM, height: Math.max(2, Math.abs(yb - ya)), class: 'tc-locom-fundo' }));
+      if (Math.abs(yb - ya) > 40) g.appendChild(s('text', { x: xEl + 24, y: Math.max(ya, yb) - 4, transform: `rotate(-90 ${xEl + 24} ${Math.max(ya, yb) - 4})`, 'text-anchor': 'start', class: 'tc-locom-rotulo' }, 'LOCOM'));
+      svg.appendChild(g);
+      i = j;
+    }
     // eventos com extensão (INICIO/FIM): barra na lateral esquerda durante todo o trecho, com o nome na vertical
     const classeEv = (nome) => (/^EX\b/.test(nome) ? 'ex' : /TUNEL|TÚNEL/.test(nome) ? 'tunel' : /TRA?V/.test(nome) ? 'trav' : /AMV/.test(nome) ? 'amv' : /^RH/.test(nome) ? 'rh' : 'outro');
     (prep.eventos.faixas || []).forEach((fx) => {
@@ -556,6 +611,7 @@
       // limites (pontilhado) de cada nível, por fila (mudam entre curva e tangente); fora da escala não aparecem
       const elF = new Array(filas + 1);
       for (let i = i0; i <= i1; i++) {
+        if (desloc[i]) continue; // deslocamento: sem limite
         const f = Math.max(0, Math.min(filas, Math.round(yDe(i))));
         if (!elF[f]) elF[f] = tipoLim(i);
       }
@@ -573,7 +629,7 @@
       let algum = false;
       col.series.forEach((p) => {
         // KLD: só leituras válidas (|valor| < 60 mm), como na análise
-        const serie = p.campo === 'kld' && resultado && resultado.kldValido ? resultado.kldValido : dados[p.campo];
+        const serie = p.campo === 'kld' ? prep.kld : dados[p.campo];
         if (!serie) return;
         algum = true;
         // agrega por fila de pixel: mín, máx e excesso
@@ -585,6 +641,7 @@
           const f = Math.max(0, Math.min(filas, Math.round(yDe(i))));
           if (Number.isNaN(minF[f]) || v < minF[f]) minF[f] = v;
           if (Number.isNaN(maxF[f]) || v > maxF[f]) maxF[f] = v;
+          if (desloc[i]) continue; // deslocamento: não conta excesso
           const g = grauExcesso(lims, tipoLim(i), v);
           if (g > exc[f]) exc[f] = g;
           if (g > excessoGeral[f]) excessoGeral[f] = g;
@@ -625,7 +682,7 @@
     if (!svg || !prep) return;
     const g = svg.querySelector('.tc-cursor');
     while (g.firstChild) g.removeChild(g.firstChild);
-    const dados = (resultado && resultado.dados) || arquivo.dados;
+    const dados = prep.dados;
     const fmt = (v) => (Number.isNaN(v) || v === undefined ? '—' : v.toFixed(2).replace('.', ','));
     if (cursorI === null) {
       const i = indicePorDist(topo);
@@ -638,7 +695,7 @@
     g.appendChild(s('line', { x1: COL_KM, x2: W, y1: y, y2: y, class: 'tc-cursor-linha' }));
     // leitura no topo: km + parâmetro sob o mouse (máx, mín e média do trecho na tela), como no Offboard
     const km = App.bitola.fmtKm(arquivo.pos[cursorI]);
-    const partes = [h('span', { class: 'tc-leitura-km', text: km })];
+    const partes = [h('span', { class: 'tc-leitura-km', text: prep.desloc[cursorI] ? `${km} · LOCOM (deslocamento)` : km })];
     if (colunaAtiva) {
       colunaAtiva.series.forEach((p) => {
         const serie = dados[p.campo];
