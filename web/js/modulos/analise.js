@@ -58,6 +58,15 @@
     } catch (e) { /* sem arquivo salvo */ }
   }
 
+  /**
+   * Planilha (.xlsx/.xls) com o conteúdo do CSV do carro → texto do CSV: colunas separadas por ";",
+   * datas em dd/mm/aaaa. Números que o Excel deixou sem o ponto decimal são corrigidos na leitura (B.lerCSV).
+   */
+  async function planilhaParaTexto(buf) {
+    const XLSX = await carregarXLSX();
+    return B.planilhaParaCsv(XLSX, XLSX.read(buf, { type: 'array', cellNF: true }));
+  }
+
   /** Extrai o primeiro .csv/.txt de um .zip (sem bibliotecas: lê o diretório do zip e descompacta com o navegador). */
   async function csvDoZip(buf) {
     const dv = new DataView(buf);
@@ -90,6 +99,8 @@
   async function textoDoArquivo(f) {
     let buf = await f.arrayBuffer();
     let nome = f.name;
+    // arquivo do carro aberto e salvo no Excel como planilha (.xlsx/.xls): vira o mesmo texto do CSV
+    if (/\.xls[xm]?$/i.test(nome)) return { nome, texto: await planilhaParaTexto(buf) };
     // .zip (como o arquivo é enviado pelo WhatsApp/e-mail): abre o .csv de dentro
     if (buf.byteLength > 4 && new DataView(buf).getUint32(0, true) === 0x04034b50) ({ nome, buf } = await csvDoZip(buf));
     let texto;

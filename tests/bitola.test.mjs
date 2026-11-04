@@ -656,3 +656,58 @@ test('correção da linha: troca de valor e linha num trecho de km (o trecho pre
   assert.equal(B.corrigirLinhas(a, null), a);
   assert.equal(B.corrigirLinhas(a, { valores: {}, trechos: [] }), a);
 });
+
+/** CSV como o do carro com o cabeçalho repetido: 2 linhas sem ramal (km 0) antes do cabeçalho real. */
+function csvCabecalhoRepetido({ excel = false } = {}) {
+  const linhas = gerarCSV().split('\r\n');
+  const cab = linhas.find((l) => l.startsWith('H;'));
+  const vazia = (ext) => { const c = cab.split(';').map(() => ' ******* '); c[0] = 'D'; c[1] = ' '; c[2] = ' '; c[3] = ' '; c[4] = ' '; c[5] = 'EM80'; c[6] = ''; c[7] = '0'; c[8] = 'D'; c[9] = '0.00    '; c[10] = '0'; c[11] = String(ext); return c.join(';'); };
+  let texto = [cab, vazia(2), vazia(153), ...linhas].join('\r\n');
+  // Excel apaga o ponto decimal de parte dos números (3.00 → 300 com 2 casas; o carro real grava 4 casas: 3.0000 → 30000)
+  // (KM e LOCALIZACAO ficam como estão, como no arquivo real)
+  if (excel) {
+    texto = texto.split('\r\n').map((l) => (!l.startsWith('D;TST') ? l : l.split(';').map((v, j) => {
+      const m = j >= 12 && /^\s*(-?\d+)\.(\d{2})\s*$/.exec(v);
+      return m ? `${m[1]}${m[2]}00` : v;
+    }).join(';'))).join('\r\n');
+  }
+  return texto;
+}
+
+test('cabeçalho repetido: linhas sem ramal (km 0) ficam de fora e o ramal/data vêm da 1ª linha com ramal', () => {
+  const texto = csvCabecalhoRepetido();
+  const a = B.lerCSV(texto);
+  assert.equal(a.pos.length, 4000);
+  assert.equal(a.pos[0], 2500); // sem o pulo do km 0
+  assert.equal(a.meta.ramal, 'TST');
+  assert.equal(a.meta.data, '01/09/2026');
+  assert.ok(a.avisos.some((t) => /2 linha\(s\) de medição sem ramal/.test(t)));
+  assert.equal(a.dados.bitF[0], 3);
+  assert.equal(B.conferir(texto, B.analisar(a), 2).ok, true); // a conferência pula as mesmas linhas
+  // arquivo normal: nada muda
+  assert.ok(!B.lerCSV(gerarCSV()).avisos.some((t) => /sem ramal|Excel/.test(t)));
+});
+
+test('arquivo salvo no Excel: número sem o ponto decimal volta ao valor (÷ 10.000), só nos parâmetros', () => {
+  const texto = csvCabecalhoRepetido({ excel: true });
+  assert.match(texto.split('\r\n').find((l) => l.startsWith('D;TST')), /;30000;/); // bitola 3.00 sem o ponto
+  const a = B.lerCSV(texto);
+  assert.equal(a.dados.bitF[0], 3);
+  assert.equal(a.dados.kld[0], 2);
+  assert.equal(a.pos[0], 2500); // KM e LOCALIZACAO não mudam
+  assert.ok(a.avisos.some((t) => /Arquivo salvo no Excel: [\d.]+ valor\(es\)/.test(t)));
+  assert.ok(!a.avisos.some((t) => /fora da faixa/.test(t)));
+  const conf = B.conferir(texto, B.analisar(a), 2);
+  assert.equal(conf.ok, true, JSON.stringify(conf.divergencias));
+});
+
+test('planilha (.xlsx) do CSV do carro vira o texto do CSV, com a data pelo código do Excel', () => {
+  // SheetJS mínimo: só o que B.planilhaParaCsv usa
+  const celulas = { A1: { t: 's', v: 'H' }, B1: { t: 's', v: 'DATA' }, C1: { t: 's', v: 'Bitola F' }, A2: { t: 's', v: 'D' }, B2: { t: 'n', v: 46329, z: 'dd/mm/yyyy' }, C2: { t: 'n', v: 35547, z: 'General' } };
+  const letras = 'ABC';
+  const XLSX = {
+    utils: { decode_range: () => ({ s: { r: 0, c: 0 }, e: { r: 1, c: 2 } }), encode_cell: ({ r, c }) => `${letras[c]}${r + 1}` },
+    SSF: { is_date: (z) => /d|y/.test(z) && z !== 'General', parse_date_code: () => ({ d: 3, m: 11, y: 2026 }) }
+  };
+  assert.equal(B.planilhaParaCsv(XLSX, { SheetNames: ['P'], Sheets: { P: { '!ref': 'A1:C2', ...celulas } } }), 'H;DATA;Bitola F\r\nD;03/11/2026;35547');
+});
