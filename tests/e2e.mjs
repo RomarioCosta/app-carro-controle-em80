@@ -826,6 +826,18 @@ async function main() {
       await arqTeste.getByText('1+650 – 1+700 → desconsiderar (deslocamento)').waitFor();
       assert.ok(await pctMedido() < antes);
       await page.screenshot({ path: `${SAIDA}16b-montagem-linha.png`, fullPage: true });
+      // Tela do carro: o trecho em LOCOM aparece (marcado) e "ir para o km" encontra o ponto
+      await arqTeste.getByRole('button', { name: 'Rodar na Tela do carro' }).click();
+      await page.locator('.tc-rodape', { hasText: 'TESTE.csv' }).waitFor();
+      const irKm = page.getByLabel('Ir para o km');
+      await irKm.fill('1+850');
+      await irKm.press('Enter');
+      await page.locator('.tc-leitura-km', { hasText: '1+850 · LOCOM (deslocamento)' }).waitFor();
+      assert.equal(await page.getByText(/O km mais próximo no arquivo/).count(), 0);
+      assert.ok(await page.locator('.tc-locom-fundo').count() > 0);
+      await page.locator('.tc-rodape', { hasText: 'LOCOM' }).waitFor();
+      await page.getByRole('tab', { name: 'Montagem' }).click();
+      await arqTeste.locator('.mt-linha-arq').waitFor();
       await arqTeste.getByRole('button', { name: 'Remover o trecho 1+800 – 1+900' }).click();
       await arqTeste.getByText('1+800 – 1+900 → desconsiderar (deslocamento)').waitFor({ state: 'detached' });
       await arqTeste.getByRole('button', { name: 'Remover o trecho 1+650 – 1+700' }).click();
@@ -843,7 +855,7 @@ async function main() {
       await page.getByText(/1 arquivo\(s\) atualizado\(s\) para a versão nova/).waitFor();
       await page.locator('.mt-arquivo summary', { hasText: 'TESTE.csv' }).click();
       await page.locator('.mt-linha-arq').getByRole('group', { name: 'Valor 1' }).waitFor();
-      assert.equal(await page.evaluate(async () => (await App.store.get('montagem:arquivos'))[0].resumo.versao), 2);
+      assert.equal(await page.evaluate(async () => (await App.store.get('montagem:arquivos'))[0].resumo.versao === App.cobertura.VERSAO_RESUMO), true);
       // salto de 3 m no km: botão Compensar (espalha nos 2.400 pontos desde o início do arquivo)
       // outra sede (CS) e outra data, para o filtro da lista de arquivos
       const csvSalto = gerarCSV({ salto: 3 }).replace(/;XX1;/g, ';CS;').replace(/01\/09\/2026/g, '02/09/2026');

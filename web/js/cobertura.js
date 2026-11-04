@@ -122,15 +122,17 @@
    * amostras a cada ~1 m com o km do arquivo, a correção do km pela geometria e a linha; e as inconsistências.
    */
   /**
-   * Versão do cálculo do resumo. Sobe quando o cálculo muda (ex.: 2 = LOCOM e correção da linha):
+   * Versão do cálculo do resumo. Sobe quando o cálculo muda (2 = LOCOM e correção da linha; 3 = trechos da
+   * coluna LINHA e linhas sem ramal só no início do arquivo):
    * a Montagem recalcula sozinha, a partir do CSV guardado, os arquivos com versão anterior.
    */
-  C.VERSAO_RESUMO = 2;
+  C.VERSAO_RESUMO = 3;
 
   C.resumirArquivo = (arquivoOriginal, planta, nome, opcoes = {}) => {
     const b = B();
     // valores da coluna LINHA como vieram do carro (para a tela de correção): pontos e km de cada valor
     const valoresLinha = C.valoresDaLinha(arquivoOriginal);
+    const trechosLinha = C.trechosDaLinha(arquivoOriginal);
     // correção da linha feita na Montagem (valor trocado / linha num trecho de km)
     const arquivo = b.corrigirLinhas(arquivoOriginal, opcoes.linhas);
     const { pos, meta } = arquivo;
@@ -229,8 +231,26 @@
       amostras,
       geometria,
       inconsistencias,
-      valoresLinha
+      valoresLinha,
+      trechosLinha
     };
+  };
+
+  /**
+   * Trechos contínuos da coluna LINHA, na ordem do arquivo: [{ valor, de, ate, pontos }] (de/ate = menor e maior
+   * km do arquivo no trecho). A LINHA pode alternar várias vezes (LOCOM, 1, 2, 3, LOCOM…).
+   */
+  C.trechosDaLinha = (arquivo) => {
+    const valores = arquivo.linhasValores || [String((arquivo.meta && arquivo.meta.linha) || '')];
+    const idx = arquivo.linhaIdx;
+    const out = [];
+    let atual = null;
+    arquivo.pos.forEach((p, i) => {
+      const k = idx ? idx[i] : 0;
+      if (!atual || atual.k !== k) { atual = { k, valor: valores[k], de: p, ate: p, pontos: 0 }; out.push(atual); }
+      atual.pontos++; if (p < atual.de) atual.de = p; if (p > atual.ate) atual.ate = p;
+    });
+    return out.map(({ k, ...t }) => t);
   };
 
   /** Valores da coluna LINHA do arquivo: [{ valor, pontos, de, ate }] (km do arquivo), do mais frequente ao menos. */

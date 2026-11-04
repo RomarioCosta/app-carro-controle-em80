@@ -192,3 +192,17 @@ test('geometria: RH da planilha (inclusive no km 0) e km diferentes por linha (R
   const p2 = B.lerPlanta([...linhas, ['RBH', 'GV I', 'TANGENTE 9', 'TANGENTE', '', 9000, 9500, '', '09/10']]);
   assert.match(p2.avisos[0], /1 linha\(s\) da geometria sem a linha identificada/);
 });
+
+test('LINHA alternando (LOCOM, 1, 2, LOCOM…): trechos separados e a escolha vale só para o trecho', () => {
+  const arq = arquivoLido([[0, 1000, '1'], [1000, 1500, 'LOCOM'], [1500, 2000, '2'], [2000, 2500, 'LOCOM'], [2500, 3001, '1']]);
+  const r = C.resumirArquivo(arq, planta2, 'alterna.csv');
+  assert.deepEqual(j(r.trechosLinha.map((t) => [t.valor, t.de, t.ate, t.pontos])), [
+    ['1', 0, 999.75, 4000], ['LOCOM', 1000, 1499.75, 2000], ['2', 1500, 1999.75, 2000], ['LOCOM', 2000, 2499.75, 2000], ['1', 2500, 3000, 2001]
+  ]);
+  assert.ok(Math.abs(medidoNa(r, '1') - 1500) < 10); // os dois LOCOM ficam de fora
+  // só o 1º trecho em LOCOM era medição na linha 2; o 2º continua deslocamento
+  const loc1 = r.trechosLinha[1];
+  const r2 = C.resumirArquivo(arq, planta2, 'alterna.csv', { linhas: { valores: {}, trechos: [{ de: loc1.de, ate: loc1.ate, linha: '2' }] } });
+  assert.ok(Math.abs(medidoNa(r2, '2') - 1000) < 10); // 1.000–1.500 (antes LOCOM) + 1.500–2.000
+  assert.ok(Math.abs(medidoNa(r2, '1') - 1500) < 10); // o 2º LOCOM (2.000–2.500) continua fora
+});
