@@ -206,3 +206,18 @@ test('LINHA alternando (LOCOM, 1, 2, LOCOM…): trechos separados e a escolha va
   assert.ok(Math.abs(medidoNa(r2, '2') - 1000) < 10); // 1.000–1.500 (antes LOCOM) + 1.500–2.000
   assert.ok(Math.abs(medidoNa(r2, '1') - 1500) < 10); // o 2º LOCOM (2.000–2.500) continua fora
 });
+
+test('alerta de geometria no RH (pátio, onde ficam os AMV): limite da tangente, como na Tela do carro', () => {
+  const r = resumo('a', 0, 3000);
+  const n = r.amostras.pos.length;
+  const nl5 = new Float32Array(n).fill(2);
+  for (let k = 1040; k <= 1046; k++) nl5[k] = 25; // dentro do RH 1.000–1.100 (entre o EH 0 e o EH 1)
+  r.geometria = { nl5 };
+  const lim = (id, el) => (id === 'nl5' ? [{ grau: 2, nome: 'Restrição', sup: el === 'C' ? 20 : 21, inf: el === 'C' ? -20 : -21 }] : []);
+  const al = C.alertasGeometria(planta, 'LT', [{ id: 'a', nome: 'a', resumo: r, recorte: null }], lim);
+  assert.equal(al.length, 1);
+  assert.equal(al[0].elemento, 'RH (pátio)');
+  assert.equal(al[0].eh, 'RH-1');
+  assert.equal(al[0].limite, 21); // o da tangente
+  assert.equal(Math.round(al[0].ini), 1040);
+});

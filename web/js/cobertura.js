@@ -303,6 +303,9 @@
         while (lo <= hi) { const m = (lo + hi) >> 1; if (els[m].fim < y) lo = m + 1; else if (els[m].ini > y) hi = m - 1; else return els[m]; }
         return null;
       };
+      // RH (pátio) de cada linha: AMV ficam nos pátios; vale o limite da tangente, como na Tela do carro
+      const rhPorLinha = {};
+      const rhsDe = (l) => { if (!rhPorLinha[l]) rhPorLinha[l] = C.necessario(planta, ramal, l).filter((t) => t.tipo === 'RH'); return rhPorLinha[l]; };
       C.PARAMETROS_GEOMETRIA.forEach((id) => {
         const v = r.geometria && r.geometria[id];
         if (!v) return;
@@ -316,8 +319,12 @@
           const y = x + aj[k];
           const l = linhas[linha[k]];
           if (B().ehDeslocamento(l)) { fechar(); continue; } // deslocamento: sem alerta
-          const el = elemento(elsDe(l), y);
-          if (!el) continue; // fora de tangente/curva (circuito): sem limite
+          let el = elemento(elsDe(l), y);
+          if (!el) {
+            const rh = elemento(rhsDe(l), y);
+            if (!rh) continue; // fora do que a geometria tem nesta linha: sem limite
+            el = { tipo: 'RH', nomeEh: rh.nome || 'RH', rh: true };
+          }
           const niveis = limites(id, el.tipo === 'C' ? 'C' : 'T') || [];
           let g = null;
           niveis.forEach((n) => { if (n && ((n.sup !== null && n.sup !== undefined && val > n.sup) || (n.inf !== null && n.inf !== undefined && val < n.inf)) && (!g || n.grau > g.grau)) g = n; });
@@ -325,7 +332,7 @@
           if (atual && (atual.linha !== l || Math.abs(y - atual.ultimo) > 3)) fechar();
           const limite = val > 0 ? g.sup : g.inf;
           if (!atual) {
-            atual = { arquivo: a.nome, idArquivo: a.id, id, param: C.NOMES_GEOMETRIA[id], linha: l, ini: y, fim: y, kmArq: x, iArq: pontoDa(k), valor: val, limite, grau: g.grau, nivel: g.nome, eh: el.nomeEh || `EH ${el.eh}`, elemento: `${el.tipo === 'C' ? 'C' : 'T'}${String(el.num || '').padStart(2, '0')}`, tipo: el.tipo, ultimo: y };
+            atual = { arquivo: a.nome, idArquivo: a.id, id, param: C.NOMES_GEOMETRIA[id], linha: l, ini: y, fim: y, kmArq: x, iArq: pontoDa(k), valor: val, limite, grau: g.grau, nivel: g.nome, eh: el.nomeEh || `EH ${el.eh}`, elemento: el.rh ? 'RH (pátio)' : `${el.tipo === 'C' ? 'C' : 'T'}${String(el.num || '').padStart(2, '0')}`, tipo: el.tipo, ultimo: y };
           } else {
             atual.ini = Math.min(atual.ini, y); atual.fim = Math.max(atual.fim, y); atual.ultimo = y;
             if (Math.abs(val) > Math.abs(atual.valor)) { atual.valor = val; atual.limite = limite; atual.kmArq = x; atual.iArq = pontoDa(k); }

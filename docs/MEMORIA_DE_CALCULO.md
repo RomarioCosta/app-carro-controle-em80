@@ -584,7 +584,7 @@ Para o km compensado não levar a um lugar errado:
 **Como calcula.**
 
 1. Em cada metro do arquivo, o app pega o valor de **maior módulo** dos 4 pontos daquele metro.
-2. Com o km corrigido (itens 7 e 16), descobre se o metro está numa **curva ou tangente** da geometria. No RH não há limite.
+2. Com o km corrigido (itens 7 e 16), descobre se o metro está numa **curva ou tangente** da geometria. No **RH (pátio)**, onde ficam os AMV, vale o **limite da tangente**, como na Tela do carro, e o alerta mostra o nome do RH (ex.: "RH-43", elemento "RH (pátio)"). Fora do que a geometria tem naquela linha, não há limite. Trechos em deslocamento (LOCOM) não geram alerta.
 3. Compara com os limites da velocidade escolhida (os mesmos da Tela do carro, item 14.2). Fica o **maior nível** passado: alerta, restrição ou interdição.
 4. Metros seguidos acima do limite (até 3 m de folga) viram **um alerta só**, com o maior valor.
 5. O recorte do arquivo é respeitado.
