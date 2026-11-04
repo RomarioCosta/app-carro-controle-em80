@@ -29,7 +29,7 @@ O código está em `web/js/bitola.js` (análise), `web/js/cobertura.js` (montage
 
 ## 1. Leitura do arquivo
 
-**O que é.** O app lê o CSV do carro (ou o CSV de dentro de um .zip).
+**O que é.** O app lê o CSV do carro (ou o CSV de dentro de um .zip, ou o mesmo conteúdo salvo como planilha .xlsx/.xls).
 
 | Item | Regra |
 |---|---|
@@ -40,7 +40,10 @@ O código está em `web/js/bitola.js` (análise), `web/js/cobertura.js` (montage
 | Espaçamento | A distância mais comum entre pontos seguidos (a mediana). |
 | Ramal | Coluna `RAMAL` (ex.: `RLT` → `LT` da geometria). |
 | Linha | Coluna `LINHA`, lida em todos os pontos. Pode ser 0, 1, 2, 3 ou texto (ex.: `TESTE01`). |
-| Arquivo alterado no Excel | Se mais de 1% das bitolas passarem de ±60 mm, o app avisa (o Excel costuma trocar os números). **Nunca edite o CSV no Excel**: use "Analisar a partir do km". |
+| Cabeçalho repetido | Quando o carro começa a gravar antes de ser configurado, o arquivo traz um cabeçalho e linhas de medição **sem ramal** (km 0), e depois o cabeçalho de novo com as linhas reais. As linhas `D` sem ramal ficam de fora (o app avisa quantas), e ramal, linha, sede e data vêm da 1ª linha com ramal. |
+| Arquivo salvo no Excel | O Excel apaga o ponto decimal de parte dos números (Bitola F `3.5547` → `35547`). O carro grava os parâmetros sempre com 4 casas, então um parâmetro **inteiro** só vem do Excel e volta ao valor certo ÷ 10.000 (`35547` → 3,5547). A correção só entra quando o arquivo tem esse sinal (algum parâmetro inteiro com 4 dígitos ou mais) e nunca mexe em KM e LOCALIZACAO; o app avisa quantos valores corrigiu. A conferência da Análise usa as mesmas regras. |
+| Planilha (.xlsx/.xls) | O CSV aberto e salvo como planilha também é aceito: cada linha vira uma linha do CSV (colunas separadas por ";"), a data pelo código de data do Excel, e os números passam pela correção acima. |
+| Valores fora da faixa | Se mesmo assim mais de 1% das bitolas passarem de ±60 mm, o app avisa. **Prefira sempre o arquivo original do carro** e, para tirar um trecho, use o corte (Montagem) ou "Analisar a partir do km" em vez de editar o CSV. |
 
 **Exemplo.** Linha `D;RLT;GV1;...;KM=325;...;LOCALIZACAO=354,00;...` → ponto em **325+354** (325.354 m).
 

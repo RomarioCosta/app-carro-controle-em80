@@ -119,6 +119,40 @@
   /* ------------------------------------------------------------------ */
 
   /**
+   * Planilha (SheetJS) com o conteúdo do CSV do carro → texto do CSV (1ª aba, colunas separadas por ";").
+   * Datas pelo código de data do Excel (dd/mm/aaaa, sem depender do fuso); números e textos como estão.
+   */
+  B.planilhaParaCsv = (XLSX, wb) => {
+    const aba = wb.Sheets[wb.SheetNames[0]];
+    if (!aba || !aba['!ref']) return '';
+    const faixa = XLSX.utils.decode_range(aba['!ref']);
+    const linhas = [];
+    for (let r = faixa.s.r; r <= faixa.e.r; r++) {
+      const l = [];
+      for (let c = faixa.s.c; c <= faixa.e.c; c++) {
+        const cel = aba[XLSX.utils.encode_cell({ r, c })];
+        if (!cel || cel.v === null || cel.v === undefined) { l.push(''); continue; }
+        if (cel.t === 'n' && cel.z && XLSX.SSF.is_date(cel.z)) {
+          const d = XLSX.SSF.parse_date_code(cel.v);
+          l.push(`${U.pad(d.d)}/${U.pad(d.m)}/${d.y}`);
+        } else l.push(String(cel.v));
+      }
+      linhas.push(l.join(';'));
+    }
+    return linhas.join('\r\n');
+  };
+
+  const INTEIRO = /^\s*-?\d+\s*$/;
+  /**
+   * O arquivo passou pelo Excel? O carro grava os parâmetros com 4 casas decimais; o Excel apaga o ponto
+   * de parte deles (3.5547 → 35547). Sinal: parâmetro inteiro com 4 dígitos ou mais (nenhuma medição chega a 1.000).
+   */
+  B.salvoNoExcel = (brutos, colunas) => brutos.some((c) => colunas.some((j) => {
+    const t = c[j];
+    return t !== undefined && INTEIRO.test(t) && Math.abs(Number(t)) >= 1000;
+  }));
+
+  /**
    * Lê o texto do CSV. Retorna { meta, pos, dados: {campo: Float64Array}, eventos, avisos }.
    * Valores ausentes ("*******") ficam como NaN.
    */
@@ -130,16 +164,29 @@
     const eventos = [];
     let meta = null;
 
+    const registros = []; // linhas "D" e "E", na ordem do arquivo
     linhas.forEach((ln) => {
       if (!ln) return;
       const c = ln.split(';');
       const tipo = c[0].trim();
       if (tipo === 'H' && !cab) cab = c.map((x) => U.chaveTitulo(x));
-      else if (tipo === 'D') brutos.push(c);
-      else if (tipo === 'E') { c.antesDe = brutos.length; eventos.push(c); } // antesDe: linha "D" seguinte
+      else if (tipo === 'D' || tipo === 'E') registros.push({ tipo, c });
     });
 
     if (!cab) throw new Error('Cabeçalho (linha "H") não encontrado. Confira se é o arquivo gerado pelo carro controle.');
+    // Linhas de medição sem ramal: o carro ainda não estava configurado (km 0, antes do cabeçalho repetido).
+    // Ficam de fora quando o arquivo tem linhas com ramal; o ramal, a linha e a data vêm da 1ª linha com ramal.
+    const iRamal = cab.indexOf('ramal');
+    const comRamal = (c) => iRamal >= 0 && String(c[iRamal] ?? '').trim() !== '';
+    const temRamal = registros.some((x) => x.tipo === 'D' && comRamal(x.c));
+    let semRamal = 0;
+    registros.forEach(({ tipo, c }) => {
+      if (tipo === 'D') {
+        if (temRamal && !comRamal(c)) { semRamal++; return; }
+        brutos.push(c);
+      } else { c.antesDe = brutos.length; eventos.push(c); } // antesDe: linha "D" seguinte
+    });
+    if (semRamal) avisos.push(`${semRamal} linha(s) de medição sem ramal no início do arquivo (o carro ainda não estava configurado, km 0) foram desconsideradas.`);
     const idx = {};
     Object.entries(B.COLUNAS).forEach(([campo, chave]) => {
       const nomes = Array.isArray(chave) ? chave : [chave];
@@ -179,6 +226,11 @@
     const dados = {};
     Object.keys(B.COLUNAS).forEach((campo) => { dados[campo] = new Float64Array(n).fill(NaN); });
     let validos = 0;
+    // Arquivo salvo no Excel: o Excel apaga o ponto decimal de parte dos números (3.5547 → 35547).
+    // O carro grava os parâmetros sempre com 4 casas: valor inteiro num parâmetro só vem do Excel → ÷ 10.000.
+    const parametros = Object.keys(B.COLUNAS).filter((k) => k !== 'km' && k !== 'loc' && idx[k] >= 0);
+    const doExcel = B.salvoNoExcel(brutos, parametros.map((k) => idx[k]));
+    let corrigidos = 0;
     brutos.forEach((c, i) => {
       const km = num(c[idx.km]);
       const loc = num(c[idx.loc]);
@@ -186,12 +238,15 @@
       if (!Number.isNaN(pos[i])) validos++;
       Object.keys(B.COLUNAS).forEach((campo) => {
         if (idx[campo] >= 0) {
-          const v = num(c[idx[campo]]);
+          const bruto = c[idx[campo]];
+          let v;
+          if (doExcel && campo !== 'km' && campo !== 'loc' && INTEIRO.test(bruto ?? '')) { v = Number(bruto) / 10000; corrigidos++; } else v = num(bruto);
           if (v !== null) dados[campo][i] = v;
         }
       });
     });
     if (validos < n) avisos.push(`${n - validos} linha(s) sem posição foram ignoradas.`);
+    if (corrigidos) avisos.push(`Arquivo salvo no Excel: ${corrigidos.toLocaleString('pt-BR')} valor(es) perderam o ponto decimal e foram corrigidos (÷ 10.000). Prefira o arquivo original do carro.`);
     // Arquivo aberto e salvo no Excel costuma ter os números trocados (ponto e vírgula decimais): avisa.
     let foraFaixa = 0; let lidos = 0;
     for (let i = 0; i < n; i++) {
@@ -1467,22 +1522,36 @@
     const linhas = String(texto || '').split(/\r?\n/);
     let iF = -1; let iT = -1; let iKm = -1; let iLoc = -1;
     const norm = (x) => String(x || '').trim().toUpperCase().replace(/\s+/g, ' ');
+    // mesmas regras da leitura: linhas sem ramal (carro não configurado) ficam de fora; arquivo salvo no Excel
+    // tem os números sem o ponto decimal (inteiro = valor × 10.000)
+    let cabH = null; const linhasD = [];
+    for (const ln of linhas) {
+      const c = ln.split(';');
+      const tipo = (c[0] || '').trim();
+      if (tipo === 'H' && !cabH) cabH = c;
+      else if (tipo === 'D' && cabH) linhasD.push(c);
+    }
+    let doExcel = false; let iRamal = -1; let temRamal = false;
+    if (cabH) {
+      const cab = cabH.map(norm);
+      iF = cab.indexOf('BITOLA F'); iT = cab.indexOf('BITOLA T'); iKm = cab.indexOf('KM'); iLoc = cab.indexOf('LOCALIZACAO'); iRamal = cab.indexOf('RAMAL');
+      const chaves = cabH.map((x) => U.chaveTitulo(x));
+      const colunas = Object.entries(B.COLUNAS).filter(([k]) => k !== 'km' && k !== 'loc')
+        .map(([, ch]) => (Array.isArray(ch) ? ch : [ch]).map((x) => chaves.indexOf(x)).find((i) => i >= 0) ?? -1).filter((i) => i >= 0);
+      temRamal = iRamal >= 0 && linhasD.some((c) => String(c[iRamal] ?? '').trim() !== '');
+      doExcel = B.salvoNoExcel(temRamal ? linhasD.filter((c) => String(c[iRamal] ?? '').trim() !== '') : linhasD, colunas);
+    }
     const ler = (v) => {
       const t = String(v || '').trim();
       if (!t || t.includes('*')) return null;
+      if (doExcel && INTEIRO.test(t)) return Math.round(Number(t)); // já é o valor × 10.000
       const n = parseFloat(t.replace(',', '.'));
       return Number.isFinite(n) ? Math.round(n * 10000) : null; // décimos de milésimo de mm (inteiro, o arquivo tem 4 casas)
     };
     const pontos = [];
-    for (const ln of linhas) {
-      const c = ln.split(';');
-      const tipo = (c[0] || '').trim();
-      if (tipo === 'H' && iF < 0) {
-        const cab = c.map(norm);
-        iF = cab.indexOf('BITOLA F'); iT = cab.indexOf('BITOLA T'); iKm = cab.indexOf('KM'); iLoc = cab.indexOf('LOCALIZACAO');
-        continue;
-      }
-      if (tipo !== 'D' || iF < 0) continue;
+    for (const c of linhasD) {
+      if (iF < 0) break;
+      if (temRamal && String(c[iRamal] ?? '').trim() === '') continue;
       const km = parseFloat(String(c[iKm]).replace(',', '.'));
       const loc = parseFloat(String(c[iLoc]).replace(',', '.'));
       if (!Number.isFinite(km) || !Number.isFinite(loc)) continue;
