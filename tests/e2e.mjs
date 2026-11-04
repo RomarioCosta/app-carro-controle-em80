@@ -829,10 +829,15 @@ async function main() {
       // Tela do carro: o trecho em LOCOM aparece (marcado) e "ir para o km" encontra o ponto
       await arqTeste.getByRole('button', { name: 'Rodar na Tela do carro' }).click();
       await page.locator('.tc-rodape', { hasText: 'TESTE.csv' }).waitFor();
-      const irKm = page.getByLabel('Ir para o km');
-      await irKm.fill('1+850');
-      await irKm.press('Enter');
+      // a Tela ainda se redesenha logo depois de abrir: repete até o km aparecer na leitura
+      await aguardar(async () => {
+        const irKm = page.getByLabel('Ir para o km');
+        await irKm.fill('1+850');
+        await irKm.press('Enter');
+        return (await page.locator('.tc-leitura-km').textContent()).includes('1+850');
+      }, 'ir para o km na Tela do carro');
       await page.locator('.tc-leitura-km', { hasText: '1+850 · LOCOM (deslocamento)' }).waitFor();
+      await page.locator('svg.tc-svg').screenshot({ path: `${SAIDA}16f-tela-locom.png`, style: '.toasts, .cab, .puxador, .gaveta-puxador { display: none !important; }' });
       assert.equal(await page.getByText(/O km mais próximo no arquivo/).count(), 0);
       assert.ok(await page.locator('.tc-locom-fundo').count() > 0);
       await page.locator('.tc-rodape', { hasText: 'LOCOM' }).waitFor();
