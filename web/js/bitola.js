@@ -1489,12 +1489,28 @@
    * Só os pontos do arquivo com km dentro do trecho [de, ate] (metros; null = sem limite).
    * Serve para descartar o começo/fim do arquivo sem editar o CSV (o Excel altera os números ao salvar).
    */
-  B.recortar = (arquivo, de, ate, { comDeslocamento = false } = {}) => {
+  /**
+   * Cortes de um arquivo (km do arquivo): lista de trechos que NÃO entram, [{ de, ate }] (null = início/fim do arquivo).
+   * Aceita também o formato antigo, um trecho só que entra ({ de, ate } = "usar a partir de … até …").
+   */
+  B.cortesDe = (x) => {
+    if (!x) return [];
+    if (Array.isArray(x)) return x.filter((c) => c && (Number.isFinite(c.de) || Number.isFinite(c.ate)));
+    const lista = [];
+    if (Number.isFinite(x.de)) lista.push({ de: null, ate: x.de - 1e-6 });
+    if (Number.isFinite(x.ate)) lista.push({ de: x.ate + 1e-6, ate: null });
+    return lista;
+  };
+  /** O km do arquivo p está num dos cortes? */
+  B.noCorte = (p, cortes) => cortes.some((c) => (!Number.isFinite(c.de) || p >= c.de) && (!Number.isFinite(c.ate) || p <= c.ate));
+
+  B.recortar = (arquivo, de, ate, { comDeslocamento = false, cortes = null } = {}) => {
+    const listaCortes = B.cortesDe(cortes);
     const desloc = (arquivo.linhasValores || []).map(B.ehDeslocamento);
     // comDeslocamento: mantém os pontos em LOCOM (Tela do carro, que mostra o trecho marcado)
     const temDesloc = !comDeslocamento && !!arquivo.linhaIdx && desloc.some(Boolean);
-    if ((de === null || de === undefined) && (ate === null || ate === undefined) && !temDesloc) return arquivo;
-    const dentro = (p) => (de === null || de === undefined || p >= de) && (ate === null || ate === undefined || p <= ate);
+    if ((de === null || de === undefined) && (ate === null || ate === undefined) && !temDesloc && !listaCortes.length) return arquivo;
+    const dentro = (p) => (de === null || de === undefined || p >= de) && (ate === null || ate === undefined || p <= ate) && !B.noCorte(p, listaCortes);
     // o recorte é sempre no km do arquivo (o mesmo da Montagem), mesmo com o km compensado
     const posArq = arquivo.posArq || arquivo.pos;
     const manter = [];

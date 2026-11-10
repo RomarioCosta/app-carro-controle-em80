@@ -410,7 +410,7 @@ Falta = metros que precisam ser medidos − metros medidos
 | Situação | Quando |
 |---|---|
 | **Buraco** | trecho sem nenhum arquivo, com mais de 5 m |
-| **Sobreposição** | trecho em 2 arquivos, com mais de 5 m (use o recorte "Usar a partir do km / Até o km") |
+| **Sobreposição** | trecho em 2 arquivos, com mais de 5 m (tire a sobra com um corte do arquivo) |
 
 **Divisa entre sedes** (ex.: GV1 → GV2):
 
@@ -441,7 +441,14 @@ Falta = metros que precisam ser medidos − metros medidos
 
 - Cada arquivo mostra a **data da inspeção** (coluna DATA) e o **sentido** (coluna SEQUÊNCIA, C ou D, e se o km cresce ou decresce no arquivo).
 - **Arquivo repetido:** ao adicionar um arquivo que já está no ciclo (mesmo nome, ou o mesmo conteúdo com outro nome: mesmos pontos, km inicial e final, data, sede e ramal), o app pergunta se substitui o existente. Substituir carrega o arquivo **do zero**: o corte, as compensações e a correção da linha do arquivo anterior são descartados. (Só o "Adicionar de novo" de um arquivo de versão muito antiga do app mantém esses ajustes.)
-- **Corte do arquivo:** "Usar a partir do km" e "Até o km" (km do arquivo) só valem ao clicar em **Aplicar corte**; **Limpar corte** volta a usar o arquivo inteiro. O arquivo mostra o corte atual.
+- **Cortes do arquivo (quantos precisar):** cada corte é um trecho que **não entra**, "Tirar de … até …", em km do arquivo. Em branco quer dizer início ou fim do arquivo.
+  - **Como lançar:** "Outro corte" acrescenta mais linhas, e os cortes só valem ao clicar em **Aplicar cortes**.
+  - **Como desfazer:** cada corte aplicado tem a lixeira, e **Tirar todos os cortes** volta a usar o arquivo inteiro.
+  - **Onde vale:** cobertura, buracos, sobreposições, alertas, km lançados, compensação de saltos, Tela do carro, Análise e conferência.
+  - **Na tabela de trechos,** quem foi cortado aparece com "✂ cortado" ou "✂ parte cortada".
+  - **Exemplo:** "Tirar 12+674 → 14+470" e "Tirar 30+000 → 31+000".
+  - **Cuidado:** o corte é por km do arquivo, então pega todas as passadas naquela faixa. Para tirar só uma passada repetida, use "Desconsiderar" na tabela de trechos.
+  - **Arquivos antigos:** o corte antigo, de um trecho só ("Usar a partir do km … até o km"), virou dois cortes: do início até o "a partir de" e do "até" até o fim. O resultado é o mesmo.
 - **Lista de arquivos recolhível** (setinha no título "Arquivos").
 - **Dica das barras:** passando o mouse ou tocando na barra, aparece o km daquele ponto, se está medido, buraco ou falta medir, a sede e o RH em que está (ou a distância até o RH mais próximo).
 - **Filtro da lista de arquivos** por **sede**, digitando (em branco = todas; busca na sede, pela coluna CORRETIVA: GV1, GV2, CP, CS… ou, sem ela, pela sede onde o arquivo caiu na geometria, e no nome do arquivo, sem diferenciar maiúsculas e acentos) e por **data da inspeção** (só as datas que existem nos arquivos, da mais recente para a mais antiga). O filtro vale só para a lista; a cobertura, os buracos e os alertas continuam com o ciclo todo.
@@ -552,7 +559,7 @@ km novo = km do arquivo + tamanho do pulo × (distância percorrida desde o últ
    A correção cresce aos poucos: perto do último acerto é quase zero; no último ponto antes do pulo é o pulo inteiro. É pela **distância percorrida**, então pontos com o carro parado recebem a mesma correção.
 4. **O km depois do pulo não muda**, porque é o da placa. O km fica contínuo: sem buraco e sem sobreposição.
 5. **Máximo por ponto (1% do espaçamento).** Se o % por ponto passar de 1%, o pulo é grande demais para o trecho: pode ser passada repetida ou arquivo faltando, e não acerto de km. O app avisa e o botão vira **"Compensar mesmo assim (x% por ponto)"**. A decisão é sua.
-6. **Pulos maiores que 300 m** não são acerto de km: é passada repetida ou falta de arquivo. Use o recorte.
+6. **Pulos maiores que 300 m** não são acerto de km: é passada repetida ou falta de arquivo. Use um corte do arquivo.
 7. **Carro parado logo depois do pulo** não impede o pulo de ser reconhecido.
 8. **Nada é automático.** Cada pulo tem o botão **Compensar** e, depois, **Desfazer**. O CSV nunca é alterado.
 
@@ -616,10 +623,10 @@ A compensação vale para:
 ### 16.7 O que continua no km do arquivo
 
 Para o km compensado não levar a um lugar errado:
-- **Recorte** ("Usar a partir do km / Até o km" na Montagem e "Analisar a partir do km" na Análise): é sempre no **km do arquivo**, o mesmo que aparece na tela do carro durante a inspeção. O mesmo recorte pega os mesmos pontos na Montagem, na Tela do carro, na Análise e na conferência.
+- **Cortes** (Montagem) e **"Analisar a partir do km"** (Análise): são sempre no **km do arquivo**, o mesmo que aparece na tela do carro durante a inspeção. O mesmo corte pega os mesmos pontos na Montagem, na Tela do carro, na Análise e na conferência.
 - **Alerta de geometria → Tela do carro:** o alerta guarda o **ponto do arquivo** onde está o maior valor. A Tela vai direto nesse ponto, e não procura pelo km (que mudou com a compensação ou pode se repetir numa volta).
 - **Eventos** (AMV, travador, EX…): ficam presos ao ponto em que foram gravados e andam junto com ele.
-- **Salto ou volta fora do recorte** (um dos lados do pulo ficou fora do trecho usado): sai da lista de compensação. Ex.: arquivo que começa em 326+807 e salta de 326+987 para 327+000 na primeira placa; com "Usar a partir do km" = 327+000, o salto deixa de aparecer.
+- **Salto ou volta fora do recorte** (um dos lados do pulo ficou fora do trecho usado): sai da lista de compensação. Ex.: arquivo que começa em 326+807 e salta de 326+987 para 327+000 na primeira placa; com o corte "Tirar início → 327+000", o salto deixa de aparecer.
 
 ---
 
@@ -640,7 +647,7 @@ Para o km compensado não levar a um lugar errado:
 2. Com o km corrigido (itens 7 e 16), descobre se o metro está numa **curva ou tangente** da geometria. No **RH (pátio)**, onde ficam os AMV, vale o **limite da tangente**, como na Tela do carro, e o alerta mostra o nome do RH (ex.: "RH-43", elemento "RH (pátio)"). Fora do que a geometria tem naquela linha, não há limite. Trechos em deslocamento (LOCOM) não geram alerta.
 3. Compara com os limites da velocidade escolhida (os mesmos da Tela do carro, item 14.2). Fica o **maior nível** passado: alerta, restrição ou interdição.
 4. Metros seguidos acima do limite (até 3 m de folga) viram **um alerta só**, com o maior valor.
-5. O recorte do arquivo é respeitado.
+5. Os cortes do arquivo são respeitados.
 
 **Exemplo (68 km/h, curva).**
 

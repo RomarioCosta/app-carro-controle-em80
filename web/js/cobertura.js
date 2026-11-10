@@ -327,7 +327,7 @@
     arquivos.filter((a) => a.resumo.ramal === ramal).forEach((a) => {
       const r = a.resumo;
       const { pos, aj, linha, linhas } = r.amostras;
-      const rc = a.recorte;
+      const cortes = B().cortesDe(a.recorte); // cortes do arquivo (km do arquivo)
       // amostra k = ponto k × passo do arquivo (a última é o último ponto)
       const passo = Math.max(1, Math.round(1 / (r.espacamento || 0.25)));
       const pontoDa = (k) => (r.pontos ? Math.min(k * passo, r.pontos - 1) : k * passo);
@@ -348,7 +348,7 @@
         const fechar = () => { if (atual) out.push(atual); atual = null; };
         for (let k = 0; k < pos.length; k++) {
           const x = pos[k];
-          if (rc && ((rc.de !== null && rc.de !== undefined && x < rc.de) || (rc.ate !== null && rc.ate !== undefined && x > rc.ate))) { fechar(); continue; }
+          if (cortes.length && B().noCorte(x, cortes)) { fechar(); continue; }
           const val = v[k];
           if (Number.isNaN(val)) continue;
           const y = x + aj[k];
@@ -388,6 +388,7 @@
    * arqIni/arqFim = km do arquivo, na ordem dele).
    */
   C.kmLancados = (r, recorte = null, planta = null, folga = 3) => {
+    const cortes = B().cortesDe(recorte);
     const { pos, aj, linha, linhas } = r.amostras;
     const out = [];
     const elsPorLinha = {};
@@ -409,7 +410,7 @@
     };
     for (let k = 0; k < pos.length; k++) {
       const p = pos[k];
-      if (recorte && ((recorte.de !== null && recorte.de !== undefined && p < recorte.de) || (recorte.ate !== null && recorte.ate !== undefined && p > recorte.ate))) { fechar(); continue; }
+      if (cortes.length && B().noCorte(p, cortes)) { fechar(); continue; }
       const l = linhas[linha[k]];
       if (B().ehDeslocamento(l)) { fechar(); continue; } // LOCOM: fora
       const g = p + aj[k];
@@ -424,15 +425,16 @@
     return out;
   };
 
-  /** Intervalos cobertos por um arquivo resumido, por linha, já no km da geometria. recorte = { de, ate } no km do arquivo. */
+  /** Intervalos cobertos por um arquivo resumido, por linha, já no km da geometria. recorte = cortes do arquivo (B.cortesDe), no km do arquivo. */
   C.coberturaDoArquivo = (r, recorte = null, folga = 3) => {
+    const cortes = B().cortesDe(recorte);
     const { pos, aj, linha, linhas } = r.amostras;
     const porLinha = {};
     let atual = null;
     const fechar = () => { if (atual && atual.f > atual.i) (porLinha[atual.l] = porLinha[atual.l] || []).push([atual.i, atual.f]); atual = null; };
     for (let k = 0; k < pos.length; k++) {
       const p = pos[k];
-      if (recorte && ((recorte.de !== null && recorte.de !== undefined && p < recorte.de) || (recorte.ate !== null && recorte.ate !== undefined && p > recorte.ate))) { fechar(); continue; }
+      if (cortes.length && B().noCorte(p, cortes)) { fechar(); continue; }
       const g = p + aj[k];
       const l = linhas[linha[k]];
       if (B().ehDeslocamento(l)) { fechar(); continue; } // carro em deslocamento: não conta como medido
@@ -448,7 +450,7 @@
   /* ---------------- Montagem: buracos e sobreposições ---------------- */
 
   /**
-   * arquivos: [{ id, nome, resumo, recorte }]. Retorna por linha do ramal:
+   * arquivos: [{ id, nome, resumo, recorte }] (recorte = cortes do arquivo, ver B.cortesDe). Retorna por linha do ramal:
    * { linha, necessario (m), coberto (m), pct, sedes: [{ sede, necessario, coberto, pct, buracos, arquivos }],
    *   buracos: [{ ini, fim, sede, eh }], sobreposicoes: [{ ini, fim, arquivos }] }.
    */

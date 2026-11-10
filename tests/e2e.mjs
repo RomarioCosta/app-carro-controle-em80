@@ -742,20 +742,33 @@ async function main() {
       // abre a sede: lista os arquivos e os buracos
       await page.locator('.mt-tabela tbody tr').first().click();
       await page.locator('.mt-detalhe').first().waitFor();
-      // recorte do arquivo e persistência
+      // cortes do arquivo (vários) e persistência
+      const pctCob = async () => Number((await page.locator('.kpi:visible').filter({ hasText: 'Medido' }).locator('.kpi-valor').textContent()).replace('%', '').replace(',', '.'));
+      const semCorte = await pctCob();
       await page.locator('.mt-arquivo > summary').click();
-      await page.locator('.mt-arquivo').getByLabel('Até o km').fill('2+000');
-      await page.locator('.mt-arquivo').getByLabel('Até o km').dispatchEvent('change');
-      assert.ok(!(await page.locator('.mt-arquivo > summary').textContent()).includes('recortado')); // só vale ao aplicar
-      await page.locator('.mt-arquivo').getByRole('button', { name: 'Aplicar corte' }).click();
-      await page.getByText('Corte aplicado em TESTE.csv: até o km 2+000.').waitFor();
-      await page.locator('.mt-arquivo > summary', { hasText: 'recortado' }).waitFor();
-      await page.locator('.mt-arquivo').getByText('Corte atual: até o km 2+000 (km do arquivo).').waitFor();
+      const preencherCorte = async (n, lado, valor) => { const c = page.locator('.mt-arquivo').getByLabel(`Corte ${n}: ${lado}`, { exact: true }); await c.fill(valor); await c.dispatchEvent('change'); };
+      await preencherCorte(1, 'tirar de', '2+000'); // até em branco = até o fim do arquivo
+      assert.ok(!(await page.locator('.mt-arquivo > summary').textContent()).includes('corte(s)')); // só vale ao aplicar
+      await page.locator('.mt-arquivo').getByRole('button', { name: 'Outro corte' }).click();
+      await preencherCorte(2, 'tirar de', '1+600');
+      await preencherCorte(2, 'até', '1+700');
+      await page.locator('.mt-arquivo').getByRole('button', { name: 'Aplicar cortes' }).click();
+      await page.getByText('2 corte(s) aplicado(s) em TESTE.csv: 2+000 → fim; 1+600 → 1+700.').waitFor();
+      await page.locator('.mt-arquivo > summary', { hasText: '2 corte(s)' }).waitFor();
+      await page.locator('.mt-arquivo').getByText(/^Tirar 2\+000 → fim/).waitFor();
+      await page.locator('.mt-arquivo').getByText(/^Tirar 1\+600 → 1\+700/).waitFor();
+      const comDois = await pctCob();
+      assert.ok(comDois < semCorte, `cobertura com os cortes (${comDois}) menor que sem (${semCorte})`);
+      // tira o 2º corte: a cobertura volta a subir; fica só "2+000 → fim" (o restante do teste usa o arquivo até 2+000)
+      await page.locator('.mt-arquivo').getByRole('button', { name: 'Remover o corte 1+600 → 1+700' }).click();
+      await page.getByText('Corte 1+600 → 1+700 removido de TESTE.csv.').waitFor();
+      await page.locator('.mt-arquivo > summary', { hasText: '1 corte(s)' }).waitFor();
+      assert.ok(await pctCob() > comDois);
       await page.locator('.mt-corte').first().screenshot({ path: `${SAIDA}16e-montagem-corte.png`, style: '.toasts, .cab { display: none !important; }' });
       await page.screenshot({ path: `${SAIDA}16-montagem.png`, fullPage: true });
       await page.reload();
       await page.getByRole('heading', { name: 'Montagem dos dados' }).waitFor();
-      await page.locator('.mt-arquivo > summary', { hasText: 'recortado' }).waitFor();
+      await page.locator('.mt-arquivo > summary', { hasText: '1 corte(s)' }).waitFor();
       // arquivo repetido: mesmo conteúdo com outro nome → pergunta; "Cancelar" mantém o existente
       await page.locator('input[name="arquivo-montagem"]').setInputFiles([{ name: 'COPIA.csv', mimeType: 'text/csv', buffer: Buffer.from(gerarCSV(), 'latin1') }]);
       await page.locator('.modal', { hasText: 'Arquivo já carregado' }).getByText('COPIA.csv já está na Montagem com o nome TESTE.csv (mesmo conteúdo)').waitFor();
@@ -768,20 +781,18 @@ async function main() {
       await page.locator('.modal', { hasText: 'Arquivo já carregado' }).getByRole('button', { name: 'Substituir' }).click();
       await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
       assert.equal(await page.locator('.mt-arquivo').count(), 1);
-      assert.ok(!(await page.locator('.mt-arquivo > summary').textContent()).includes('recortado'));
+      assert.ok(!(await page.locator('.mt-arquivo > summary').textContent()).includes('corte(s)'));
       await page.locator('.mt-arquivo > summary').click();
-      await page.locator('.mt-arquivo').getByText('Sem corte: o arquivo inteiro é usado.').waitFor();
-      // corta de novo (o restante do teste usa o arquivo até 2+000) e confere o "Limpar corte"
-      await page.locator('.mt-arquivo').getByLabel('Até o km').fill('2+000');
-      await page.locator('.mt-arquivo').getByLabel('Até o km').dispatchEvent('change');
-      await page.locator('.mt-arquivo').getByRole('button', { name: 'Aplicar corte' }).click();
-      await page.locator('.mt-arquivo > summary', { hasText: 'recortado' }).waitFor();
-      await page.locator('.mt-arquivo').getByRole('button', { name: 'Limpar corte' }).click();
-      await page.getByText('Corte retirado de TESTE.csv: o arquivo inteiro é usado.').waitFor();
-      await page.locator('.mt-arquivo').getByLabel('Até o km').fill('2+000');
-      await page.locator('.mt-arquivo').getByLabel('Até o km').dispatchEvent('change');
-      await page.locator('.mt-arquivo').getByRole('button', { name: 'Aplicar corte' }).click();
-      await page.locator('.mt-arquivo > summary', { hasText: 'recortado' }).waitFor();
+      await page.locator('.mt-arquivo').getByText('sem corte: o arquivo inteiro é usado').waitFor();
+      // corta de novo (o restante do teste usa o arquivo até 2+000) e confere o "Tirar todos os cortes"
+      await preencherCorte(1, 'tirar de', '2+000');
+      await page.locator('.mt-arquivo').getByRole('button', { name: 'Aplicar cortes' }).click();
+      await page.locator('.mt-arquivo > summary', { hasText: '1 corte(s)' }).waitFor();
+      await page.locator('.mt-arquivo').getByRole('button', { name: 'Tirar todos os cortes' }).click();
+      await page.getByText('Cortes retirados de TESTE.csv: o arquivo inteiro é usado.').waitFor();
+      await preencherCorte(1, 'tirar de', '2+000');
+      await page.locator('.mt-arquivo').getByRole('button', { name: 'Aplicar cortes' }).click();
+      await page.locator('.mt-arquivo > summary', { hasText: '1 corte(s)' }).waitFor();
       await page.locator('.mt-arquivo > summary').click();
       // setinha recolhe e abre a lista de arquivos
       await page.locator('details.mt-arquivos > summary').click();
@@ -914,12 +925,12 @@ async function main() {
       await page.getByText('Compensado:').waitFor();
       await salto.locator('.mt-comp-item', { hasText: 'Compensado' }).waitFor();
       // recorte que deixa o salto de fora (só o lado depois do pulo): sai da lista de compensação
-      await salto.getByLabel('Até o km').fill('1+898');
-      await salto.getByLabel('Até o km').dispatchEvent('change');
-      await salto.getByRole('button', { name: 'Aplicar corte' }).click();
+      await salto.getByLabel('Corte 1: tirar de', { exact: true }).fill('1+898');
+      await salto.getByLabel('Corte 1: tirar de', { exact: true }).dispatchEvent('change');
+      await salto.getByRole('button', { name: 'Aplicar cortes' }).click();
       await salto.getByText('1 salto(s)/volta(s) fora do trecho usado').waitFor();
       assert.equal(await salto.locator('.mt-comp-item').count(), 0);
-      await salto.getByRole('button', { name: 'Limpar corte' }).click();
+      await salto.getByRole('button', { name: 'Tirar todos os cortes' }).click();
       await salto.locator('.mt-comp-item', { hasText: 'Compensado' }).waitFor();
       // alertas de geometria (sem bitola e sem alinhamento)
       await page.getByRole('tab', { name: 'Alertas de geometria' }).click();

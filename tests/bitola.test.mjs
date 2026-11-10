@@ -736,3 +736,20 @@ test('Tela do carro: o recorte com os pontos em deslocamento (LOCOM) mantém tod
   assert.equal(t2.pos.length, 2001);
   assert.equal(t2.recorte.deslocamento, 0);
 });
+
+test('cortes do arquivo (vários): saem da análise e a conferência acompanha', () => {
+  const texto = gerarCSV();
+  const a = B.lerCSV(texto); // km 2500 → 1500
+  // formato antigo (um trecho que entra) vira cortes
+  assert.equal(B.cortesDe({ de: 1600, ate: 2400 }).length, 2);
+  assert.equal(B.noCorte(1550, B.cortesDe({ de: 1600, ate: 2400 })), true);
+  assert.equal(B.noCorte(2000, B.cortesDe({ de: 1600, ate: 2400 })), false);
+  // dois cortes: 2400 até o fim e 1700–1800
+  const cortes = [{ de: 2400, ate: null }, { de: 1700, ate: 1800 }];
+  const r = B.recortar(a, null, null, { cortes });
+  assert.ok(r.pos.every((p) => !(p >= 2400) && !(p >= 1700 && p <= 1800)));
+  assert.equal(r.pos.length, a.pos.length - (100 * 4 + 1) - (100 * 4 + 1));
+  const res = B.analisar(r);
+  const c = B.conferir(texto, res, 2, null, null, r.idx);
+  assert.equal(c.ok, true, JSON.stringify(c.divergencias.slice(0, 2)));
+});

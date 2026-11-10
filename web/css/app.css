@@ -951,3 +951,4 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-tabela-trechos tr.mt-trecho-trocado td:last-child strong { color: var(--primaria, var(--ok)); }
 .mt-trecho-manual summary { cursor: pointer; }
 .mt-destaque { outline: 2px solid var(--alerta); outline-offset: 2px; }
+.mt-corte-tag { font-size: .78rem; color: var(--alerta); white-space: nowrap; }

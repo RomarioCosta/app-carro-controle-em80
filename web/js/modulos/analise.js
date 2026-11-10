@@ -54,7 +54,7 @@
     try {
       const salvo = await store.get(CHAVE);
       if (v !== versaoArquivo) return;
-      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [], regras: salvo.regras || null, linhas: salvo.linhas || null });
+      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [], regras: salvo.regras || null, linhas: salvo.linhas || null, cortes: salvo.cortes || [] });
     } catch (e) { /* sem arquivo salvo */ }
   }
 
@@ -124,6 +124,8 @@
 
   /** Trecho analisado (km inicial e final, em metros): descarta o resto do arquivo sem editar o CSV. */
   let recorte = { de: null, ate: null };
+  /** Cortes do arquivo feitos na Montagem (trechos que não entram, km do arquivo): ver B.cortesDe. */
+  let cortesMontagem = [];
   let arquivoCompleto = null;
   /** Arquivo da Tela do carro: o recortado, mas com os pontos em LOCOM (a análise não os usa). */
   let arquivoTela = null;
@@ -134,18 +136,19 @@
   let regrasLinha = null;
 
   function aplicarRecorte() {
-    arquivo = B.recortar(arquivoCompleto, recorte.de, recorte.ate);
+    arquivo = B.recortar(arquivoCompleto, recorte.de, recorte.ate, { cortes: cortesMontagem });
     if (!arquivo.pos.length) {
       ui.toast('Nenhum ponto do arquivo no trecho escolhido. O trecho foi limpo.', 'erro', 6000);
       recorte = { de: null, ate: null };
-      arquivo = B.recortar(arquivoCompleto, null, null);
+      arquivo = B.recortar(arquivoCompleto, null, null, { cortes: cortesMontagem });
       if (!arquivo.pos.length) arquivo = arquivoCompleto; // arquivo todo em deslocamento: analisa assim mesmo
     }
     // Tela do carro: o mesmo recorte, mas com os pontos em deslocamento (LOCOM), que ela mostra marcados
-    arquivoTela = B.recortar(arquivoCompleto, recorte.de, recorte.ate, { comDeslocamento: true });
+    arquivoTela = B.recortar(arquivoCompleto, recorte.de, recorte.ate, { comDeslocamento: true, cortes: cortesMontagem });
   }
 
-  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [], regras = null, linhas = null }) {
+  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [], regras = null, linhas = null, cortes = [] }) {
+    cortesMontagem = B.cortesDe(cortes);
     versaoArquivo++;
     compensar = [...comp];
     regrasComp = regras;
@@ -179,7 +182,7 @@
     }
     zoom = null;
     recalcular();
-    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar, regras: regrasComp, linhas: regrasLinha }).catch(() => {});
+    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar, regras: regrasComp, linhas: regrasLinha, cortes: cortesMontagem }).catch(() => {});
   }
 
   async function mudarRecorte(de, ate) {
@@ -384,6 +387,7 @@
               mudarRecorte(lado === 'de' ? v : recorte.de, lado === 'ate' ? v : recorte.ate);
             }
           })))),
+        cortesMontagem.length ? h('p', { class: 'sub', text: `${cortesMontagem.length} corte(s) da Montagem aplicado(s): ${cortesMontagem.map((c) => `${Number.isFinite(c.de) ? B.fmtKm(c.de) : 'início'} → ${Number.isFinite(c.ate) ? B.fmtKm(c.ate) : 'fim'}`).join(', ')} (km do arquivo).` }) : null,
         arquivo.recorte && arquivo.recorte.descartados ? h('p', { class: 'sub', text: `${arquivo.recorte.descartados.toLocaleString('pt-BR')} pontos fora do trecho analisado foram descartados (o arquivo não é alterado).` }) : null,
         arquivo.recorte && arquivo.recorte.deslocamento ? h('p', { class: 'sub', text: `${arquivo.recorte.deslocamento.toLocaleString('pt-BR')} pontos com o carro em deslocamento (LINHA = LOCOM) foram desconsiderados.` }) : null,
         arquivoCompleto.compensados ? h('p', { class: 'sub', text: `Km compensado em ${arquivoCompleto.compensados} salto(s)/volta(s) na Montagem: gráficos, tabelas e laudo usam o km compensado; o trecho analisado é no km do arquivo.` }) : null,
@@ -1124,7 +1128,10 @@
     estado: () => ({ arquivo, arquivoTela: arquivo ? arquivoTela : null, resultado, nomeArquivo, opcoes }),
     textoDoArquivo,
     /** Abre um arquivo vindo de outra tela (Montagem / Tela do carro), com o trecho e as compensações dela. */
-    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [], regras = null, linhas = null } = {}) => processar(texto, nome, { salvar: true, trecho, compensar: comp, regras, linhas }),
+    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [], regras = null, linhas = null, cortes = [] } = {}) => processar(texto, nome, {
+      // a Montagem manda os cortes (lista); o formato antigo era um trecho só ("usar de … até")
+      salvar: true, trecho: Array.isArray(trecho) ? null : trecho, compensar: comp, regras, linhas, cortes: Array.isArray(trecho) ? trecho : cortes
+    }),
     planta: async () => { try { return await store.get(CHAVE_PLANTA); } catch (e) { return null; } }
   };
 })(window.App);
