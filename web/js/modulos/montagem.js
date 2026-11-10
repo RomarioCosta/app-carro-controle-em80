@@ -409,6 +409,7 @@
   /* ---------------- Km lançados (trecho por trecho, sem juntar) ---------------- */
 
   const cacheLancados = new WeakMap(); // resumo → { chave, lista }
+  const fechados = new Set(); // blocos "Km lançados por linha" que o usuário fechou (abertos por padrão)
   /** Km lançados de um arquivo (com o corte), trecho por trecho: ver C.kmLancados. */
   function lancados(a) {
     const chave = JSON.stringify(a.recorte || null);
@@ -447,7 +448,7 @@
     lista.forEach((t, k) => { (porLinha[t.linha] = porLinha[t.linha] || []).push({ t, k }); });
     const chave = `lancarq|${a.id}`;
     const resumoLinhas = Object.keys(porLinha).sort().map((l) => `L${l}: ${mTxt(porLinha[l].reduce((x, y) => x + y.t.m, 0))} em ${porLinha[l].length} trecho(s)`).join(' · ');
-    return h('details', { class: 'pilha mt-comp mt-lancados', open: abertos.has(chave) || null, ontoggle: (e) => { if (e.target.open) abertos.add(chave); else abertos.delete(chave); } },
+    return h('details', { class: 'pilha mt-comp mt-lancados', open: !fechados.has(chave) || null, ontoggle: (e) => { if (e.target.open) fechados.delete(chave); else fechados.add(chave); } },
       h('summary', null, h('strong', { text: 'Km lançados por linha' }), h('span', { class: 'mt-sub', text: ` · ${resumoLinhas}` })),
       h('div', { class: 'tabela-rolagem mt-rolagem' }, h('table', { class: 'tabela mt-tabela' },
         h('thead', null, h('tr', null, ['Linha', 'Ordem', 'De (km)', 'Até (km)', 'Extensão', 'Sede', 'EH / RH', 'Km do arquivo'].map((x) => h('th', { text: x })))),
@@ -661,12 +662,13 @@
           mudarLinhas(a, nova, `"${rotuloValor(x.valor)}" agora vale como ${e.target.value ? nomeLinha(e.target.value) : 'automático'}.`);
         }
       }, [['', `Automático (${auto(x.valor)})`], ...opcoesLinha()].map(([v, t]) => h('option', { value: v, selected: v === escolhido || null, text: t })));
-      // o mesmo valor pode aparecer em vários trechos: a faixa de km só aparece quando é um trecho só
-      const nTrechos = (r.trechosLinha || []).filter((t) => t.valor === x.valor).length;
-      const onde = nTrechos > 1 ? `em ${n0(nTrechos)} trechos` : `${km(x.de)} – ${km(x.ate)}`;
+      // o mesmo valor pode aparecer em vários trechos: mostra o km de cada um (na ordem do arquivo)
+      const doValor = (r.trechosLinha || []).filter((t) => t.valor === x.valor);
+      const onde = doValor.length > 1 ? `em ${n0(doValor.length)} trechos` : `${km(x.de)} – ${km(x.ate)}`;
       return h('div', { class: 'mt-valor-linha', role: 'group', 'aria-label': `Valor ${rotuloValor(x.valor)}` },
         h('div', null, h('strong', { text: rotuloValor(x.valor) }),
-          h('span', { class: 'mt-sub', text: ` · ${n0(x.pontos)} pontos · ${onde}` })),
+          h('span', { class: 'mt-sub', text: ` · ${n0(x.pontos)} pontos · ${onde}` }),
+          doValor.length > 1 ? h('ol', { class: 'mt-trechos-valor' }, doValor.map((t) => h('li', { text: `${km(t.de)} – ${km(t.ate)} (${mTxt(Math.abs(t.ate - t.de))} · ${n0(t.pontos)} pontos)` }))) : null),
         sel);
     });
 

@@ -844,7 +844,14 @@ async function main() {
       await page.locator('svg.tc-svg').screenshot({ path: `${SAIDA}16f-tela-locom.png`, style: '.toasts, .cab, .puxador, .gaveta-puxador { display: none !important; }' });
       assert.equal(await page.getByText(/O km mais próximo no arquivo/).count(), 0);
       assert.ok(await page.locator('.tc-locom-fundo').count() > 0);
-      await page.locator('.tc-rodape', { hasText: 'LOCOM' }).waitFor();
+      // o rodapé segue o ponto do cursor; se o mouse sair da tela ele volta ao topo: repete o "ir para o km"
+      await page.mouse.move(0, 0);
+      await aguardar(async () => {
+        const irKm = page.getByLabel('Ir para o km');
+        await irKm.fill('1+850');
+        await irKm.press('Enter');
+        return (await page.locator('.tc-rodape').textContent()).includes('LOCOM');
+      }, 'rodapé da Tela do carro em LOCOM');
       await page.getByRole('tab', { name: 'Montagem' }).click();
       await arqTeste.locator('.mt-linha-arq').waitFor();
       await arqTeste.getByRole('button', { name: 'Remover o trecho 1+800 – 1+900' }).click();
