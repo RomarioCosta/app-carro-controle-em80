@@ -631,8 +631,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .esq-inicio { fill: none; stroke: var(--acento-forte); stroke-width: 3; }
 .esq-alvo { fill: transparent; cursor: pointer; }
 .esq-alvo:hover { fill: color-mix(in srgb, var(--serie-real) 16%, transparent); }
-.esq-alvo-tv { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
-.esq-alvo-tv:hover { stroke: color-mix(in srgb, var(--serie-real) 22%, transparent); }
+.esq-alvo-tv, .esq-alvo-via { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+.esq-alvo-tv:hover, .esq-alvo-via:hover { stroke: color-mix(in srgb, var(--serie-real) 22%, transparent); }
 .esq-ponto { cursor: pointer; }
 .esq-ponto-txt { font-size: 7.5px; font-weight: 800; fill: #fff; }
 .esq-ponto-caixa { stroke: #1b1b1b; stroke-width: .6; }
