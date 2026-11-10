@@ -28,7 +28,7 @@
   const doCiclo = () => arquivos.filter((a) => (a.ciclo || '') === ciclo());
   const aba = () => U.pref.get('montagem:aba', 'cobertura');
   /** Saltos/voltas dentro do trecho usado: os dois lados do pulo (km do arquivo) ficam dentro do recorte. */
-  const dentroRecorte = (rc, x) => !rc || ((rc.de === null || rc.de === undefined || x >= rc.de) && (rc.ate === null || rc.ate === undefined || x <= rc.ate));
+  const dentroRecorte = (rc, x) => !B().noCorte(x, B().cortesDe(rc));
   const compensaveisUsados = (a) => a.resumo.compensaveis.filter((c) => dentroRecorte(a.recorte, c.de) && dentroRecorte(a.recorte, c.km));
   /** Regras da compensação de km (editáveis): margem em m e máximo por ponto em fração do espaçamento. */
   const regras = () => ({ ...B().COMPENSACAO, ...(U.pref.get('montagem:compensacao', {}) || {}) });
@@ -39,7 +39,8 @@
         planta = App.analise && App.analise.planta ? await App.analise.planta() : null;
         try {
           const salvos = (await store.get(CHAVE)) || [];
-          arquivos = salvos.map((a) => ({ ...a, compensar: a.compensar || [], resumo: C().normalizarResumo(a.resumo) }));
+          // recorte: lista de cortes (trechos que não entram); o formato antigo (um trecho "usar de … até") vira cortes
+          arquivos = salvos.map((a) => ({ ...a, recorte: a.recorte && !Array.isArray(a.recorte) ? B().cortesDe(a.recorte) : (a.recorte && a.recorte.length ? a.recorte : null), compensar: a.compensar || [], resumo: C().normalizarResumo(a.resumo) }));
           // arquivos adicionados antes desta versão não têm o CSV guardado nem o cálculo dos saltos/voltas
           for (const a of arquivos) a.antigo = !a.resumo.espacamento || !(await store.get(CHAVE_CSV(a.id)).catch(() => null));
         } catch (e) { arquivos = []; }
@@ -566,22 +567,11 @@
           const avisos = [...conf.avisos, ...r.inconsistencias];
           const ondeCaiu = [...new Map(conf.trechos.map((t) => [`${t.linha}|${t.sede}`, t])).values()].map((t) => `L${t.linha} ${C().normSede(t.sede)} ${kmTxt(t.m)}`).join(' · ');
           const erros = avisos.filter((x) => x.tipo === 'erro').length; const alertas = avisos.filter((x) => x.tipo === 'alerta').length;
-          // corte: os campos guardam o valor digitado; só vale ao clicar em "Aplicar corte"
-          const pend = cortes.get(a.id) || { de: a.recorte ? a.recorte.de ?? null : null, ate: a.recorte ? a.recorte.ate ?? null : null };
-          const editar = (campo, v) => { pend[campo] = v; cortes.set(a.id, pend); };
-          const aplicarCorte = async (novo) => {
-            let { de, ate } = novo;
-            if (de !== null && ate !== null && de > ate) [de, ate] = [ate, de];
-            a.recorte = de === null && ate === null ? null : { de, ate };
-            cortes.delete(a.id);
-            await gravar(); render();
-            ui.toast(a.recorte ? `Corte aplicado em ${a.nome}: ${corteTxt(a.recorte)}.` : `Corte retirado de ${a.nome}: o arquivo inteiro é usado.`, 'ok');
-          };
           return h('details', { class: 'mt-arquivo', id: `mt-arq-${a.id}`, open: abertos.has(`arq|${a.id}`) || null, ontoggle: (e) => { if (e.target.open) abertos.add(`arq|${a.id}`); else abertos.delete(`arq|${a.id}`); } },
             h('summary', null,
               h('span', { class: `mt-ponto ${erros ? 'mt-erro' : alertas ? 'mt-alerta' : 'mt-ok'}` }),
               h('strong', { text: a.nome }),
-              h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte ? ' · recortado' : ''}${a.linhas ? ' · linha corrigida' : ''}` }),
+              h('span', { class: 'mt-sub', text: ` · ${r.corretiva || '—'} · ${r.ramal || r.meta.ramal || '—'} L${r.linhaRef} · ${km(r.kmIni)} → ${km(r.kmFim)}${a.recorte && a.recorte.length ? ` · ${a.recorte.length} corte(s)` : ''}${a.linhas ? ' · linha corrigida' : ''}` }),
               h('span', { class: 'mt-data', text: [r.meta.data, sentidoTxt(r)].filter(Boolean).join(' · ') }),
               a.antigo ? h('span', { class: 'mt-cont', text: 'adicionar de novo' }) : compensaveisUsados(a).some((c) => !c.tratado) ? h('span', { class: 'mt-cont', text: `${compensaveisUsados(a).filter((c) => !c.tratado).length} salto(s)/volta(s) para compensar` })
                 : avisos.length ? h('span', { class: 'mt-cont', text: `${avisos.length} aviso(s)` }) : null),
@@ -591,25 +581,69 @@
               a.antigo ? h('div', { class: 'aviso' }, 'Adicionado numa versão anterior: sem o ajuste do km (Compensar) e sem a Tela do carro. ',
                 h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => reAdicionar(a) }, ui.icone('upload'), 'Adicionar de novo')) : null,
               r.compensaveis.length ? listaCompensaveis(a) : null,
+              blocoCortes(a),
               a.antigo ? null : cartaoLinhaArquivo(a),
               h('div', { class: 'linha-acoes' },
                 h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
-              h('div', { class: 'pilha mt-comp mt-corte' },
-                h('strong', { text: 'Corte do arquivo' }),
-                h('span', { class: 'mt-sub', text: a.recorte ? `Corte atual: ${corteTxt(a.recorte)} (km do arquivo).` : 'Sem corte: o arquivo inteiro é usado.' }),
-                h('div', { class: 'grade-2' },
-                  ui.campo('Usar a partir do km', campoKm(pend.de, (v) => editar('de', v), 'início')),
-                  ui.campo('Até o km', campoKm(pend.ate, (v) => editar('ate', v), 'fim'))),
-                h('div', { class: 'linha-acoes' },
-                  h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => aplicarCorte(pend) }, ui.icone('check'), 'Aplicar corte'),
-                  a.recorte ? h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => aplicarCorte({ de: null, ate: null }) }, ui.icone('x'), 'Limpar corte') : null)),
               h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-fantasma', onclick: () => remover(a) }, ui.icone('lixo'), 'Remover arquivo'))));
         })));
   }
 
-  /** Corte digitado e ainda não aplicado, por arquivo (id → { de, ate }). */
+  /* ---------------- Cortes do arquivo (vários) ---------------- */
+
+  /** Cortes digitados e ainda não aplicados, por arquivo (id → [{ de, ate }]). */
   const cortes = new Map();
-  const corteTxt = (rc) => [rc.de !== null && rc.de !== undefined ? `a partir do km ${km(rc.de)}` : '', rc.ate !== null && rc.ate !== undefined ? `até o km ${km(rc.ate)}` : ''].filter(Boolean).join(' ');
+  const corteKm = (v, ponta) => (Number.isFinite(v) ? km(v) : ponta);
+  const corteTxt = (c) => `${corteKm(c.de, 'início')} → ${corteKm(c.ate, 'fim')}`;
+
+  /**
+   * Cortes do arquivo: trechos que não entram (km do arquivo), quantos forem precisos. Valem para a cobertura,
+   * os alertas, os trechos, a compensação, a Tela do carro e a Análise. Vazio = início ou fim do arquivo.
+   */
+  function blocoCortes(a) {
+    const r = a.resumo;
+    const aplicados = a.recorte || [];
+    if (!cortes.has(a.id)) cortes.set(a.id, [{ de: null, ate: null }]);
+    const novos = cortes.get(a.id);
+    const extensao = (c) => {
+      const lo = Number.isFinite(c.de) ? c.de : Math.min(r.kmIni, r.kmFim);
+      const hi = Number.isFinite(c.ate) ? c.ate : Math.max(r.kmIni, r.kmFim);
+      return Math.max(0, hi - lo);
+    };
+    const salvar = async (lista, msg) => {
+      a.recorte = lista.length ? lista : null;
+      await gravar(); render();
+      ui.toast(msg, 'ok', 5000);
+    };
+    const caixa = h('div', { class: 'mt-trechos-novos' });
+    const desenhar = () => ui.trocar(caixa,
+      h('div', { class: 'mt-trecho-cab', 'aria-hidden': 'true' }, h('span', { text: 'Tirar de (km)' }), h('span', { text: 'Até (km)' }), h('span'), h('span')),
+      novos.map((c, k) => h('div', { class: 'mt-trecho-linha' },
+        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Corte ${k + 1}: tirar de`, placeholder: 'início', value: c.de === null ? '' : km(c.de), onchange: (e) => { c.de = lerKm(e.target, c.de); } }),
+        h('input', { type: 'text', inputmode: 'decimal', class: 'mt-km', 'aria-label': `Corte ${k + 1}: até`, placeholder: 'fim', value: c.ate === null ? '' : km(c.ate), onchange: (e) => { c.ate = lerKm(e.target, c.ate); } }),
+        h('span'),
+        novos.length > 1 ? h('button', { type: 'button', class: 'btn-icone', 'aria-label': `Tirar a linha do corte ${k + 1}`, title: 'Tirar esta linha', onclick: () => { novos.splice(k, 1); desenhar(); } }, ui.icone('x')) : h('span'))));
+    desenhar();
+    const aplicar = () => {
+      const preenchidos = novos.filter((c) => c.de !== null || c.ate !== null);
+      if (!preenchidos.length) { ui.toast('Informe o km de início ou de fim do corte (vazio = início ou fim do arquivo).', 'erro', 6000); return; }
+      const lista = [...aplicados, ...preenchidos.map((c) => (c.de !== null && c.ate !== null && c.de > c.ate ? { de: c.ate, ate: c.de } : { de: c.de, ate: c.ate }))];
+      cortes.delete(a.id);
+      salvar(lista, `${preenchidos.length} corte(s) aplicado(s) em ${a.nome}: ${preenchidos.map(corteTxt).join('; ')}.`);
+    };
+    return h('div', { class: 'pilha mt-comp mt-corte' },
+      h('div', { class: 'mt-linha-cab' }, h('strong', { text: `Cortes do arquivo (${aplicados.length})` }),
+        h('span', { class: 'mt-sub', text: aplicados.length ? 'trechos que não entram' : 'sem corte: o arquivo inteiro é usado' })),
+      aplicados.length ? h('ol', { class: 'mt-lista mt-cortes' }, aplicados.map((c, k) => h('li', null,
+        h('span', { text: `Tirar ${corteTxt(c)} (${mTxt(extensao(c))}, km do arquivo)` }),
+        h('button', { class: 'btn-icone', 'aria-label': `Remover o corte ${corteTxt(c)}`, title: 'Remover este corte', onclick: () => salvar(aplicados.filter((_, j) => j !== k), `Corte ${corteTxt(c)} removido de ${a.nome}.`) }, ui.icone('lixo'))))) : null,
+      h('span', { class: 'mt-sub', text: 'Km do arquivo; em branco = início ou fim do arquivo. O trecho cortado sai da cobertura, dos alertas, dos trechos, da Tela do carro e da Análise. Para tirar só uma passada repetida no mesmo km, use "Desconsiderar" na tabela de trechos.' }),
+      caixa,
+      h('div', { class: 'linha-acoes' },
+        h('button', { type: 'button', class: 'btn btn-secundario btn-pequeno', onclick: () => { novos.push({ de: null, ate: null }); desenhar(); } }, ui.icone('plus'), 'Outro corte'),
+        h('button', { type: 'button', class: 'btn btn-primario btn-pequeno', onclick: aplicar }, ui.icone('check'), 'Aplicar cortes'),
+        aplicados.length ? h('button', { type: 'button', class: 'btn btn-secundario btn-pequeno', onclick: () => salvar([], `Cortes retirados de ${a.nome}: o arquivo inteiro é usado.`) }, ui.icone('x'), 'Tirar todos os cortes') : null));
+  }
 
   /** Sentido da inspeção: coluna SEQUÊNCIA do arquivo (C/D) e o km crescente ou decrescente. */
   function sentidoTxt(r) {
@@ -671,8 +705,12 @@
       if (linha) nova.pontos.push({ i0: t.i0, i1: t.i1, linha });
       mudarLinhas(a, nova, `Trecho ${km(t.arqDe)} → ${km(t.arqAte)}: ${linha ? nomeLinha(linha) : 'como no arquivo'}.`);
     };
-    const rc = a.recorte;
-    const foraDoCorte = (t) => rc && ((rc.de !== null && rc.de !== undefined && Math.max(t.arqDe, t.arqAte) < rc.de) || (rc.ate !== null && rc.ate !== undefined && Math.min(t.arqDe, t.arqAte) > rc.ate));
+    const listaCortes = B().cortesDe(a.recorte);
+    const foraDoCorte = (t) => listaCortes.length && B().noCorte(t.arqDe, listaCortes) && B().noCorte(t.arqAte, listaCortes);
+    const parteCortada = (t) => {
+      const lo = Math.min(t.arqDe, t.arqAte); const hi = Math.max(t.arqDe, t.arqAte);
+      return listaCortes.some((c) => (!Number.isFinite(c.ate) || c.ate >= lo) && (!Number.isFinite(c.de) || c.de <= hi));
+    };
     const linhasTabela = r.trechos.map((t, k) => {
       const rg = regraDoTrecho(t);
       const desl = ehDesl(t.linha);
@@ -686,7 +724,8 @@
         h('td', { class: 'num', text: mTxt(t.m) }),
         h('td', { text: desl ? '—' : sedeTxt(t) }),
         h('td', { text: desl ? 'LOCOM' : ehTxt(t) }),
-        h('td', null, h('div', { class: 'mt-linha-cel' }, h('strong', { text: desl ? 'Desconsiderado' : `L${t.linha}` }), sel)));
+        h('td', null, h('div', { class: 'mt-linha-cel' }, h('strong', { text: desl ? 'Desconsiderado' : `L${t.linha}` }), sel,
+          foraDoCorte(t) ? h('span', { class: 'mt-corte-tag', text: '✂ cortado' }) : parteCortada(t) ? h('span', { class: 'mt-corte-tag', text: '✂ parte cortada' }) : null)));
     });
     const porLinha = {};
     r.trechos.forEach((t) => { if (!ehDesl(t.linha) && !foraDoCorte(t)) porLinha[t.linha] = (porLinha[t.linha] || 0) + t.m; });

@@ -259,3 +259,13 @@ test('trechos do arquivo: tabela única e troca da linha pela posição (passada
   const r3 = C.resumirArquivo(arq, planta2, 'repete.csv', { linhas: { valores: {}, trechos: [{ de: 0, ate: 999.75, linha: '2' }] } });
   assert.deepEqual(j(r3.trechos.slice(0, 3).map((t) => t.linha)), ['2', 'LOCOM', '2']);
 });
+
+test('cortes do arquivo (vários) na cobertura, nos alertas e nos km lançados', () => {
+  const a = arq('gv', 0, 5000);
+  a.recorte = [{ de: 1000, ate: 1500 }, { de: 3000, ate: null }];
+  const iv = C.coberturaDoArquivo(a.resumo, a.recorte)['1'];
+  assert.deepEqual(j(iv.map(([x, y]) => [Math.round(x), Math.round(y)])), [[0, 999], [1501, 2999]]);
+  assert.equal(C.kmLancados(a.resumo, a.recorte, planta).length, 2);
+  // formato antigo continua valendo
+  assert.equal(Math.round(C.extensao(C.coberturaDoArquivo(a.resumo, { de: 1000, ate: 2000 })['1'])), 1000);
+});
