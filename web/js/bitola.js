@@ -826,7 +826,9 @@
   B.corrigirLinhas = (arquivo, regras) => {
     const trocas = (regras && regras.valores) || {};
     const trechos = ((regras && regras.trechos) || []).filter((t) => Number.isFinite(t.de) && Number.isFinite(t.ate) && t.linha);
-    if (!Object.keys(trocas).length && !trechos.length) return arquivo;
+    // linha de um trecho pela posição no arquivo (ponto inicial e final): não pega outra passada no mesmo km
+    const pontos = ((regras && regras.pontos) || []).filter((t) => Number.isInteger(t.i0) && Number.isInteger(t.i1) && t.linha);
+    if (!Object.keys(trocas).length && !trechos.length && !pontos.length) return arquivo;
     const orig = arquivo.linhasValores || [String((arquivo.meta && arquivo.meta.linha) || '')];
     const idxOrig = arquivo.linhaIdx || new Uint16Array(arquivo.pos.length);
     const posArq = arquivo.posArq || arquivo.pos;
@@ -840,6 +842,10 @@
       for (const t of tr) if (posArq[i] >= t.lo && posArq[i] <= t.hi) k = t.k;
       linhaIdx[i] = k;
     }
+    pontos.forEach((t) => {
+      const k = indice(String(t.linha));
+      for (let i = Math.max(0, t.i0); i <= Math.min(posArq.length - 1, t.i1); i++) linhaIdx[i] = k;
+    });
     return { ...arquivo, linhasValores: valores, linhaIdx, linhasCorrigidas: true };
   };
 

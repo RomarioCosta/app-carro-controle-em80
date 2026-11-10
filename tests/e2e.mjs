@@ -805,14 +805,25 @@ async function main() {
       const antes = await pctMedido();
       await arqTeste.locator(':scope > summary').click();
       const tabLinha = arqTeste.locator('.mt-linha-arq');
-      await tabLinha.getByRole('group', { name: 'Valor 1' }).getByText('· 4.000 pontos · 1+500 – 2+500').waitFor();
+      // tabela única "Trechos do arquivo": km do arquivo e da geometria, e a linha de cada trecho
+      const linha1 = tabLinha.locator('.mt-tabela-trechos tbody tr').first();
+      assert.match(await linha1.textContent(), /^11\+?2\+500 → 1\+500/);
       await tabLinha.getByLabel('Usar o valor 1 como').selectOption('LOCOM');
-      await page.getByText('"1" agora vale como desconsiderar (deslocamento).').waitFor();
+      await page.getByText('"1" agora vale como desconsiderar (deslocamento) em todo o arquivo.').waitFor();
       await page.locator('.mt-arquivo > summary', { hasText: 'linha corrigida' }).waitFor();
       assert.equal(await pctMedido(), 0);
       await arqTeste.locator('.mt-linha-arq').getByLabel('Usar o valor 1 como').selectOption('');
-      await page.getByText('"1" agora vale como automático.').waitFor();
+      await page.getByText('"1" agora vale como automático em todo o arquivo.').waitFor();
       assert.equal(await pctMedido(), antes);
+      // troca só de um trecho, pela própria tabela, e desfaz
+      await arqTeste.locator('.mt-linha-arq').getByLabel(/^Linha usada no trecho 1 /).selectOption('LOCOM');
+      await page.getByText(/^Trecho 2\+500 → 1\+500: desconsiderar/).waitFor();
+      assert.equal(await pctMedido(), 0);
+      await arqTeste.locator('.mt-linha-arq').getByLabel(/^Linha usada no trecho 1 /).selectOption('');
+      await page.getByText(/^Trecho 2\+500 → 1\+500: como no arquivo/).waitFor();
+      assert.equal(await pctMedido(), antes);
+      // trecho manual por km (fechado por padrão)
+      await arqTeste.locator('details.mt-trecho-manual > summary').click();
       // linha em dois trechos de km de uma vez: 1+900 a 1+800 e 1+700 a 1+650 em deslocamento
       const preencher = async (rotulo, valor) => { const c = arqTeste.getByLabel(rotulo, { exact: true }); await c.fill(valor); await c.dispatchEvent('change'); };
       await preencher('Início do trecho 1', '1+900');
@@ -870,7 +881,7 @@ async function main() {
       await page.reload();
       await page.getByText(/1 arquivo\(s\) atualizado\(s\) para a versão nova/).waitFor();
       await page.locator('.mt-arquivo > summary', { hasText: 'TESTE.csv' }).click();
-      await page.locator('.mt-linha-arq').getByRole('group', { name: 'Valor 1' }).waitFor();
+      await page.locator('.mt-linha-arq .mt-tabela-trechos tbody tr').first().waitFor();
       assert.equal(await page.evaluate(async () => (await App.store.get('montagem:arquivos'))[0].resumo.versao === App.cobertura.VERSAO_RESUMO), true);
       // salto de 3 m no km: botão Compensar (espalha nos 2.400 pontos desde o início do arquivo)
       // outra sede (CS) e outra data, para o filtro da lista de arquivos

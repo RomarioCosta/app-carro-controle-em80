@@ -237,3 +237,25 @@ test('km lançados: trecho por trecho, sem juntar (linha muda, km pula, passada 
   // corte: só o que está dentro
   assert.equal(C.kmLancados(r, { de: 0, ate: 900 }, planta).length, 1);
 });
+
+test('trechos do arquivo: tabela única e troca da linha pela posição (passada repetida não é afetada)', () => {
+  // L1 de 0 a 1000; LOCOM até 1500; o km volta para 500 e a linha 1 passa de novo até 1000 (passada repetida)
+  const lido = arquivoLido([[0, 1000, '1'], [1000, 3001, 'LOCOM']]);
+  const pos1 = [...lido.pos.slice(0, 6001)]; const idx1 = [...lido.linhaIdx.slice(0, 6001)];
+  const extra = Array.from({ length: 2001 }, (_, i) => 500 + i * 0.25);
+  const total = pos1.length + extra.length;
+  const arq = { ...lido, pos: Float64Array.from([...pos1, ...extra]), linhaIdx: Uint16Array.from([...idx1, ...extra.map(() => 0)]),
+    dados: { curv: new Float64Array(total), emp2: new Float64Array(total).fill(1) } };
+  const r = C.resumirArquivo(arq, planta2, 'repete.csv');
+  assert.deepEqual(j(r.trechos.map((t) => [t.valor, t.linha, t.arqDe, t.arqAte])), [['1', '1', 0, 999.75], ['LOCOM', 'LOCOM', 1000, 1500], ['1', '1', 500, 1000]]);
+  assert.match(r.trechos[0].ehFim, /EH 0/);
+  // a 1ª passada (pontos 0–3999) vira linha 2; a 2ª, no mesmo km, continua linha 1
+  const t0 = r.trechos[0];
+  const r2 = C.resumirArquivo(arq, planta2, 'repete.csv', { linhas: { valores: {}, trechos: [], pontos: [{ i0: t0.i0, i1: t0.i1, linha: '2' }] } });
+  assert.deepEqual(j(r2.trechos.map((t) => t.linha)), ['2', 'LOCOM', '1']);
+  assert.ok(Math.abs(medidoNa(r2, '2') - 1000) < 10);
+  assert.ok(Math.abs(medidoNa(r2, '1') - 500) < 10);
+  // pela faixa de km (regra antiga), as duas passadas mudariam
+  const r3 = C.resumirArquivo(arq, planta2, 'repete.csv', { linhas: { valores: {}, trechos: [{ de: 0, ate: 999.75, linha: '2' }] } });
+  assert.deepEqual(j(r3.trechos.slice(0, 3).map((t) => t.linha)), ['2', 'LOCOM', '2']);
+});

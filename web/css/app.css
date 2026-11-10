@@ -941,3 +941,13 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-lancados summary { cursor: pointer; }
 .mt-lancados .mt-rolagem { max-height: 360px; overflow: auto; margin-top: 8px; }
 .mt-trechos-valor { margin: 4px 0 0; padding-left: 22px; font-size: .85rem; color: var(--texto2); display: flex; flex-direction: column; gap: 2px; }
+.mt-valores-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.mt-valor-chip { display: flex; align-items: center; gap: 8px; border: 1px solid var(--borda); border-radius: 10px; padding: 4px 6px 4px 10px; font-size: .88rem; }
+.mt-valor-chip select { max-width: 210px; }
+.mt-linha-cel { display: flex; align-items: center; gap: 8px; }
+.mt-linha-cel select { max-width: 190px; }
+.mt-tabela-trechos tr.mt-trecho-locom td { color: var(--texto3); background: var(--sup2); }
+.mt-tabela-trechos tr.mt-fora-corte td { opacity: .55; }
+.mt-tabela-trechos tr.mt-trecho-trocado td:last-child strong { color: var(--primaria, var(--ok)); }
+.mt-trecho-manual summary { cursor: pointer; }
+.mt-destaque { outline: 2px solid var(--alerta); outline-offset: 2px; }
