@@ -126,7 +126,7 @@
    * coluna LINHA e linhas sem ramal só no início do arquivo):
    * a Montagem recalcula sozinha, a partir do CSV guardado, os arquivos com versão anterior.
    */
-  C.VERSAO_RESUMO = 3;
+  C.VERSAO_RESUMO = 4; // 4: trechos do arquivo (tabela única com a linha de cada trecho)
 
   C.resumirArquivo = (arquivoOriginal, planta, nome, opcoes = {}) => {
     const b = B();
@@ -202,6 +202,40 @@
     };
     for (let i = 0; i < n; i += passo) amostrar(i);
     if (n && (n - 1) % passo) amostrar(n - 1);
+    // trechos do arquivo, ponto a ponto e na ordem dele: um trecho novo quando o valor da coluna LINHA muda,
+    // quando a linha usada muda (correção) ou quando o km do arquivo pula mais de 3 m (salto, volta, passada repetida)
+    const idxOrig = arquivoOriginal.linhaIdx;
+    const valoresOrig = arquivoOriginal.linhasValores || [String(meta.linha || '')];
+    const linhaUsada = (i) => { const kv = arquivo.linhaIdx ? arquivo.linhaIdx[i] : 0; return desloc[kv] ? b.DESLOCAMENTO : (validas[kv] || linhaRef); };
+    const sinalArq = n > 1 && pos[n - 1] < pos[0] ? -1 : 1;
+    const elsTr = {};
+    const localTr = (l, y) => {
+      if (!ramal || b.ehDeslocamento(l)) return { eh: '', sede: '' };
+      if (!elsTr[l]) elsTr[l] = b.elementosDaPlanta(planta, ramal, l);
+      const els = elsTr[l];
+      let lo = 0; let hi = els.length - 1;
+      while (lo <= hi) { const m = (lo + hi) >> 1; if (els[m].fim < y) lo = m + 1; else if (els[m].ini > y) hi = m - 1; else return { eh: els[m].nomeEh || `EH ${els[m].eh}`, sede: els[m].sede || '' }; }
+      const prox = els[Math.min(lo, els.length - 1)];
+      return { eh: prox ? `RH (antes do ${prox.nomeEh || `EH ${prox.eh}`})` : '', sede: prox ? prox.sede || '' : '' };
+    };
+    const trechos = [];
+    let t0 = 0;
+    const fecharTr = (i1) => {
+      const l = linhaUsada(t0);
+      const a = localTr(l, pos[t0] + aj.ajustes[t0]); const z = localTr(l, pos[i1] + aj.ajustes[i1]);
+      trechos.push({
+        i0: t0, i1, valor: valoresOrig[idxOrig ? idxOrig[t0] : 0], linha: l,
+        arqDe: pos[t0], arqAte: pos[i1], de: pos[t0] + aj.ajustes[t0], ate: pos[i1] + aj.ajustes[i1],
+        m: Math.abs((pos[i1] + aj.ajustes[i1]) - (pos[t0] + aj.ajustes[t0])), pontos: i1 - t0 + 1,
+        sedeIni: a.sede, sedeFim: z.sede, ehIni: a.eh, ehFim: z.eh
+      });
+    };
+    for (let i = 1; i < n; i++) {
+      const mudouValor = idxOrig && idxOrig[i] !== idxOrig[i - 1];
+      const pulou = Math.abs(pos[i] - pos[i - 1] - sinalArq * esp) > 3;
+      if (mudouValor || pulou || linhaUsada(i) !== linhaUsada(i - 1)) { fecharTr(i - 1); t0 = i; }
+    }
+    if (n) fecharTr(n - 1);
     // parâmetros de geometria (alertas): em cada amostra, o valor de maior módulo dos pontos dela
     const geometria = {};
     C.PARAMETROS_GEOMETRIA.forEach((id) => {
@@ -232,7 +266,8 @@
       geometria,
       inconsistencias,
       valoresLinha,
-      trechosLinha
+      trechosLinha,
+      trechos
     };
   };
 

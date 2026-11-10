@@ -959,6 +959,16 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-lancados summary { cursor: pointer; }
 .mt-lancados .mt-rolagem { max-height: 360px; overflow: auto; margin-top: 8px; }
 .mt-trechos-valor { margin: 4px 0 0; padding-left: 22px; font-size: .85rem; color: var(--texto2); display: flex; flex-direction: column; gap: 2px; }
+.mt-valores-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.mt-valor-chip { display: flex; align-items: center; gap: 8px; border: 1px solid var(--borda); border-radius: 10px; padding: 4px 6px 4px 10px; font-size: .88rem; }
+.mt-valor-chip select { max-width: 210px; }
+.mt-linha-cel { display: flex; align-items: center; gap: 8px; }
+.mt-linha-cel select { max-width: 190px; }
+.mt-tabela-trechos tr.mt-trecho-locom td { color: var(--texto3); background: var(--sup2); }
+.mt-tabela-trechos tr.mt-fora-corte td { opacity: .55; }
+.mt-tabela-trechos tr.mt-trecho-trocado td:last-child strong { color: var(--primaria, var(--ok)); }
+.mt-trecho-manual summary { cursor: pointer; }
+.mt-destaque { outline: 2px solid var(--alerta); outline-offset: 2px; }
 
 </style>
 </head>
@@ -1181,7 +1191,7 @@ window.App = window.App || {};
     versao: '2026.11.10',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-80e4efdaad', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-40b5e41566', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -4135,7 +4145,9 @@ window.App = window.App || {};
   B.corrigirLinhas = (arquivo, regras) => {
     const trocas = (regras && regras.valores) || {};
     const trechos = ((regras && regras.trechos) || []).filter((t) => Number.isFinite(t.de) && Number.isFinite(t.ate) && t.linha);
-    if (!Object.keys(trocas).length && !trechos.length) return arquivo;
+    // linha de um trecho pela posição no arquivo (ponto inicial e final): não pega outra passada no mesmo km
+    const pontos = ((regras && regras.pontos) || []).filter((t) => Number.isInteger(t.i0) && Number.isInteger(t.i1) && t.linha);
+    if (!Object.keys(trocas).length && !trechos.length && !pontos.length) return arquivo;
     const orig = arquivo.linhasValores || [String((arquivo.meta && arquivo.meta.linha) || '')];
     const idxOrig = arquivo.linhaIdx || new Uint16Array(arquivo.pos.length);
     const posArq = arquivo.posArq || arquivo.pos;
@@ -4149,6 +4161,10 @@ window.App = window.App || {};
       for (const t of tr) if (posArq[i] >= t.lo && posArq[i] <= t.hi) k = t.k;
       linhaIdx[i] = k;
     }
+    pontos.forEach((t) => {
+      const k = indice(String(t.linha));
+      for (let i = Math.max(0, t.i0); i <= Math.min(posArq.length - 1, t.i1); i++) linhaIdx[i] = k;
+    });
     return { ...arquivo, linhasValores: valores, linhaIdx, linhasCorrigidas: true };
   };
 
@@ -5093,7 +5109,7 @@ window.App = window.App || {};
    * coluna LINHA e linhas sem ramal só no início do arquivo):
    * a Montagem recalcula sozinha, a partir do CSV guardado, os arquivos com versão anterior.
    */
-  C.VERSAO_RESUMO = 3;
+  C.VERSAO_RESUMO = 4; // 4: trechos do arquivo (tabela única com a linha de cada trecho)
 
   C.resumirArquivo = (arquivoOriginal, planta, nome, opcoes = {}) => {
     const b = B();
@@ -5169,6 +5185,40 @@ window.App = window.App || {};
     };
     for (let i = 0; i < n; i += passo) amostrar(i);
     if (n && (n - 1) % passo) amostrar(n - 1);
+    // trechos do arquivo, ponto a ponto e na ordem dele: um trecho novo quando o valor da coluna LINHA muda,
+    // quando a linha usada muda (correção) ou quando o km do arquivo pula mais de 3 m (salto, volta, passada repetida)
+    const idxOrig = arquivoOriginal.linhaIdx;
+    const valoresOrig = arquivoOriginal.linhasValores || [String(meta.linha || '')];
+    const linhaUsada = (i) => { const kv = arquivo.linhaIdx ? arquivo.linhaIdx[i] : 0; return desloc[kv] ? b.DESLOCAMENTO : (validas[kv] || linhaRef); };
+    const sinalArq = n > 1 && pos[n - 1] < pos[0] ? -1 : 1;
+    const elsTr = {};
+    const localTr = (l, y) => {
+      if (!ramal || b.ehDeslocamento(l)) return { eh: '', sede: '' };
+      if (!elsTr[l]) elsTr[l] = b.elementosDaPlanta(planta, ramal, l);
+      const els = elsTr[l];
+      let lo = 0; let hi = els.length - 1;
+      while (lo <= hi) { const m = (lo + hi) >> 1; if (els[m].fim < y) lo = m + 1; else if (els[m].ini > y) hi = m - 1; else return { eh: els[m].nomeEh || `EH ${els[m].eh}`, sede: els[m].sede || '' }; }
+      const prox = els[Math.min(lo, els.length - 1)];
+      return { eh: prox ? `RH (antes do ${prox.nomeEh || `EH ${prox.eh}`})` : '', sede: prox ? prox.sede || '' : '' };
+    };
+    const trechos = [];
+    let t0 = 0;
+    const fecharTr = (i1) => {
+      const l = linhaUsada(t0);
+      const a = localTr(l, pos[t0] + aj.ajustes[t0]); const z = localTr(l, pos[i1] + aj.ajustes[i1]);
+      trechos.push({
+        i0: t0, i1, valor: valoresOrig[idxOrig ? idxOrig[t0] : 0], linha: l,
+        arqDe: pos[t0], arqAte: pos[i1], de: pos[t0] + aj.ajustes[t0], ate: pos[i1] + aj.ajustes[i1],
+        m: Math.abs((pos[i1] + aj.ajustes[i1]) - (pos[t0] + aj.ajustes[t0])), pontos: i1 - t0 + 1,
+        sedeIni: a.sede, sedeFim: z.sede, ehIni: a.eh, ehFim: z.eh
+      });
+    };
+    for (let i = 1; i < n; i++) {
+      const mudouValor = idxOrig && idxOrig[i] !== idxOrig[i - 1];
+      const pulou = Math.abs(pos[i] - pos[i - 1] - sinalArq * esp) > 3;
+      if (mudouValor || pulou || linhaUsada(i) !== linhaUsada(i - 1)) { fecharTr(i - 1); t0 = i; }
+    }
+    if (n) fecharTr(n - 1);
     // parâmetros de geometria (alertas): em cada amostra, o valor de maior módulo dos pontos dela
     const geometria = {};
     C.PARAMETROS_GEOMETRIA.forEach((id) => {
@@ -5199,7 +5249,8 @@ window.App = window.App || {};
       geometria,
       inconsistencias,
       valoresLinha,
-      trechosLinha
+      trechosLinha,
+      trechos
     };
   };
 
@@ -8049,7 +8100,7 @@ window.App = window.App || {};
     ui.toast(`Recalculando ${a.nome}…`, 'info', 3000);
     await new Promise((r) => setTimeout(r, 30));
     try {
-      const vazio = !Object.keys(linhas.valores || {}).length && !(linhas.trechos || []).length;
+      const vazio = !Object.keys(linhas.valores || {}).length && !(linhas.trechos || []).length && !(linhas.pontos || []).length;
       a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar || [], compensacao: a.regras || regras(), linhas: vazio ? null : linhas });
       a.linhas = vazio ? null : linhas;
       await gravar();
@@ -8251,7 +8302,6 @@ window.App = window.App || {};
   /* ---------------- Km lançados (trecho por trecho, sem juntar) ---------------- */
 
   const cacheLancados = new WeakMap(); // resumo → { chave, lista }
-  const fechados = new Set(); // blocos "Km lançados por linha" que o usuário fechou (abertos por padrão)
   /** Km lançados de um arquivo (com o corte), trecho por trecho: ver C.kmLancados. */
   function lancados(a) {
     const chave = JSON.stringify(a.recorte || null);
@@ -8264,6 +8314,16 @@ window.App = window.App || {};
   const ehTxt = (t) => (t.ehIni === t.ehFim ? t.ehIni : `${t.ehIni} → ${t.ehFim}`);
   const sedeTxt = (t) => [...new Set([t.sedeIni, t.sedeFim].filter(Boolean).map((x) => C().normSede(x)))].join(' → ') || '—';
 
+  /** Abre o arquivo na lista de arquivos e rola até ele (a troca da linha fica na tabela "Trechos do arquivo"). */
+  function abrirArquivo(a) {
+    abertos.add(`arq|${a.id}`);
+    U.pref.set('montagem:arquivosAberto', true);
+    U.pref.set('montagem:filtroSedeTexto', ''); U.pref.set('montagem:filtroData', '');
+    render();
+    const el = document.getElementById(`mt-arq-${a.id}`);
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); const t = el.querySelector('.mt-linha-arq'); if (t) t.classList.add('mt-destaque'); }
+  }
+
   /** Tabela "km lançados" de uma linha: cada trecho de cada arquivo, separado, em ordem de km. */
   function tabelaLancadosLinha(l, lista) {
     const linhasT = [];
@@ -8273,32 +8333,13 @@ window.App = window.App || {};
     const arqs = new Set(linhasT.map((x) => x.a.id)).size;
     return h('details', { class: 'mt-lancados', open: abertos.has(chave) || null, ontoggle: (e) => { if (e.target.open) abertos.add(chave); else abertos.delete(chave); } },
       h('summary', null, h('strong', { text: `Km lançados na linha ${l.linha}` }),
-        h('span', { class: 'mt-sub', text: ` · ${n0(linhasT.length)} trecho(s) de ${n0(arqs)} arquivo(s), um por um, sem juntar` })),
+        h('span', { class: 'mt-sub', text: ` · ${n0(linhasT.length)} trecho(s) de ${n0(arqs)} arquivo(s), um por um, sem juntar · clique para abrir o arquivo e trocar a linha` })),
       linhasT.length ? h('div', { class: 'tabela-rolagem mt-rolagem' }, h('table', { class: 'tabela mt-tabela' },
         h('thead', null, h('tr', null, ['Km inicial', 'Km final', 'Extensão', 'Sede', 'EH / RH', 'Arquivo', 'Km do arquivo'].map((x) => h('th', { text: x })))),
-        h('tbody', null, linhasT.map(({ a, t }) => h('tr', null,
+        h('tbody', null, linhasT.map(({ a, t }) => h('tr', { tabindex: 0, title: 'Abrir o arquivo (trechos e troca da linha)', onclick: () => abrirArquivo(a) },
           h('td', { text: km(t.ini) }), h('td', { text: km(t.fim) }), h('td', { class: 'num', text: mTxt(t.m) }),
           h('td', { text: sedeTxt(t) }), h('td', { text: ehTxt(t) }), h('td', { class: 'mt-sub', text: a.nome }),
           h('td', { class: 'mt-sub', text: `${km(t.arqIni)} → ${km(t.arqFim)}` })))))) : h('p', { class: 'mt-sub', text: 'Nenhum arquivo lançado nesta linha.' }));
-  }
-
-  /** No arquivo: os km lançados em cada linha, na ordem do arquivo. */
-  function blocoLancadosArquivo(a) {
-    const lista = lancados(a);
-    if (!lista.length) return null;
-    const porLinha = {};
-    lista.forEach((t, k) => { (porLinha[t.linha] = porLinha[t.linha] || []).push({ t, k }); });
-    const chave = `lancarq|${a.id}`;
-    const resumoLinhas = Object.keys(porLinha).sort().map((l) => `L${l}: ${mTxt(porLinha[l].reduce((x, y) => x + y.t.m, 0))} em ${porLinha[l].length} trecho(s)`).join(' · ');
-    return h('details', { class: 'pilha mt-comp mt-lancados', open: !fechados.has(chave) || null, ontoggle: (e) => { if (e.target.open) fechados.delete(chave); else fechados.add(chave); } },
-      h('summary', null, h('strong', { text: 'Km lançados por linha' }), h('span', { class: 'mt-sub', text: ` · ${resumoLinhas}` })),
-      h('div', { class: 'tabela-rolagem mt-rolagem' }, h('table', { class: 'tabela mt-tabela' },
-        h('thead', null, h('tr', null, ['Linha', 'Ordem', 'De (km)', 'Até (km)', 'Extensão', 'Sede', 'EH / RH', 'Km do arquivo'].map((x) => h('th', { text: x })))),
-        h('tbody', null, Object.keys(porLinha).sort().flatMap((l) => porLinha[l].map(({ t, k }) => h('tr', null,
-          h('td', null, h('strong', { text: `L${l}` })), h('td', { class: 'num', text: String(k + 1) }),
-          h('td', { text: km(t.de) }), h('td', { text: km(t.ate) }), h('td', { class: 'num', text: mTxt(t.m) }),
-          h('td', { text: sedeTxt(t) }), h('td', { text: ehTxt(t) }), h('td', { class: 'mt-sub', text: `${km(t.arqIni)} → ${km(t.arqFim)}` }))))))),
-      h('span', { class: 'mt-sub', text: 'Km da geometria (já corrigido), na ordem do arquivo. Um trecho novo começa quando a linha muda ou o km pula mais de 3 m. "Ordem" é a sequência no arquivo.' }));
   }
 
   function cartaoLinha(l, lista = []) {
@@ -8429,7 +8470,7 @@ window.App = window.App || {};
             await gravar(); render();
             ui.toast(a.recorte ? `Corte aplicado em ${a.nome}: ${corteTxt(a.recorte)}.` : `Corte retirado de ${a.nome}: o arquivo inteiro é usado.`, 'ok');
           };
-          return h('details', { class: 'mt-arquivo', open: abertos.has(`arq|${a.id}`) || null, ontoggle: (e) => { if (e.target.open) abertos.add(`arq|${a.id}`); else abertos.delete(`arq|${a.id}`); } },
+          return h('details', { class: 'mt-arquivo', id: `mt-arq-${a.id}`, open: abertos.has(`arq|${a.id}`) || null, ontoggle: (e) => { if (e.target.open) abertos.add(`arq|${a.id}`); else abertos.delete(`arq|${a.id}`); } },
             h('summary', null,
               h('span', { class: `mt-ponto ${erros ? 'mt-erro' : alertas ? 'mt-alerta' : 'mt-ok'}` }),
               h('strong', { text: a.nome }),
@@ -8443,7 +8484,6 @@ window.App = window.App || {};
               a.antigo ? h('div', { class: 'aviso' }, 'Adicionado numa versão anterior: sem o ajuste do km (Compensar) e sem a Tela do carro. ',
                 h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => reAdicionar(a) }, ui.icone('upload'), 'Adicionar de novo')) : null,
               r.compensaveis.length ? listaCompensaveis(a) : null,
-              blocoLancadosArquivo(a),
               a.antigo ? null : cartaoLinhaArquivo(a),
               h('div', { class: 'linha-acoes' },
                 h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
@@ -8474,66 +8514,78 @@ window.App = window.App || {};
   /* ---------------- Linha do arquivo (coluna LINHA) ---------------- */
 
   /**
-   * Correção da coluna LINHA: o operador pode errar ou confundir as linhas, e "LOCOM" é o carro em deslocamento.
-   * Troca cada valor da coluna (para uma linha ou para "desconsiderar") e define a linha num trecho de km.
+   * Trechos do arquivo (tabela única): cada trecho na ordem do arquivo, com o valor da coluna LINHA, o km do arquivo
+   * e da geometria, sede, EH e a linha usada — que pode ser trocada trecho a trecho (pela posição no arquivo, então
+   * uma passada repetida no mesmo km não é afetada). Em cima, a troca de um valor da coluna LINHA de uma vez;
+   * embaixo, fechado, o trecho manual por km (quando o corte não coincide com nenhum trecho).
    */
   function cartaoLinhaArquivo(a) {
     const r = a.resumo;
-    const vazia = { valores: {}, trechos: [] };
-    if (!r.valoresLinha) {
-      return h('div', { class: 'pilha mt-comp' }, h('strong', { text: 'Linha do arquivo' }),
-        h('div', null, h('span', { class: 'mt-sub', text: atualizando ? 'Atualizando este arquivo para a versão nova…' : 'Para corrigir a linha deste arquivo, recalcule-o (calculado numa versão anterior). ' }),
+    const vazia = { valores: {}, trechos: [], pontos: [] };
+    if (!r.valoresLinha || !r.trechos) {
+      return h('div', { class: 'pilha mt-comp' }, h('strong', { text: 'Trechos do arquivo' }),
+        h('div', null, h('span', { class: 'mt-sub', text: atualizando ? 'Atualizando este arquivo para a versão nova…' : 'Arquivo calculado numa versão anterior: recalcule para ver os trechos. ' }),
           h('button', { class: 'btn btn-secundario btn-pequeno', disabled: processando || null, onclick: () => mudarLinhas(a, a.linhas || vazia, 'Arquivo recalculado.') }, 'Recalcular')));
     }
     const linhasPlanta = planta && r.ramal && planta.ramais[r.ramal] ? planta.ramais[r.ramal].map(String) : [];
     const atual = a.linhas || vazia;
-    const regra = () => ({ valores: { ...(atual.valores || {}) }, trechos: [...(atual.trechos || [])] });
+    const regra = () => ({ valores: { ...(atual.valores || {}) }, trechos: [...(atual.trechos || [])], pontos: [...(atual.pontos || [])] });
     const DESL = B().DESLOCAMENTO;
-    const nomeLinha = (l) => (B().ehDeslocamento(l) ? 'desconsiderar (deslocamento)' : `linha ${l}`);
-    const auto = (v) => (B().ehDeslocamento(v) ? 'desconsiderar' : B().linhaDaPlanta(v, linhasPlanta) ? `linha ${B().linhaDaPlanta(v, linhasPlanta)}` : `linha ${r.linhaRef}`);
+    const ehDesl = (l) => B().ehDeslocamento(l);
+    const nomeLinha = (l) => (ehDesl(l) ? 'desconsiderar (deslocamento)' : `linha ${l}`);
+    const auto = (v) => (ehDesl(v) ? 'desconsiderar' : B().linhaDaPlanta(v, linhasPlanta) ? `linha ${B().linhaDaPlanta(v, linhasPlanta)}` : `linha ${r.linhaRef}`);
     const opcoesLinha = () => [...linhasPlanta.map((l) => [l, `Linha ${l}`]), [DESL, 'Desconsiderar (LOCOM)']];
-    const rotuloValor = (v) => (String(v).trim() === '' ? '(vazio)' : v);
+    const rotuloValor = (v) => (String(v ?? '').trim() === '' ? '(vazio)' : v);
 
-    const linhasValores = r.valoresLinha.map((x) => {
+    // 1) troca de um valor da coluna LINHA em todo o arquivo
+    const valores = r.valoresLinha.map((x) => {
       const escolhido = (atual.valores || {})[x.valor] || '';
-      const sel = h('select', {
-        'aria-label': `Usar o valor ${rotuloValor(x.valor)} como`,
-        onchange: (e) => {
-          const nova = regra();
-          if (e.target.value) nova.valores[x.valor] = e.target.value; else delete nova.valores[x.valor];
-          mudarLinhas(a, nova, `"${rotuloValor(x.valor)}" agora vale como ${e.target.value ? nomeLinha(e.target.value) : 'automático'}.`);
-        }
-      }, [['', `Automático (${auto(x.valor)})`], ...opcoesLinha()].map(([v, t]) => h('option', { value: v, selected: v === escolhido || null, text: t })));
-      // o mesmo valor pode aparecer em vários trechos: mostra o km de cada um (na ordem do arquivo)
-      const doValor = (r.trechosLinha || []).filter((t) => t.valor === x.valor);
-      const onde = doValor.length > 1 ? `em ${n0(doValor.length)} trechos` : `${km(x.de)} – ${km(x.ate)}`;
-      return h('div', { class: 'mt-valor-linha', role: 'group', 'aria-label': `Valor ${rotuloValor(x.valor)}` },
-        h('div', null, h('strong', { text: rotuloValor(x.valor) }),
-          h('span', { class: 'mt-sub', text: ` · ${n0(x.pontos)} pontos · ${onde}` }),
-          doValor.length > 1 ? h('ol', { class: 'mt-trechos-valor' }, doValor.map((t) => h('li', { text: `${km(t.de)} – ${km(t.ate)} (${mTxt(Math.abs(t.ate - t.de))} · ${n0(t.pontos)} pontos)` }))) : null),
-        sel);
+      return h('label', { class: 'mt-valor-chip' },
+        h('span', null, h('strong', { text: rotuloValor(x.valor) }), h('span', { class: 'mt-sub', text: ` · ${n0(x.pontos)} pts` })),
+        h('select', {
+          'aria-label': `Usar o valor ${rotuloValor(x.valor)} como`,
+          onchange: (e) => {
+            const nova = regra();
+            if (e.target.value) nova.valores[x.valor] = e.target.value; else delete nova.valores[x.valor];
+            mudarLinhas(a, nova, `"${rotuloValor(x.valor)}" agora vale como ${e.target.value ? nomeLinha(e.target.value) : 'automático'} em todo o arquivo.`);
+          }
+        }, [['', `Automático (${auto(x.valor)})`], ...opcoesLinha()].map(([v, t]) => h('option', { value: v, selected: v === escolhido || null, text: t }))));
     });
 
-    // cada trecho contínuo da coluna LINHA, na ordem do arquivo, com a linha escolhida para aquele trecho
-    const mesmoTrecho = (t, x) => Math.abs(t.de - x.de) < 0.01 && Math.abs(t.ate - x.ate) < 0.01;
-    const trechosArquivo = (r.trechosLinha || []).map((x, k) => {
-      const regraDoTrecho = (atual.trechos || []).find((t) => mesmoTrecho(t, x));
-      const sel = h('select', {
-        'aria-label': `Linha do trecho ${rotuloValor(x.valor)} ${km(x.de)} – ${km(x.ate)}`,
-        onchange: (e) => {
-          const nova = regra();
-          nova.trechos = nova.trechos.filter((t) => !mesmoTrecho(t, x));
-          if (e.target.value) nova.trechos.push({ de: x.de, ate: x.ate, linha: e.target.value });
-          mudarLinhas(a, nova, `Trecho ${km(x.de)} – ${km(x.ate)} (${rotuloValor(x.valor)}): ${e.target.value ? nomeLinha(e.target.value) : 'como o valor do arquivo'}.`);
-        }
-      }, [['', `Como "${rotuloValor(x.valor)}"`], ...opcoesLinha()].map(([v, t]) => h('option', { value: v, selected: v === (regraDoTrecho ? regraDoTrecho.linha : '') || null, text: t })));
-      return h('div', { class: `mt-valor-linha${B().ehDeslocamento(regraDoTrecho ? regraDoTrecho.linha : x.valor) ? ' mt-trecho-locom' : ''}` },
-        h('div', null, h('span', { class: 'mt-sub', text: `${k + 1}. ` }), h('strong', { text: rotuloValor(x.valor) }),
-          h('span', { class: 'mt-sub', text: ` · ${km(x.de)} – ${km(x.ate)} (${mTxt(x.ate - x.de)}) · ${n0(x.pontos)} pontos` })),
-        sel);
+    // 2) a linha de cada trecho, pela posição no arquivo
+    const regraDoTrecho = (t) => (atual.pontos || []).find((p) => p.i0 <= t.i0 && p.i1 >= t.i1);
+    const trocarTrecho = (t, linha) => {
+      const nova = regra();
+      // tira o trecho das trocas que o cobrem (mantém o resto delas) e grava a nova
+      nova.pontos = nova.pontos.flatMap((p) => {
+        if (p.i1 < t.i0 || p.i0 > t.i1) return [p];
+        return [p.i0 < t.i0 ? { ...p, i1: t.i0 - 1 } : null, p.i1 > t.i1 ? { ...p, i0: t.i1 + 1 } : null].filter(Boolean);
+      });
+      if (linha) nova.pontos.push({ i0: t.i0, i1: t.i1, linha });
+      mudarLinhas(a, nova, `Trecho ${km(t.arqDe)} → ${km(t.arqAte)}: ${linha ? nomeLinha(linha) : 'como no arquivo'}.`);
+    };
+    const rc = a.recorte;
+    const foraDoCorte = (t) => rc && ((rc.de !== null && rc.de !== undefined && Math.max(t.arqDe, t.arqAte) < rc.de) || (rc.ate !== null && rc.ate !== undefined && Math.min(t.arqDe, t.arqAte) > rc.ate));
+    const linhasTabela = r.trechos.map((t, k) => {
+      const rg = regraDoTrecho(t);
+      const desl = ehDesl(t.linha);
+      const sel = h('select', { 'aria-label': `Linha usada no trecho ${k + 1} (${km(t.arqDe)} → ${km(t.arqAte)})`, onchange: (e) => trocarTrecho(t, e.target.value) },
+        [['', 'Como no arquivo'], ...opcoesLinha()].map(([v, txt]) => h('option', { value: v, selected: v === (rg ? rg.linha : '') || null, text: txt })));
+      return h('tr', { class: `${desl ? 'mt-trecho-locom' : ''} ${foraDoCorte(t) ? 'mt-fora-corte' : ''} ${rg ? 'mt-trecho-trocado' : ''}`.trim() },
+        h('td', { class: 'num', text: String(k + 1) }),
+        h('td', null, h('strong', { text: rotuloValor(t.valor) })),
+        h('td', { text: `${km(t.arqDe)} → ${km(t.arqAte)}` }),
+        h('td', { text: desl ? '—' : `${km(t.de)} → ${km(t.ate)}` }),
+        h('td', { class: 'num', text: mTxt(t.m) }),
+        h('td', { text: desl ? '—' : sedeTxt(t) }),
+        h('td', { text: desl ? 'LOCOM' : ehTxt(t) }),
+        h('td', null, h('div', { class: 'mt-linha-cel' }, h('strong', { text: desl ? 'Desconsiderado' : `L${t.linha}` }), sel)));
     });
+    const porLinha = {};
+    r.trechos.forEach((t) => { if (!ehDesl(t.linha) && !foraDoCorte(t)) porLinha[t.linha] = (porLinha[t.linha] || 0) + t.m; });
+    const resumoLinhas = Object.keys(porLinha).sort().map((l) => `L${l}: ${mTxt(porLinha[l])}`).join(' · ');
 
-    // linha num ou mais trechos de km: várias linhas (início, fim, linha) aplicadas de uma vez
+    // 3) trecho manual por km (fechado): quando o corte não coincide com nenhum trecho da tabela
     const novos = [{ de: null, ate: null, linha: linhasPlanta[0] || DESL }];
     const caixaNovos = h('div', { class: 'mt-trechos-novos' });
     const desenharNovos = () => ui.trocar(caixaNovos,
@@ -8554,26 +8606,31 @@ window.App = window.App || {};
       const desc = preenchidos.map((t) => `${km(Math.min(t.de, t.ate))} – ${km(Math.max(t.de, t.ate))}: ${nomeLinha(t.linha)}`).join('; ');
       mudarLinhas(a, nova, preenchidos.length > 1 ? `${preenchidos.length} trechos aplicados (${desc}).` : `Trecho ${desc}.`);
     };
-    const trechos = (atual.trechos || []).map((t, k) => h('li', null,
+    const manuais = (atual.trechos || []).map((t, k) => h('li', null,
       h('span', { text: `${km(t.de)} – ${km(t.ate)} → ${nomeLinha(t.linha)}` }),
       h('button', { class: 'btn-icone', 'aria-label': `Remover o trecho ${km(t.de)} – ${km(t.ate)}`, title: 'Remover', onclick: () => {
         const nova = regra(); nova.trechos.splice(k, 1);
         mudarLinhas(a, nova, 'Trecho removido.');
       } }, ui.icone('lixo'))));
+    const chaveManual = `manual|${a.id}`;
+    const temTrocas = (atual.pontos || []).length || Object.keys(atual.valores || {}).length || (atual.trechos || []).length;
 
     return h('div', { class: 'pilha mt-comp mt-linha-arq' },
-      h('strong', { text: 'Linha do arquivo' }),
-      h('span', { class: 'mt-sub', text: 'Valores da coluna LINHA. "LOCOM" é o carro em deslocamento e fica fora da cobertura e dos alertas. Se o operador errou a linha, troque o valor ou defina a linha num trecho de km: vale para a cobertura, os alertas, a Tela do carro e a Análise.' }),
-      h('div', { class: 'mt-valores-linha' }, linhasValores),
-      trechosArquivo.length > 1 ? h('details', { class: 'mt-trechos-arquivo', open: abertos.has(`trechos|${a.id}`) || null, ontoggle: (e) => { if (e.target.open) abertos.add(`trechos|${a.id}`); else abertos.delete(`trechos|${a.id}`); } },
-        h('summary', null, h('strong', { text: `Trechos da coluna LINHA (${n0(trechosArquivo.length)})` }), h('span', { class: 'mt-sub', text: ' · na ordem do arquivo; escolha a linha de cada trecho' })),
-        h('div', { class: 'mt-valores-linha mt-rolagem' }, trechosArquivo)) : null,
-      h('strong', { class: 'mt-sub-titulo', text: 'Linha num trecho de km' }),
-      trechos.length ? h('ul', { class: 'mt-lista mt-trechos' }, trechos) : null,
-      caixaNovos,
-      h('div', { class: 'linha-acoes' },
-        h('button', { type: 'button', class: 'btn btn-secundario btn-pequeno', onclick: () => { novos.push({ de: null, ate: null, linha: novos[novos.length - 1].linha }); desenharNovos(); } }, ui.icone('plus'), 'Outro trecho'),
-        h('button', { type: 'button', class: 'btn btn-primario btn-pequeno', disabled: processando || null, onclick: aplicarTrechos }, 'Aplicar')));
+      h('div', { class: 'mt-linha-cab' }, h('strong', { text: `Trechos do arquivo (${n0(r.trechos.length)})` }), h('span', { class: 'mt-sub', text: resumoLinhas })),
+      h('span', { class: 'mt-sub', text: 'Na ordem do arquivo. Um trecho novo começa quando o valor da coluna LINHA muda ou o km pula mais de 3 m. Troque a linha de um trecho na última coluna; "LOCOM" (deslocamento) fica fora da cobertura e dos alertas. Vale para a cobertura, os alertas, a Tela do carro e a Análise.' }),
+      h('div', { class: 'mt-valores-chips', role: 'group', 'aria-label': 'Valores da coluna LINHA' }, h('span', { class: 'mt-sub', text: 'Valor da coluna LINHA em todo o arquivo:' }), valores),
+      h('div', { class: 'tabela-rolagem mt-rolagem' }, h('table', { class: 'tabela mt-tabela mt-tabela-trechos' },
+        h('thead', null, h('tr', null, ['#', 'LINHA no arquivo', 'Km do arquivo', 'Km da geometria', 'Extensão', 'Sede', 'EH / RH', 'Linha usada'].map((x) => h('th', { text: x })))),
+        h('tbody', null, linhasTabela))),
+      temTrocas ? h('div', null, h('button', { type: 'button', class: 'btn btn-fantasma btn-pequeno', disabled: processando || null, onclick: () => mudarLinhas(a, vazia, 'Linha do arquivo de volta como veio do carro.') }, ui.icone('x'), 'Desfazer todas as trocas de linha')) : null,
+      h('details', { class: 'mt-trecho-manual', open: abertos.has(chaveManual) || (atual.trechos || []).length > 0 || null, ontoggle: (e) => { if (e.target.open) abertos.add(chaveManual); else abertos.delete(chaveManual); } },
+        h('summary', null, h('strong', { text: 'Trecho manual (por km)' }), h('span', { class: 'mt-sub', text: ' · quando a troca não coincide com nenhum trecho da tabela' })),
+        h('div', { class: 'pilha' },
+          manuais.length ? h('ul', { class: 'mt-lista mt-trechos' }, manuais) : null,
+          caixaNovos,
+          h('div', { class: 'linha-acoes' },
+            h('button', { type: 'button', class: 'btn btn-secundario btn-pequeno', onclick: () => { novos.push({ de: null, ate: null, linha: novos[novos.length - 1].linha }); desenharNovos(); } }, ui.icone('plus'), 'Outro trecho'),
+            h('button', { type: 'button', class: 'btn btn-primario btn-pequeno', disabled: processando || null, onclick: aplicarTrechos }, 'Aplicar')))));
   }
 
   /** Km digitado num campo (290+500 ou 290,5); inválido avisa e volta ao valor anterior. */

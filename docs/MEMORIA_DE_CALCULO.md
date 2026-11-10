@@ -452,16 +452,31 @@ Falta = metros que precisam ser medidos − metros medidos
 
 **LOCOM.** Na coluna LINHA, "LOCOM" quer dizer que o carro só passou em deslocamento: esses pontos **não contam** como medido, não geram alerta de geometria e ficam fora das estatísticas da Análise e do laudo (a Análise mostra quantos pontos foram desconsiderados). Na **Tela do carro** eles aparecem, com fundo cinza e o rótulo "LOCOM", sem limites e sem marcação de excesso; "Ir para o km" encontra esses pontos e a leitura mostra "LOCOM (deslocamento)".
 
-**A LINHA alterna.** Num mesmo arquivo a coluna LINHA pode alternar várias vezes (LOCOM, 1, 2, 3, LOCOM…). Em "Linha do arquivo", **Trechos da coluna LINHA** lista cada trecho contínuo na ordem do arquivo (valor, km inicial e final, extensão e pontos), e a linha pode ser escolhida **trecho por trecho** (ex.: só o 2º LOCOM era medição na linha 2). Na lista de valores, um valor que aparece em vários trechos mostra "em N trechos" em vez de uma faixa de km única.
+**Tabela "Trechos do arquivo".** Em cada arquivo, uma tabela só mostra cada trecho na ordem do arquivo, com:
+- o valor da coluna LINHA;
+- o km do arquivo e o km da geometria (já corrigido, item 7);
+- a extensão, a sede e o EH/RH;
+- a **linha usada**, com uma caixa para trocar.
 
-**Correção.** O operador pode errar ou confundir a linha. Em "Linha do arquivo", cada arquivo permite:
+**Quando começa um trecho novo:**
+- o valor da coluna LINHA muda (ex.: LOCOM, 1, 2, LOCOM…);
+- a linha usada muda, por causa de uma troca;
+- o km do arquivo pula mais de 3 m (salto, volta ou passada repetida).
 
-1. **Trocar um valor da coluna LINHA** para uma linha da geometria ou para "Desconsiderar (deslocamento)". Ex.: "TESTE01" → Linha 2; "LOCOM" → Linha 1 (se o carro estava medindo).
-2. **Definir a linha em trechos de km** (km do arquivo, o mesmo do recorte). Ex.: de 320+100 a 321+400 → Linha 2. O botão "Outro trecho" acrescenta mais linhas (início, fim, linha), e "Aplicar" aplica todas de uma vez.
+**Como corrigir a linha.** O operador pode errar ou confundir a linha. Há três jeitos, do mais geral ao mais específico:
 
-Ordem: primeiro a troca de valor; depois os trechos (o trecho vale mais; entre dois trechos, o último).
+1. **Valor da coluna LINHA em todo o arquivo** (em cima da tabela). Troca o valor em todos os trechos. Ex.: "TESTE01" → Linha 2; "LOCOM" → Linha 1, se o carro estava medindo.
+2. **Linha de um trecho** (última coluna da tabela). Troca só aquele trecho. A troca fica gravada pela **posição no arquivo** (ponto inicial e final), então uma passada repetida no mesmo km **não muda junto**.
+3. **Trecho manual (por km)** (fechado, embaixo). Para quando o corte não coincide com nenhum trecho da tabela. Você digita o início, o fim e a linha (km do arquivo). Atenção: por km, uma passada repetida naquela faixa muda junto.
 
-**Onde vale.** Cobertura, buracos, sobreposições, alertas de geometria, Tela do carro e Análise/laudo abertos pela Montagem. O CSV nunca é alterado; desfazer é voltar o valor para "Automático" ou remover o trecho.
+**Ordem:**
+- primeiro vale a troca de valor;
+- depois, o trecho manual por km;
+- por último, a linha escolhida na tabela, que vale mais que as outras duas.
+
+"Desfazer todas as trocas de linha" volta o arquivo como veio do carro.
+
+**Onde vale.** Cobertura, buracos, sobreposições, alertas de geometria, Tela do carro e Análise/laudo abertos pela Montagem. O CSV nunca é alterado; desfazer é voltar o valor para "Automático", escolher "Como no arquivo" na tabela ou remover o trecho manual.
 
 **Arquivos adicionados antes desta versão.** Ao abrir a Montagem, o app recalcula sozinho, a partir do CSV guardado, os arquivos calculados numa versão anterior (mantendo recorte, compensações e correções) e mostra o andamento ("Atualizando os arquivos… 3 de 12"). Arquivos de versões bem antigas, sem o CSV guardado, precisam ser adicionados de novo (o app avisa).
 
@@ -472,22 +487,36 @@ Ordem: primeiro a troca de valor; depois os trechos (o trecho vale mais; entre d
 | Sem correção (TESTE01 vale a linha mais frequente, 1; LOCOM fora) | 2.500 m | 0 |
 | TESTE01 → Linha 2 e o trecho 1.000–1.500 → Linha 1 | 1.500 m | 1.500 m |
 
-### 15.6 Km lançados por linha (trecho por trecho)
+**Exemplo da passada repetida.** O arquivo mede a linha 1 de 0 a 1.000 m, passa em LOCOM até 1.500 m, volta para 500 m e mede de novo até 1.000 m. Na tabela aparecem 3 trechos. Trocando só o 1º para Linha 2:
 
-**O que é.** A barra de cobertura e o "Medido" de cada sede **juntam** os arquivos: se dois arquivos cobrem o mesmo km, ou se um arquivo passa duas vezes no mesmo lugar, aparece uma faixa só. Para ver o que foi lançado de fato, sem juntar nada, há duas tabelas:
+| Troca | 1º trecho (0–1.000) | 3º trecho (500–1.000, repetido) |
+|---|---|---|
+| Pela tabela (posição no arquivo) | Linha 2 | **continua Linha 1** |
+| Pelo trecho manual 0–1.000 (por km) | Linha 2 | **também vira Linha 2** |
 
-- **No arquivo → "Km lançados por linha":** cada trecho do arquivo, na ordem dele, com linha, km inicial e final (geometria), extensão, sede, EH/RH e o km do próprio arquivo.
-- **Na linha → "Km lançados na linha N":** todos os trechos de todos os arquivos daquela linha, em ordem de km, com o nome do arquivo.
+### 15.6 Km lançados na linha (todos os arquivos)
 
-**Quando começa um trecho novo.** Andando ponto a ponto no arquivo, com o km já corrigido pela geometria (item 7), um trecho fecha e outro começa quando:
-- a **linha muda** (ex.: L1 → L2);
-- o km **pula mais de 3 m** (salto, volta ou passada repetida);
-- entra ou sai do **corte** do arquivo, ou de um trecho **LOCOM** (deslocamento, fica de fora).
+**O que é.** A barra de cobertura e o "Medido" de cada sede **juntam** os arquivos: se dois arquivos cobrem o mesmo km, ou se um arquivo passa duas vezes no mesmo lugar, aparece uma faixa só. Em cada linha da Cobertura, **"Km lançados na linha N"** mostra o que foi lançado de fato, sem juntar nada: todos os trechos de todos os arquivos daquela linha, em ordem de km, com o nome do arquivo e o km do arquivo. Clique num trecho para abrir o arquivo na tabela "Trechos do arquivo" (item 15.5), onde dá para trocar a linha.
+
+**Quando começa um trecho novo.** Andando ponto a ponto, com o km corrigido pela geometria, um trecho novo começa quando:
+- a linha muda;
+- o km pula mais de 3 m;
+- entra ou sai do corte do arquivo;
+- entra ou sai de um trecho LOCOM, que fica de fora.
 
 **Exemplo (RLT_PV de 20/10/2026, linha 1).**
 
-| Ordem | De | Até | Extensão | Por que separou |
-|---|---|---|---|---|
+| De | Até | Extensão | Por que separou |
+|---|---|---|---|
+| 9+938 | 20+966 | 11,0 km | o km voltou de 14+474 para 9+938 (passada repetida) |
+| 12+678 | 14+474 | 1,8 km | início do arquivo |
+| 20+989 | 39+002 | 18,0 km | salto de 23 m |
+| 39+012 | 47+995 | 9,0 km | salto de 10 m |
+| 48+007 | 51+265 | 3,3 km | salto de 12 m |
+
+A barra de cobertura mostra esses trechos como uma faixa só (9+938 – 51+265, com pequenos buracos). Nesta tabela aparecem os cinco, e dá para ver que de 12+678 a 14+474 o arquivo passou duas vezes.
+
+---|---|---|---|---|
 | 1 | 12+678 | 14+474 | 1,8 km | início do arquivo |
 | 2 | 9+938 | 20+966 | 11,0 km | o km voltou de 14+474 para 9+938 (passada repetida) |
 | 3 | 20+989 | 39+002 | 18,0 km | salto de 23 m |
