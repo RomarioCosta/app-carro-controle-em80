@@ -84,11 +84,42 @@ test('telas da Rota: Linha Tronco até a 86, Fábrica, BH e Itabira (com Concei�
   const m = M.montar(p);
   assert.deepEqual(j(m.ramais.map((r) => r.ramal)), ['LT', 'FA', 'BH', 'IT']); // TU fica de fora
   const rot = (r) => m.ramais.find((x) => x.ramal === r).unidades.map((u) => u.rotulo);
-  assert.deepEqual(j(rot('LT')), ['EH 75/76', 'RH-76', 'EH 76/77', 'RH-77', 'EH 77/78', 'RH-85', 'EH 85/86', 'RH-86']);
+  assert.deepEqual(j(rot('LT')), ['EH 75/76', 'RH-76', 'EH 76/77', 'RH-77', 'RH-77 (Fábrica)', 'EH 77/78', 'RH-85', 'EH 85/86', 'RH-86']);
+  const lt = m.ramais.find((x) => x.ramal === 'LT').unidades;
+  // RH-77: L1/L2 descem para Itabira; RH-86: L1 segue para Fábrica e L2 desce para BH
+  assert.deepEqual(j(lt.find((u) => u.id === 'LT:RH:77').saidas.map((x) => x.linha + x.tipo)), ['1desce', '2desce']);
+  assert.deepEqual(j(lt.find((u) => u.id === 'LT:RH:86').saidas.map((x) => x.rotulo)), ['Fábrica', 'BH']);
   assert.deepEqual(j(rot('FA')), ['RH-86', 'EH 86/09I', 'RH-09I', 'EH 09I/09V', 'RH-19I']);
   assert.deepEqual(j(rot('BH')), ['RH-86', 'EH 86/201', 'RH-210V']);
   assert.deepEqual(j(rot('IT')), ['RH-77', 'EH 77/90', 'Entrada de Conceição', 'Conceição', 'Entrada de João Paulo', 'João Paulo']);
   // o trecho 77 → 86 guarda o id original (FA) e aparece na tela da Linha Tronco
   assert.equal(m.indice.get('FA:EH:77').ramal.ramal, 'LT');
   assert.equal(M.resumo(m, ['FA:EH:77@1']), 'LT: EH 77/78');
+});
+
+test('Linha Tronco: começo 01–06 com L1 e L2 lado a lado e RH da geometria quando as linhas se sobrepõem', () => {
+  const e = (linha, eh, ini, fim, nomeEh) => ({ ramal: 'LT', linha: String(linha), eh: String(eh), ini, fim, tipo: 'T', nomeEh });
+  const rh = (linha, nome, ini, fim) => ({ ramal: 'LT', linha: String(linha), nome, ini, fim });
+  const p = {
+    elementos: [
+      e(1, '01', 3100, 14700, 'EH 01/03'), e(2, '04', 11000, 18000, 'EH 04/06'), e(1, '03', 15500, 18000, 'EH 03/06'),
+      e(1, '06', 18300, 21500, 'EH 06/07'), e(2, '06', 18300, 21500, 'EH 06/07'),
+      e(1, '07', 21800, 25000, 'EH 07/08'), e(3, '07', 21790, 24000, 'EH 07/08'), e(1, '08', 25010, 26000, 'EH 08/09'), e(3, '08', 24100, 26000, 'EH 08/09')
+    ],
+    rhs: [rh(1, 'RH-01', 3000, 3100), rh(2, 'RH-04', 10700, 11000), rh(1, 'RH-03', 14700, 15500), rh(1, 'RH-08', 25000, 25010), rh(3, 'RH-08', 24000, 24100)]
+  };
+  const m = M.montar(p);
+  const lt = m.ramais.find((x) => x.ramal === 'LT').unidades;
+  assert.deepEqual(j(lt.slice(0, 7).map((u) => u.rotulo)), ['RH-1', 'EH 01/03', 'RH-4', 'EH 01/03 · 04/06', 'RH-3', 'EH 03/06 · 04/06', 'RH-6']);
+  // as colunas do meio apontam para o EH original: o trecho continua "LT:EH:01@1", "LT:EH:04@2"
+  assert.equal(M.idDe(lt[3], '1'), 'LT:EH:01');
+  assert.equal(M.idDe(lt[3], '2'), 'LT:EH:04');
+  assert.equal(M.idDe(lt[4], '1'), 'LT:RH:03');
+  assert.equal(m.indice.get('LT:EH:04').unidade.rotulo, 'EH 04/06');
+  assert.deepEqual(j(M.intervalo(m, 'LT:RH:01', 'LT:RH:03>06', '1')), ['LT:RH:01@1', 'LT:EH:01@1', 'LT:RH:03@1', 'LT:EH:03@1', 'LT:RH:03>06@1']);
+  assert.equal(M.extensao(m, ['LT:EH:04@2']), 7000);
+  // RH-08: a L3 do EH 08/09 começa antes do fim do 07/08; o pátio vem da geometria
+  const r8 = lt.find((u) => u.rotulo === 'RH-8');
+  assert.ok(r8);
+  assert.deepEqual([r8.ini, r8.fim], [24000, 25010]);
 });

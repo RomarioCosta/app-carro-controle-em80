@@ -33,6 +33,7 @@
    * Retorna { ramais: [{ ramal, nome, linhas, unidades: [{ id, tipo, rotulo, curto, eh, ini, fim, linhas }] }] }.
    */
   M.montar = (planta) => {
+    const rhs = (planta && planta.rhs) || [];
     const porRamal = new Map();
     (planta && planta.elementos ? planta.elementos : []).forEach((e) => {
       if (!e.ramal || e.eh === '' || e.eh === null || e.eh === undefined) return;
@@ -86,9 +87,12 @@
 
       // 3) Unidades em ordem: EH, e RH (pátio) nos intervalos entre EHs.
       const unidades = [];
+      // RH da geometria (quando houver): garante o pátio mesmo quando uma linha do EH começa antes do fim do anterior (ex.: a L3 na 76).
+      const rhGeo = (eh) => M.rhKm(rhs, ramal, `RH-${eh}`);
       ehs.forEach((u, k) => {
         const ant = ehs[k - 1];
-        if (ant && u.ini - ant.fim >= GAP_RH) {
+        const geo = ant && u.ini - ant.fim < GAP_RH ? rhGeo(u.eh) : null;
+        if (ant && (u.ini - ant.fim >= GAP_RH || geo)) {
           const n = numero(u.eh);
           const curto = Number.isFinite(n) ? String(n).padStart(2, '0') : u.eh;
           unidades.push({
@@ -97,8 +101,8 @@
             rotulo: Number.isFinite(n) ? `RH-${n}` : (u.nomeEh ? `RH-${u.eh}` : `RH ${ant.eh}/${u.eh}`),
             curto,
             eh: '',
-            ini: ant.fim,
-            fim: u.ini,
+            ini: geo ? geo.ini : ant.fim,
+            fim: geo ? geo.fim : u.ini,
             linhas: [...new Set([...ant.linhas, ...u.linhas])].sort()
           });
         }
@@ -119,10 +123,17 @@
 
     const pos = (r) => { const i = M.ORDEM_RAMAL.indexOf(r.ramal); return i < 0 ? 99 : i; };
     ramais.sort((a, b) => pos(a) - pos(b) || a.ramal.localeCompare(b.ramal));
-    const telas = M.telas(ramais);
+    const originais = new Map();
+    ramais.forEach((r) => r.unidades.forEach((u) => originais.set(u.id, u)));
+    const telas = M.telas(ramais, rhs);
     if (telas.length) { ramais.length = 0; ramais.push(...telas); }
     const indice = new Map();
     ramais.forEach((r) => r.unidades.forEach((u, i) => indice.set(u.id, { ramal: r, unidade: u, i })));
+    // Colunas do desenho cujas linhas são de outro EH (ex.: no começo da Linha Tronco, L1 = EH 01/03 e L2 = EH 04/06 lado a lado):
+    // o trecho continua com o id do EH original, que aponta para a primeira coluna onde ele aparece.
+    ramais.forEach((r) => r.unidades.forEach((u, i) => Object.values(u.ref || {}).forEach((ref) => {
+      if (!indice.has(ref.id)) indice.set(ref.id, { ramal: r, unidade: originais.get(ref.id) || ref, i });
+    })));
     return { ramais, indice };
   };
 
@@ -136,7 +147,7 @@
    * As RH de ligação (77 e 86 no começo de um ramal) são marcadores sem extensão.
    * Sem LT na planta (outra planta, testes), não monta telas e a Rota mostra os ramais como vieram.
    */
-  M.telas = (ramais) => {
+  M.telas = (ramais, rhs = []) => {
     const de = (cod) => ramais.find((r) => r.ramal === cod);
     const lt = de('LT');
     if (!lt) return [];
@@ -149,10 +160,36 @@
     const i86 = idxEh(fa, '86'); // EH 86/09I: a RH antes dele é a 86
     const faTronco = fa && i86 > 0 ? fa.unidades.slice(0, i86 - 1) : [];
     const ultLt = lt.unidades[lt.unidades.length - 1];
-    const unidLt = [...lt.unidades];
-    if (faTronco.length && ultLt && ultLt.tipo === 'EH' && faTronco[0].tipo === 'EH') unidLt.push(marcador('LT:RH:77', '77', ultLt.fim, new Set([...ultLt.linhas, ...faTronco[0].linhas])));
-    unidLt.push(...faTronco);
-    if (fa && i86 > 0) { const rh = fa.unidades[i86 - 1]; unidLt.push({ ...rh, id: 'LT:RH:86', ligacao: true }); }
+    const unidLt = M.inicioTronco(lt.unidades, rhs);
+    // Da RH-75 à 77 a L3 fica acima da L1, como no painel (nasce na 75).
+    const i75 = unidLt.findIndex((u) => u.tipo === 'EH' && String(u.eh) === '75');
+    if (i75 > 0) for (let n = i75 - 1; n < unidLt.length; n++) if (unidLt[n].linhas.includes('3')) unidLt[n] = { ...unidLt[n], slot: { 3: -1 } };
+    const nUlt = unidLt.length - 1;
+    const slotFa = { 1: -2, 2: -1 };
+    if (faTronco.length && ultLt && ultLt.tipo === 'EH' && faTronco[0].tipo === 'EH') {
+      // RH-77: L1 e L2 da Tronco descem para Itabira; a L3 e a linha do pátio da 76 seguem para a 78 (L2 e L1 do trecho 77/78).
+      const ita = it && it.unidades.find((u) => u.tipo === 'EH');
+      const rh77 = M.rhKm(rhs, 'LT', 'RH-77');
+      const fimRh = ita ? ita.ini : rh77 ? rh77.fim : ultLt.fim;
+      if (unidLt[nUlt].id === ultLt.id) unidLt[nUlt] = { ...unidLt[nUlt], patio: [{ slot: -2, de: 0.55 }] };
+      unidLt.push({
+        id: 'LT:RH:77', tipo: 'RH', rotulo: 'RH-77', curto: '77', eh: '', ini: ultLt.fim, fim: Math.max(ultLt.fim, fimRh),
+        linhas: [...new Set([...ultLt.linhas, '1', '2'])].sort(), slot: ultLt.linhas.includes('3') ? { 3: -1 } : undefined,
+        patio: [{ slot: -2, de: 0 }],
+        saidas: it ? [{ linha: '1', tipo: 'desce', rotulo: 'Itabira' }, { linha: '2', tipo: 'desce' }] : []
+      });
+      const fa77 = M.rhKm(rhs, 'FA', 'RH-77');
+      unidLt.push({
+        id: 'FA:RH:77', tipo: 'RH', rotulo: 'RH-77 (Fábrica)', curto: '77', eh: '', ini: fa77 ? fa77.ini : 0, fim: faTronco[0].ini,
+        linhas: [...faTronco[0].linhas], semCasa: true, larg: 0.6, slot: slotFa
+      });
+    }
+    faTronco.forEach((u) => unidLt.push({ ...u, slot: slotFa }));
+    if (fa && i86 > 0) {
+      // RH-86: a L1 segue para Fábrica (09I); a L2 desce para BH (L1 do 86/201) e a L2 do BH nasce no pátio.
+      const rh = fa.unidades[i86 - 1];
+      unidLt.push({ ...rh, id: 'LT:RH:86', slot: slotFa, saidas: [{ linha: '1', tipo: 'reto', rotulo: 'Fábrica' }, ...(bh ? [{ linha: '2', tipo: 'desce', rotulo: 'BH', nasce: true }] : [])] });
+    }
     out.push(tela('LT', unidLt));
     // Ramal de Fábrica: RH-86 até a RH-19I (sem o trecho 77 → 86 na planta: o ramal inteiro)
     if (fa && fa.unidades.length) {
@@ -178,6 +215,42 @@
     }
     return out;
   };
+
+  /** Km de uma RH da geometria (todas as linhas): { ini, fim, linhas }. */
+  M.rhKm = (rhs, ramal, nome) => {
+    const l = rhs.filter((x) => x.ramal === ramal && x.nome === nome);
+    return l.length ? { ini: Math.min(...l.map((x) => x.ini)), fim: Math.max(...l.map((x) => x.fim)), linhas: [...new Set(l.map((x) => String(x.linha)))].sort() } : null;
+  };
+
+  /**
+   * Começo da Linha Tronco como no painel: L1 vem da RH-01 (EH 01/03, RH-03, EH 03/06) e a L2 nasce na RH-04 (EH 04/06),
+   * as duas lado a lado até a RH-06. As colunas do meio apontam (ref) para o EH original de cada linha: o trecho
+   * continua "LT:EH:01@1", "LT:EH:04@2"… Sem esses EH na planta, a lista fica como veio.
+   */
+  M.inicioTronco = (unidades, rhs = []) => {
+    const ach = (id) => unidades.find((u) => u.id === id);
+    const e01 = ach('LT:EH:01'); const e04 = ach('LT:EH:04'); const e03 = ach('LT:EH:03');
+    if (!e01 || !e04 || !e03 || !(e04.ini > e01.ini && e04.ini < e01.fim)) return [...unidades];
+    const resto = unidades.slice(Math.max(...[e01, e04, e03].map((u) => unidades.indexOf(u))) + 1);
+    const r01 = M.rhKm(rhs, 'LT', 'RH-01'); const r04 = M.rhKm(rhs, 'LT', 'RH-04'); const r03 = M.rhKm(rhs, 'LT', 'RH-03');
+    const ref = (u) => ({ id: u.id, rotulo: u.rotulo, ini: u.ini, fim: u.fim });
+    const k04 = r04 ? r04.ini : e04.ini; const k04f = r04 ? r04.fim : e04.ini;
+    const k03 = r03 ? r03.ini : e01.fim; const k03f = r03 ? r03.fim : e03.ini;
+    const rh = (id, n, ini, fim, linhas, extra = {}) => ({ id, tipo: 'RH', rotulo: `RH-${n}`, curto: String(n).padStart(2, '0'), eh: '', ini, fim, linhas, ...extra });
+    const eh = (id, rotulo, ini, fim, refs) => ({ id, tipo: 'EH', rotulo, curto: rotulo.replace(/^EH /, ''), eh: '', ini, fim, linhas: Object.keys(refs).sort(), ref: refs });
+    return [
+      rh('LT:RH:01', 1, r01 ? r01.ini : e01.ini, e01.ini, ['1']),
+      eh('LT:COL:01a', e01.rotulo, e01.ini, k04, { 1: ref(e01) }),
+      rh('LT:RH:04', 4, k04, k04f, ['1', '2'], { ref: { 1: ref(e01) }, pontas: ['2'] }),
+      eh('LT:COL:01b', `${e01.rotulo} · ${e04.curto}`, k04f, k03, { 1: ref(e01), 2: ref(e04) }),
+      rh('LT:RH:03', 3, k03, k03f, ['1', '2'], { ref: { 2: ref(e04) } }),
+      eh('LT:COL:03', `${e03.rotulo} · ${e04.curto}`, k03f, e03.fim, { 1: ref(e03), 2: ref(e04) }),
+      ...resto
+    ];
+  };
+
+  /** Id do trecho de uma linha numa coluna do desenho (a coluna pode apontar para o EH original daquela linha). */
+  M.idDe = (u, l) => (u.ref && u.ref[l] ? u.ref[l].id : u.id);
 
   /** Trecho da rota: unidade + linha (ex.: "LT:EH:49@1"). */
   M.trecho = (idUnidade, linha) => `${idUnidade}@${linha}`;
@@ -205,9 +278,9 @@
     const b = malha.indice.get(idAte);
     if (!a || !b || a.ramal !== b.ramal) return [];
     const [i0, i1] = a.i <= b.i ? [a.i, b.i] : [b.i, a.i];
-    return a.ramal.unidades.slice(i0, i1 + 1)
+    return [...new Set(a.ramal.unidades.slice(i0, i1 + 1)
       .filter((u) => u.linhas.includes(String(linha)))
-      .map((u) => M.trecho(u.id, linha));
+      .map((u) => M.trecho(M.idDe(u, String(linha)), linha)))];
   };
 
   /** Extensão (m) de uma lista de trechos. Trechos que não existem na malha são ignorados. */

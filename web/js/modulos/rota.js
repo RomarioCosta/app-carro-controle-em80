@@ -476,11 +476,11 @@
         resumoEl,
         h('div', { class: 'linha-acoes' },
           copiar,
-          dia.programados.some((t) => t.startsWith(`${ramal.ramal}:`)) ? h('button', {
+          dia.programados.some((t) => telaDoTrecho(t) === ramal.ramal) ? h('button', {
             class: 'btn btn-fantasma btn-pequeno',
             onclick: async () => {
               if (!(await ui.confirmar('Limpar ramal', `Retirar da rota deste dia todos os trechos do ramal ${ramal.ramal}?`, { ok: 'Retirar', perigo: true }))) return;
-              dia.programados = dia.programados.filter((t) => !t.startsWith(`${ramal.ramal}:`));
+              dia.programados = dia.programados.filter((t) => telaDoTrecho(t) !== ramal.ramal);
               await salvarDia(dia);
             }
           }, ui.icone('lixo'), `Limpar ${ramal.ramal}`) : null),
