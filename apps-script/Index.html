@@ -636,7 +636,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .esq-trilho-borda.fino { stroke-width: 4; }
 .esq-trilho-miolo.fino { stroke-width: 1.8; }
 .esq-km-caixa { fill: var(--sup); stroke: var(--texto2); stroke-width: .8; }
-.esq-num { font-size: 12px; font-weight: 800; fill: var(--texto); }
+.esq-casa { fill: var(--serie-real, #1f6feb); }
+.esq-num-caixa { fill: var(--texto); }
+.esq-num { font-size: 10.5px; font-weight: 800; fill: var(--sup); }
 .esq-km { font-size: 7.5px; font-weight: 600; fill: var(--texto2); }
 .esq-rot-linha { font-size: 8.5px; font-weight: 700; fill: var(--texto3); }
 .esq-camada { fill: none; stroke-width: 6; stroke-linecap: butt; stroke-linejoin: round; }
@@ -690,7 +692,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .rota-pdf .esq-trilho-borda { stroke: #1b2329; opacity: 1; }
 .rota-pdf .esq-trilho-miolo { stroke: #fff; }
 .rota-pdf .esq-km-caixa { fill: #fff; stroke: #4f5d67; }
-.rota-pdf .esq-num { fill: #1b2329; }
+.rota-pdf .esq-num { fill: #fff; }
+.rota-pdf .esq-num-caixa { fill: #1b2329; }
+.rota-pdf .esq-casa { fill: #1f6feb; }
 .leg-tv { display: inline-block; width: 22px; height: 12px; background: linear-gradient(to top right, transparent 42%, var(--texto) 42%, var(--texto) 58%, transparent 58%); border-top: 1.5px solid var(--texto); border-bottom: 1.5px solid var(--texto); }
 .seg-modos-analise { display: flex; flex-wrap: wrap; }
 .seg-modos-analise .seg-opcao { flex: 1 1 auto; }
@@ -1192,7 +1196,7 @@ window.App = window.App || {};
     versao: '2026.11.10',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-f5e80c8dec', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-f5e593a6ab', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -5559,11 +5563,12 @@ window.App = window.App || {};
     LT: 'Linha Tronco',
     FA: 'Ramal de Fábrica',
     BH: 'Ramal de BH',
+    IT: 'Ramal de Itabira',
     TU: 'Pátio de Tubarão',
     AZ: 'Ramal AZ',
     OB: 'Ramal de OB'
   };
-  M.ORDEM_RAMAL = ['LT', 'FA', 'BH', 'TU', 'OB', 'AZ'];
+  M.ORDEM_RAMAL = ['LT', 'FA', 'BH', 'IT', 'TU', 'OB', 'AZ'];
   const GAP_RH = 30; // metros: intervalo entre EHs a partir do qual existe um pátio (RH)
 
   const numero = (eh) => (/^\d+$/.test(String(eh)) ? Number(eh) : NaN);
@@ -5606,14 +5611,14 @@ window.App = window.App || {};
             return;
           }
           ocorr[eh] = (ocorr[eh] || 0) + 1;
-          atual = { eh, chave: ocorr[eh] > 1 ? `${eh}#${ocorr[eh]}` : eh, ini: e.ini, fim: e.fim };
+          atual = { eh, chave: ocorr[eh] > 1 ? `${eh}#${ocorr[eh]}` : eh, ini: e.ini, fim: e.fim, nomeEh: e.nomeEh || '' };
           const u = unidadesEh.get(atual.chave);
           if (u) {
             u.ini = Math.min(u.ini, atual.ini);
             u.linhas.add(linha);
             u.trechos.push(atual);
           } else {
-            unidadesEh.set(atual.chave, { eh, chave: atual.chave, ini: atual.ini, fim: atual.fim, linhas: new Set([linha]), trechos: [atual] });
+            unidadesEh.set(atual.chave, { eh, chave: atual.chave, ini: atual.ini, fim: atual.fim, linhas: new Set([linha]), trechos: [atual], nomeEh: atual.nomeEh });
           }
         });
       });
@@ -5622,6 +5627,7 @@ window.App = window.App || {};
 
       // 2) Nome dos EH: "EH 49/50" (o próximo número da sequência).
       const nomeEh = (u, k) => {
+        if (u.nomeEh) return u.nomeEh; // geometria: o nome vem pronto ("EH 86/09I")
         const n = numero(u.eh);
         if (Number.isNaN(n)) return `EH ${u.eh}`;
         const prox = ehs.slice(k + 1).map((x) => numero(x.eh)).find((x) => Number.isFinite(x) && x > n);
@@ -5638,7 +5644,7 @@ window.App = window.App || {};
           unidades.push({
             id: `${ramal}:RH:${ant.chave}>${u.chave}`,
             tipo: 'RH',
-            rotulo: Number.isFinite(n) ? `RH-${n}` : `RH ${ant.eh}/${u.eh}`,
+            rotulo: Number.isFinite(n) ? `RH-${n}` : (u.nomeEh ? `RH-${u.eh}` : `RH ${ant.eh}/${u.eh}`),
             curto,
             eh: '',
             ini: ant.fim,
@@ -5663,9 +5669,64 @@ window.App = window.App || {};
 
     const pos = (r) => { const i = M.ORDEM_RAMAL.indexOf(r.ramal); return i < 0 ? 99 : i; };
     ramais.sort((a, b) => pos(a) - pos(b) || a.ramal.localeCompare(b.ramal));
+    const telas = M.telas(ramais);
+    if (telas.length) { ramais.length = 0; ramais.push(...telas); }
     const indice = new Map();
     ramais.forEach((r) => r.unidades.forEach((u, i) => indice.set(u.id, { ramal: r, unidade: u, i })));
     return { ramais, indice };
+  };
+
+  /**
+   * Telas da Rota (uma por ramal, como o painel do CCO). Só estas aparecem:
+   *  - Linha Tronco: LT até a RH-77 e segue pelo trecho 77 → 86 (na geometria está no ramal FA) até a RH-86;
+   *  - Ramal de Fábrica: da RH-86 até a RH-19I;
+   *  - Ramal de BH: da RH-86 até a RH-210V;
+   *  - Ramal de Itabira: da RH-77 até a 540 (IT, linhas 1, 2 e 3) e, acima da 540, Conceição (CE) e João Paulo (JP).
+   * As unidades guardam o id original (ex.: "FA:EH:78"): a rota já programada continua valendo.
+   * As RH de ligação (77 e 86 no começo de um ramal) são marcadores sem extensão.
+   * Sem LT na planta (outra planta, testes), não monta telas e a Rota mostra os ramais como vieram.
+   */
+  M.telas = (ramais) => {
+    const de = (cod) => ramais.find((r) => r.ramal === cod);
+    const lt = de('LT');
+    if (!lt) return [];
+    const fa = de('FA'); const bh = de('BH'); const it = de('IT'); const ce = de('CE'); const jp = de('JP');
+    const idxEh = (r, eh) => (r ? r.unidades.findIndex((u) => u.tipo === 'EH' && String(u.eh).toUpperCase() === eh) : -1);
+    const marcador = (id, curto, base, linhas) => ({ id, tipo: 'RH', rotulo: `RH-${curto}`, curto, eh: '', ini: base, fim: base, linhas: [...linhas].sort(), ligacao: true });
+    const tela = (ramal, unidades) => ({ ramal, nome: M.NOMES_RAMAL[ramal] || `Ramal ${ramal}`, linhas: [...new Set(unidades.flatMap((u) => u.linhas))].sort(), unidades });
+    const out = [];
+    // Linha Tronco: LT + FA até a RH-86
+    const i86 = idxEh(fa, '86'); // EH 86/09I: a RH antes dele é a 86
+    const faTronco = fa && i86 > 0 ? fa.unidades.slice(0, i86 - 1) : [];
+    const ultLt = lt.unidades[lt.unidades.length - 1];
+    const unidLt = [...lt.unidades];
+    if (faTronco.length && ultLt && ultLt.tipo === 'EH' && faTronco[0].tipo === 'EH') unidLt.push(marcador('LT:RH:77', '77', ultLt.fim, new Set([...ultLt.linhas, ...faTronco[0].linhas])));
+    unidLt.push(...faTronco);
+    if (fa && i86 > 0) { const rh = fa.unidades[i86 - 1]; unidLt.push({ ...rh, id: 'LT:RH:86', ligacao: true }); }
+    out.push(tela('LT', unidLt));
+    // Ramal de Fábrica: RH-86 até a RH-19I (sem o trecho 77 → 86 na planta: o ramal inteiro)
+    if (fa && fa.unidades.length) {
+      const i19 = idxEh(fa, '19I');
+      out.push(tela('FA', fa.unidades.slice(i86 > 0 ? i86 - 1 : 0, i19 > 0 ? i19 : fa.unidades.length)));
+    }
+    // Ramal de BH: RH-86 até a RH-210V
+    if (bh && bh.unidades.length) {
+      const i210 = idxEh(bh, '210V');
+      const lista = bh.unidades.slice(0, i210 > 0 ? i210 : bh.unidades.length);
+      out.push(tela('BH', [marcador('BH:RH:86', '86', lista[0].ini, lista[0].linhas), ...lista]));
+    }
+    // Ramal de Itabira: RH-77 até a 540; acima dela Conceição e João Paulo
+    if (it && it.unidades.length) {
+      const lista = [marcador('IT:RH:77', '77', it.unidades[0].ini, it.unidades[0].linhas), ...it.unidades];
+      const fimIt = it.unidades[it.unidades.length - 1];
+      [[ce, 'CE', 'Conceição'], [jp, 'JP', 'João Paulo']].forEach(([r, cod, nome]) => {
+        if (!r || !r.unidades.length) return;
+        lista.push({ ...marcador(`IT:RH:${cod}`, cod, fimIt.fim, r.unidades[0].linhas), rotulo: `Entrada de ${nome}` });
+        r.unidades.forEach((u) => lista.push(u.tipo === 'EH' && r.unidades.length === 1 ? { ...u, rotulo: nome, curto: cod } : u));
+      });
+      out.push(tela('IT', lista));
+    }
+    return out;
   };
 
   /** Trecho da rota: unidade + linha (ex.: "LT:EH:49@1"). */
@@ -5759,7 +5820,7 @@ window.App = window.App || {};
 
   const LARG_EH = 80;
   const LARG_RH = 80;
-  const TOPO = 36; // caixa do km + número do pátio
+  const TOPO = 50; // marcador do pátio (casinha + número), km e folga para a linha de cima
   const BASE = 30; // desvio de baixo + etiquetas dos pontos de atenção
   const ESQ = 24;
 
@@ -5855,8 +5916,21 @@ window.App = window.App || {};
       const yTop = yLinha(f, ks[0]);
       const yBot = yLinha(f, ks[ks.length - 1]);
 
-      // Trilhos (base).
-      ks.forEach((k) => gBase.append(...trilho(seg(ux, yLinha(f, k), ux + w, yLinha(f, k)))));
+      // Trilhos (base), como no painel do CCO: a linha que não existe na unidade vizinha começa (ou termina)
+      // num desvio em diagonal a partir da linha de cima — o desvio do pátio fica com o desenho de "trapézio".
+      const ant = r.unidades[idx - 1]; const prox = r.unidades[idx + 1];
+      const dx = Math.min(14, w * 0.22);
+      ks.forEach((k) => {
+        const l = linhas[k];
+        const y = yLinha(f, k);
+        const acima = (viz) => ks.filter((k2) => k2 < k && (!viz || viz.linhas.includes(linhas[k2]))).pop();
+        const abreAnt = k > 0 && ant && !ant.linhas.includes(l) && acima(ant) !== undefined;
+        const abreProx = k > 0 && prox && !prox.linhas.includes(l) && acima(prox) !== undefined;
+        const x0 = abreAnt ? ux + dx : ux; const x1 = abreProx ? ux + w - dx : ux + w;
+        gBase.append(...trilho(seg(x0, y, x1, y)));
+        if (abreAnt) gBase.append(...trilho(seg(ux, yLinha(f, acima(ant)), x0, y), 'fino'));
+        if (abreProx) gBase.append(...trilho(seg(x1, y, ux + w, yLinha(f, acima(prox))), 'fino'));
+      });
 
       // Travessões do pátio (entre cada par de linhas vizinhas): E "/" e D "\".
       const travessoes = [];
@@ -5867,15 +5941,22 @@ window.App = window.App || {};
           travessoes.push({ lado: 'E', la, lb, x1: ux + w * 0.12, y1: yB, x2: ux + w * 0.42, y2: yA, xCima: ux + w * 0.42, xBaixo: ux + w * 0.12, t: M.travessao(u.id, 'E', la, lb) });
           travessoes.push({ lado: 'D', la, lb, x1: ux + w * 0.58, y1: yA, x2: ux + w * 0.88, y2: yB, xCima: ux + w * 0.58, xBaixo: ux + w * 0.88, t: M.travessao(u.id, 'D', la, lb) });
         }
-        travessoes.forEach((tv) => gBase.append(...trilho(seg(tv.x1, tv.y1, tv.x2, tv.y2), 'fino')));
-        // Caixa do km e número do pátio.
+        // No desenho só aparecem os travessões entre duas linhas que seguem dos dois lados (linha dupla);
+        // onde uma delas começa ou termina no pátio, o próprio desvio já faz a ligação. Todos continuam tocáveis.
+        const ant = r.unidades[idx - 1]; const prox = r.unidades[idx + 1];
+        const segue = (l) => (!ant || ant.linhas.includes(l)) && (!prox || prox.linhas.includes(l));
+        travessoes.filter((tv) => segue(tv.la) && segue(tv.lb)).forEach((tv) => gBase.append(...trilho(seg(tv.x1, tv.y1, tv.x2, tv.y2), 'fino')));
+        // Marcador do pátio, como no painel: casinha, número do pátio numa caixa e o km embaixo.
         const km = M.fmtKm(u.ini);
-        const bw = Math.max(34, km.length * 5 + 8);
         const top = topoFila[f];
+        const cx = ux + w / 2;
+        const nw = Math.max(18, String(u.curto).length * 7 + 6);
         gTxt.append(
-          s('rect', { x: ux + w / 2 - bw / 2, y: top + 2, width: bw, height: 11, class: 'esq-km-caixa' }),
-          s('text', { x: ux + w / 2, y: top + 10.5, class: 'esq-km', 'text-anchor': 'middle' }, km),
-          s('text', { x: ux + w / 2, y: top + 25, class: 'esq-num', 'text-anchor': 'middle' }, u.curto));
+          s('path', { d: `M${(cx - 7).toFixed(1)},${top + 13} L${(cx - 7).toFixed(1)},${top + 7} L${cx.toFixed(1)},${top + 1} L${(cx + 7).toFixed(1)},${top + 7} L${(cx + 7).toFixed(1)},${top + 13} Z`, class: 'esq-casa' }),
+          s('rect', { x: cx - nw / 2, y: top + 14, width: nw, height: 13, rx: 1.5, class: 'esq-num-caixa' }),
+          s('text', { x: cx, y: top + 24.5, class: 'esq-num', 'text-anchor': 'middle' }, u.curto),
+          s('text', { x: cx, y: top + 35, class: 'esq-km', 'text-anchor': 'middle' }, u.ligacao ? '' : km),
+          s('title', {}, `${u.rotulo}${u.ligacao ? ' (ligação)' : ` · km ${km}`}`));
       }
 
       // Rota de cada camada.
@@ -5929,6 +6010,28 @@ window.App = window.App || {};
         });
       }
     });
+
+    // EH 64 a 66 (Linha Tronco): a linha 3 de passageiro, acima da L1, como no painel (só desenho, sem trecho).
+    if (r.ramal === 'LT') {
+      const alvo = ['LT:EH:64', 'LT:RH:64>65', 'LT:EH:65'];
+      const pos = alvo.map((id) => posicoes.find((p) => p.u.id === id)).filter(Boolean);
+      const k1 = kDe('1');
+      if (pos.length && k1 >= 0) {
+        const porFila = new Map();
+        pos.forEach((p) => { if (!porFila.has(p.fila)) porFila.set(p.fila, []); porFila.get(p.fila).push(p); });
+        porFila.forEach((lista, f) => {
+          const y1 = yLinha(f, k1); const y = y1 - 11;
+          const ini = lista[0]; const fim = lista[lista.length - 1];
+          const xa = ini.u.id === alvo[0] ? ini.x + ini.w * 0.15 : ini.x; // começa logo depois da RH-64
+          const xb = fim.u.id === alvo[2] ? fim.x + fim.w * 0.85 : fim.x + fim.w; // termina antes da RH-66
+          const g = s('g', { class: 'esq-passageiro' }, s('title', {}, 'Linha 3 de passageiro (EH 64 a 66)'));
+          g.append(...trilho(seg(xa + 10, y, xb - 10, y)));
+          if (ini.u.id === alvo[0]) g.append(...trilho(seg(xa, y1, xa + 10, y), 'fino'));
+          if (fim.u.id === alvo[2]) g.append(...trilho(seg(xb - 10, y, xb, y1), 'fino'));
+          gBase.appendChild(g);
+        });
+      }
+    }
 
     // Pontos de atenção: etiqueta acima da primeira linha ou abaixo da última, como na planilha.
     const grupos = new Map();
@@ -11209,7 +11312,7 @@ window.App = window.App || {};
   }
 
   const ramaisUsados = (trechos) => {
-    const set = new Set(trechos.map((t) => M.separar(t).id.split(':')[0]));
+    const set = new Set(trechos.map(telaDoTrecho).filter(Boolean));
     return malha.ramais.filter((r) => set.has(r.ramal));
   };
 
@@ -11224,6 +11327,10 @@ window.App = window.App || {};
     }));
   }
 
+  /** Tela (ramal da Rota) de um trecho: o trecho 77 → 86, por exemplo, está no ramal FA da geometria mas na tela da Linha Tronco. */
+  const telaDoTrecho = (t) => { const x = malha && malha.indice.get(M.separar(t).id); return x ? x.ramal.ramal : ''; };
+  const NOME_CURTO = { LT: 'Linha Tronco', FA: 'Fábrica', BH: 'BH', IT: 'Itabira' };
+
   function seletorRamal(aoMudar, contagem) {
     return h('div', { class: 'seg seg-ramais', role: 'group', 'aria-label': 'Ramal' },
       malha.ramais.map((r) => h('button', {
@@ -11231,12 +11338,12 @@ window.App = window.App || {};
         'aria-pressed': ramalSel === r.ramal ? 'true' : 'false',
         title: r.nome,
         onclick: () => { ramalSel = r.ramal; U.pref.set('rota:ramal', r.ramal); inicioIntervalo = null; aoMudar(); }
-      }, r.ramal, contagem && contagem[r.ramal] ? h('span', { class: 'seg-badge', text: String(contagem[r.ramal]) }) : null)));
+      }, NOME_CURTO[r.ramal] || r.ramal, contagem && contagem[r.ramal] ? h('span', { class: 'seg-badge', text: String(contagem[r.ramal]) }) : null)));
   }
 
   const contarPorRamal = (trechos) => {
     const c = {};
-    trechos.forEach((t) => { const r = M.separar(t).id.split(':')[0]; c[r] = (c[r] || 0) + 1; });
+    trechos.forEach((t) => { const r = telaDoTrecho(t); if (r) c[r] = (c[r] || 0) + 1; });
     return c;
   };
 

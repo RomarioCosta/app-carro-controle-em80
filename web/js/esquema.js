@@ -18,7 +18,7 @@
 
   const LARG_EH = 80;
   const LARG_RH = 80;
-  const TOPO = 36; // caixa do km + número do pátio
+  const TOPO = 50; // marcador do pátio (casinha + número), km e folga para a linha de cima
   const BASE = 30; // desvio de baixo + etiquetas dos pontos de atenção
   const ESQ = 24;
 
@@ -114,8 +114,21 @@
       const yTop = yLinha(f, ks[0]);
       const yBot = yLinha(f, ks[ks.length - 1]);
 
-      // Trilhos (base).
-      ks.forEach((k) => gBase.append(...trilho(seg(ux, yLinha(f, k), ux + w, yLinha(f, k)))));
+      // Trilhos (base), como no painel do CCO: a linha que não existe na unidade vizinha começa (ou termina)
+      // num desvio em diagonal a partir da linha de cima — o desvio do pátio fica com o desenho de "trapézio".
+      const ant = r.unidades[idx - 1]; const prox = r.unidades[idx + 1];
+      const dx = Math.min(14, w * 0.22);
+      ks.forEach((k) => {
+        const l = linhas[k];
+        const y = yLinha(f, k);
+        const acima = (viz) => ks.filter((k2) => k2 < k && (!viz || viz.linhas.includes(linhas[k2]))).pop();
+        const abreAnt = k > 0 && ant && !ant.linhas.includes(l) && acima(ant) !== undefined;
+        const abreProx = k > 0 && prox && !prox.linhas.includes(l) && acima(prox) !== undefined;
+        const x0 = abreAnt ? ux + dx : ux; const x1 = abreProx ? ux + w - dx : ux + w;
+        gBase.append(...trilho(seg(x0, y, x1, y)));
+        if (abreAnt) gBase.append(...trilho(seg(ux, yLinha(f, acima(ant)), x0, y), 'fino'));
+        if (abreProx) gBase.append(...trilho(seg(x1, y, ux + w, yLinha(f, acima(prox))), 'fino'));
+      });
 
       // Travessões do pátio (entre cada par de linhas vizinhas): E "/" e D "\".
       const travessoes = [];
@@ -126,15 +139,22 @@
           travessoes.push({ lado: 'E', la, lb, x1: ux + w * 0.12, y1: yB, x2: ux + w * 0.42, y2: yA, xCima: ux + w * 0.42, xBaixo: ux + w * 0.12, t: M.travessao(u.id, 'E', la, lb) });
           travessoes.push({ lado: 'D', la, lb, x1: ux + w * 0.58, y1: yA, x2: ux + w * 0.88, y2: yB, xCima: ux + w * 0.58, xBaixo: ux + w * 0.88, t: M.travessao(u.id, 'D', la, lb) });
         }
-        travessoes.forEach((tv) => gBase.append(...trilho(seg(tv.x1, tv.y1, tv.x2, tv.y2), 'fino')));
-        // Caixa do km e número do pátio.
+        // No desenho só aparecem os travessões entre duas linhas que seguem dos dois lados (linha dupla);
+        // onde uma delas começa ou termina no pátio, o próprio desvio já faz a ligação. Todos continuam tocáveis.
+        const ant = r.unidades[idx - 1]; const prox = r.unidades[idx + 1];
+        const segue = (l) => (!ant || ant.linhas.includes(l)) && (!prox || prox.linhas.includes(l));
+        travessoes.filter((tv) => segue(tv.la) && segue(tv.lb)).forEach((tv) => gBase.append(...trilho(seg(tv.x1, tv.y1, tv.x2, tv.y2), 'fino')));
+        // Marcador do pátio, como no painel: casinha, número do pátio numa caixa e o km embaixo.
         const km = M.fmtKm(u.ini);
-        const bw = Math.max(34, km.length * 5 + 8);
         const top = topoFila[f];
+        const cx = ux + w / 2;
+        const nw = Math.max(18, String(u.curto).length * 7 + 6);
         gTxt.append(
-          s('rect', { x: ux + w / 2 - bw / 2, y: top + 2, width: bw, height: 11, class: 'esq-km-caixa' }),
-          s('text', { x: ux + w / 2, y: top + 10.5, class: 'esq-km', 'text-anchor': 'middle' }, km),
-          s('text', { x: ux + w / 2, y: top + 25, class: 'esq-num', 'text-anchor': 'middle' }, u.curto));
+          s('path', { d: `M${(cx - 7).toFixed(1)},${top + 13} L${(cx - 7).toFixed(1)},${top + 7} L${cx.toFixed(1)},${top + 1} L${(cx + 7).toFixed(1)},${top + 7} L${(cx + 7).toFixed(1)},${top + 13} Z`, class: 'esq-casa' }),
+          s('rect', { x: cx - nw / 2, y: top + 14, width: nw, height: 13, rx: 1.5, class: 'esq-num-caixa' }),
+          s('text', { x: cx, y: top + 24.5, class: 'esq-num', 'text-anchor': 'middle' }, u.curto),
+          s('text', { x: cx, y: top + 35, class: 'esq-km', 'text-anchor': 'middle' }, u.ligacao ? '' : km),
+          s('title', {}, `${u.rotulo}${u.ligacao ? ' (ligação)' : ` · km ${km}`}`));
       }
 
       // Rota de cada camada.
@@ -188,6 +208,28 @@
         });
       }
     });
+
+    // EH 64 a 66 (Linha Tronco): a linha 3 de passageiro, acima da L1, como no painel (só desenho, sem trecho).
+    if (r.ramal === 'LT') {
+      const alvo = ['LT:EH:64', 'LT:RH:64>65', 'LT:EH:65'];
+      const pos = alvo.map((id) => posicoes.find((p) => p.u.id === id)).filter(Boolean);
+      const k1 = kDe('1');
+      if (pos.length && k1 >= 0) {
+        const porFila = new Map();
+        pos.forEach((p) => { if (!porFila.has(p.fila)) porFila.set(p.fila, []); porFila.get(p.fila).push(p); });
+        porFila.forEach((lista, f) => {
+          const y1 = yLinha(f, k1); const y = y1 - 11;
+          const ini = lista[0]; const fim = lista[lista.length - 1];
+          const xa = ini.u.id === alvo[0] ? ini.x + ini.w * 0.15 : ini.x; // começa logo depois da RH-64
+          const xb = fim.u.id === alvo[2] ? fim.x + fim.w * 0.85 : fim.x + fim.w; // termina antes da RH-66
+          const g = s('g', { class: 'esq-passageiro' }, s('title', {}, 'Linha 3 de passageiro (EH 64 a 66)'));
+          g.append(...trilho(seg(xa + 10, y, xb - 10, y)));
+          if (ini.u.id === alvo[0]) g.append(...trilho(seg(xa, y1, xa + 10, y), 'fino'));
+          if (fim.u.id === alvo[2]) g.append(...trilho(seg(xb - 10, y, xb, y1), 'fino'));
+          gBase.appendChild(g);
+        });
+      }
+    }
 
     // Pontos de atenção: etiqueta acima da primeira linha ou abaixo da última, como na planilha.
     const grupos = new Map();

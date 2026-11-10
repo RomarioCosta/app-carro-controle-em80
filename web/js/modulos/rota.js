@@ -355,7 +355,7 @@
   }
 
   const ramaisUsados = (trechos) => {
-    const set = new Set(trechos.map((t) => M.separar(t).id.split(':')[0]));
+    const set = new Set(trechos.map(telaDoTrecho).filter(Boolean));
     return malha.ramais.filter((r) => set.has(r.ramal));
   };
 
@@ -370,6 +370,10 @@
     }));
   }
 
+  /** Tela (ramal da Rota) de um trecho: o trecho 77 → 86, por exemplo, está no ramal FA da geometria mas na tela da Linha Tronco. */
+  const telaDoTrecho = (t) => { const x = malha && malha.indice.get(M.separar(t).id); return x ? x.ramal.ramal : ''; };
+  const NOME_CURTO = { LT: 'Linha Tronco', FA: 'Fábrica', BH: 'BH', IT: 'Itabira' };
+
   function seletorRamal(aoMudar, contagem) {
     return h('div', { class: 'seg seg-ramais', role: 'group', 'aria-label': 'Ramal' },
       malha.ramais.map((r) => h('button', {
@@ -377,12 +381,12 @@
         'aria-pressed': ramalSel === r.ramal ? 'true' : 'false',
         title: r.nome,
         onclick: () => { ramalSel = r.ramal; U.pref.set('rota:ramal', r.ramal); inicioIntervalo = null; aoMudar(); }
-      }, r.ramal, contagem && contagem[r.ramal] ? h('span', { class: 'seg-badge', text: String(contagem[r.ramal]) }) : null)));
+      }, NOME_CURTO[r.ramal] || r.ramal, contagem && contagem[r.ramal] ? h('span', { class: 'seg-badge', text: String(contagem[r.ramal]) }) : null)));
   }
 
   const contarPorRamal = (trechos) => {
     const c = {};
-    trechos.forEach((t) => { const r = M.separar(t).id.split(':')[0]; c[r] = (c[r] || 0) + 1; });
+    trechos.forEach((t) => { const r = telaDoTrecho(t); if (r) c[r] = (c[r] || 0) + 1; });
     return c;
   };
 
