@@ -70,3 +70,25 @@ test('travessão: código, descrição e sem extensão (troca de linha no pátio
   assert.equal(M.descrever(m, M.travessao(rh.id, 'E', '1', '2')), 'LT · RH-50 · travessão L2→L1');
   assert.equal(M.extensao(m, [tv, M.trecho(rh.id, '1')]), 300);
 });
+
+test('telas da Rota: Linha Tronco até a 86, Fábrica, BH e Itabira (com Conceição e João Paulo)', () => {
+  const e = (ramal, linha, eh, ini, fim, nomeEh) => ({ ramal, linha: String(linha), eh: String(eh), ini, fim, tipo: 'T', nomeEh });
+  const p = { elementos: [
+    e('LT', 1, 75, 0, 1000, 'EH 75/76'), e('LT', 1, 76, 1100, 2000, 'EH 76/77'),
+    e('FA', 1, 77, 0, 1000, 'EH 77/78'), e('FA', 1, 85, 1100, 2000, 'EH 85/86'), e('FA', 1, 86, 2100, 3000, 'EH 86/09I'),
+    e('FA', 1, '09I', 3100, 4000, 'EH 09I/09V'), e('FA', 1, '19I', 9000, 9500, 'EH 19I/19V'),
+    e('BH', 1, 86, 0, 1000, 'EH 86/201'), e('BH', 1, '210V', 5000, 6000, 'EH 210V/ALC'),
+    e('IT', 1, 77, 500000, 501000, 'EH 77/90'), e('CE', 1, 'RCE', 0, 500, 'EH RCE'), e('JP', 1, 'RJP', 0, 400, 'EH RJP'),
+    e('TU', 1, 3, 0, 500, 'EH 03/04')
+  ] };
+  const m = M.montar(p);
+  assert.deepEqual(j(m.ramais.map((r) => r.ramal)), ['LT', 'FA', 'BH', 'IT']); // TU fica de fora
+  const rot = (r) => m.ramais.find((x) => x.ramal === r).unidades.map((u) => u.rotulo);
+  assert.deepEqual(j(rot('LT')), ['EH 75/76', 'RH-76', 'EH 76/77', 'RH-77', 'EH 77/78', 'RH-85', 'EH 85/86', 'RH-86']);
+  assert.deepEqual(j(rot('FA')), ['RH-86', 'EH 86/09I', 'RH-09I', 'EH 09I/09V', 'RH-19I']);
+  assert.deepEqual(j(rot('BH')), ['RH-86', 'EH 86/201', 'RH-210V']);
+  assert.deepEqual(j(rot('IT')), ['RH-77', 'EH 77/90', 'Entrada de Conceição', 'Conceição', 'Entrada de João Paulo', 'João Paulo']);
+  // o trecho 77 → 86 guarda o id original (FA) e aparece na tela da Linha Tronco
+  assert.equal(m.indice.get('FA:EH:77').ramal.ramal, 'LT');
+  assert.equal(M.resumo(m, ['FA:EH:77@1']), 'LT: EH 77/78');
+});

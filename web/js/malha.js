@@ -13,11 +13,12 @@
     LT: 'Linha Tronco',
     FA: 'Ramal de Fábrica',
     BH: 'Ramal de BH',
+    IT: 'Ramal de Itabira',
     TU: 'Pátio de Tubarão',
     AZ: 'Ramal AZ',
     OB: 'Ramal de OB'
   };
-  M.ORDEM_RAMAL = ['LT', 'FA', 'BH', 'TU', 'OB', 'AZ'];
+  M.ORDEM_RAMAL = ['LT', 'FA', 'BH', 'IT', 'TU', 'OB', 'AZ'];
   const GAP_RH = 30; // metros: intervalo entre EHs a partir do qual existe um pátio (RH)
 
   const numero = (eh) => (/^\d+$/.test(String(eh)) ? Number(eh) : NaN);
@@ -60,14 +61,14 @@
             return;
           }
           ocorr[eh] = (ocorr[eh] || 0) + 1;
-          atual = { eh, chave: ocorr[eh] > 1 ? `${eh}#${ocorr[eh]}` : eh, ini: e.ini, fim: e.fim };
+          atual = { eh, chave: ocorr[eh] > 1 ? `${eh}#${ocorr[eh]}` : eh, ini: e.ini, fim: e.fim, nomeEh: e.nomeEh || '' };
           const u = unidadesEh.get(atual.chave);
           if (u) {
             u.ini = Math.min(u.ini, atual.ini);
             u.linhas.add(linha);
             u.trechos.push(atual);
           } else {
-            unidadesEh.set(atual.chave, { eh, chave: atual.chave, ini: atual.ini, fim: atual.fim, linhas: new Set([linha]), trechos: [atual] });
+            unidadesEh.set(atual.chave, { eh, chave: atual.chave, ini: atual.ini, fim: atual.fim, linhas: new Set([linha]), trechos: [atual], nomeEh: atual.nomeEh });
           }
         });
       });
@@ -76,6 +77,7 @@
 
       // 2) Nome dos EH: "EH 49/50" (o próximo número da sequência).
       const nomeEh = (u, k) => {
+        if (u.nomeEh) return u.nomeEh; // geometria: o nome vem pronto ("EH 86/09I")
         const n = numero(u.eh);
         if (Number.isNaN(n)) return `EH ${u.eh}`;
         const prox = ehs.slice(k + 1).map((x) => numero(x.eh)).find((x) => Number.isFinite(x) && x > n);
@@ -92,7 +94,7 @@
           unidades.push({
             id: `${ramal}:RH:${ant.chave}>${u.chave}`,
             tipo: 'RH',
-            rotulo: Number.isFinite(n) ? `RH-${n}` : `RH ${ant.eh}/${u.eh}`,
+            rotulo: Number.isFinite(n) ? `RH-${n}` : (u.nomeEh ? `RH-${u.eh}` : `RH ${ant.eh}/${u.eh}`),
             curto,
             eh: '',
             ini: ant.fim,
@@ -117,9 +119,64 @@
 
     const pos = (r) => { const i = M.ORDEM_RAMAL.indexOf(r.ramal); return i < 0 ? 99 : i; };
     ramais.sort((a, b) => pos(a) - pos(b) || a.ramal.localeCompare(b.ramal));
+    const telas = M.telas(ramais);
+    if (telas.length) { ramais.length = 0; ramais.push(...telas); }
     const indice = new Map();
     ramais.forEach((r) => r.unidades.forEach((u, i) => indice.set(u.id, { ramal: r, unidade: u, i })));
     return { ramais, indice };
+  };
+
+  /**
+   * Telas da Rota (uma por ramal, como o painel do CCO). Só estas aparecem:
+   *  - Linha Tronco: LT até a RH-77 e segue pelo trecho 77 → 86 (na geometria está no ramal FA) até a RH-86;
+   *  - Ramal de Fábrica: da RH-86 até a RH-19I;
+   *  - Ramal de BH: da RH-86 até a RH-210V;
+   *  - Ramal de Itabira: da RH-77 até a 540 (IT, linhas 1, 2 e 3) e, acima da 540, Conceição (CE) e João Paulo (JP).
+   * As unidades guardam o id original (ex.: "FA:EH:78"): a rota já programada continua valendo.
+   * As RH de ligação (77 e 86 no começo de um ramal) são marcadores sem extensão.
+   * Sem LT na planta (outra planta, testes), não monta telas e a Rota mostra os ramais como vieram.
+   */
+  M.telas = (ramais) => {
+    const de = (cod) => ramais.find((r) => r.ramal === cod);
+    const lt = de('LT');
+    if (!lt) return [];
+    const fa = de('FA'); const bh = de('BH'); const it = de('IT'); const ce = de('CE'); const jp = de('JP');
+    const idxEh = (r, eh) => (r ? r.unidades.findIndex((u) => u.tipo === 'EH' && String(u.eh).toUpperCase() === eh) : -1);
+    const marcador = (id, curto, base, linhas) => ({ id, tipo: 'RH', rotulo: `RH-${curto}`, curto, eh: '', ini: base, fim: base, linhas: [...linhas].sort(), ligacao: true });
+    const tela = (ramal, unidades) => ({ ramal, nome: M.NOMES_RAMAL[ramal] || `Ramal ${ramal}`, linhas: [...new Set(unidades.flatMap((u) => u.linhas))].sort(), unidades });
+    const out = [];
+    // Linha Tronco: LT + FA até a RH-86
+    const i86 = idxEh(fa, '86'); // EH 86/09I: a RH antes dele é a 86
+    const faTronco = fa && i86 > 0 ? fa.unidades.slice(0, i86 - 1) : [];
+    const ultLt = lt.unidades[lt.unidades.length - 1];
+    const unidLt = [...lt.unidades];
+    if (faTronco.length && ultLt && ultLt.tipo === 'EH' && faTronco[0].tipo === 'EH') unidLt.push(marcador('LT:RH:77', '77', ultLt.fim, new Set([...ultLt.linhas, ...faTronco[0].linhas])));
+    unidLt.push(...faTronco);
+    if (fa && i86 > 0) { const rh = fa.unidades[i86 - 1]; unidLt.push({ ...rh, id: 'LT:RH:86', ligacao: true }); }
+    out.push(tela('LT', unidLt));
+    // Ramal de Fábrica: RH-86 até a RH-19I (sem o trecho 77 → 86 na planta: o ramal inteiro)
+    if (fa && fa.unidades.length) {
+      const i19 = idxEh(fa, '19I');
+      out.push(tela('FA', fa.unidades.slice(i86 > 0 ? i86 - 1 : 0, i19 > 0 ? i19 : fa.unidades.length)));
+    }
+    // Ramal de BH: RH-86 até a RH-210V
+    if (bh && bh.unidades.length) {
+      const i210 = idxEh(bh, '210V');
+      const lista = bh.unidades.slice(0, i210 > 0 ? i210 : bh.unidades.length);
+      out.push(tela('BH', [marcador('BH:RH:86', '86', lista[0].ini, lista[0].linhas), ...lista]));
+    }
+    // Ramal de Itabira: RH-77 até a 540; acima dela Conceição e João Paulo
+    if (it && it.unidades.length) {
+      const lista = [marcador('IT:RH:77', '77', it.unidades[0].ini, it.unidades[0].linhas), ...it.unidades];
+      const fimIt = it.unidades[it.unidades.length - 1];
+      [[ce, 'CE', 'Conceição'], [jp, 'JP', 'João Paulo']].forEach(([r, cod, nome]) => {
+        if (!r || !r.unidades.length) return;
+        lista.push({ ...marcador(`IT:RH:${cod}`, cod, fimIt.fim, r.unidades[0].linhas), rotulo: `Entrada de ${nome}` });
+        r.unidades.forEach((u) => lista.push(u.tipo === 'EH' && r.unidades.length === 1 ? { ...u, rotulo: nome, curto: cod } : u));
+      });
+      out.push(tela('IT', lista));
+    }
+    return out;
   };
 
   /** Trecho da rota: unidade + linha (ex.: "LT:EH:49@1"). */
