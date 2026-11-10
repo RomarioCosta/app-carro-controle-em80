@@ -622,6 +622,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .esq-num-caixa { fill: var(--texto); }
 .esq-num { font-size: 10.5px; font-weight: 800; fill: var(--sup); }
 .esq-km { font-size: 7.5px; font-weight: 600; fill: var(--texto2); }
+.esq-saida-txt { font-size: 9px; font-weight: 700; fill: var(--texto2); }
+.esq-saida-seta { fill: none; stroke: var(--texto2); stroke-width: 1.6; }
 .esq-rot-linha { font-size: 8.5px; font-weight: 700; fill: var(--texto3); }
 .esq-camada { fill: none; stroke-width: 6; stroke-linecap: butt; stroke-linejoin: round; }
 .esq-tracejado { stroke-width: 6; stroke-dasharray: 5 3; opacity: .55; }
@@ -677,6 +679,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .rota-pdf .esq-num { fill: #fff; }
 .rota-pdf .esq-num-caixa { fill: #1b2329; }
 .rota-pdf .esq-casa { fill: #1f6feb; }
+.rota-pdf .esq-saida-txt { fill: #4f5d67; }
+.rota-pdf .esq-saida-seta { stroke: #4f5d67; }
 .leg-tv { display: inline-block; width: 22px; height: 12px; background: linear-gradient(to top right, transparent 42%, var(--texto) 42%, var(--texto) 58%, transparent 58%); border-top: 1.5px solid var(--texto); border-bottom: 1.5px solid var(--texto); }
 .seg-modos-analise { display: flex; flex-wrap: wrap; }
 .seg-modos-analise .seg-opcao { flex: 1 1 auto; }
