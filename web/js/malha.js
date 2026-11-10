@@ -131,8 +131,8 @@
     ramais.forEach((r) => r.unidades.forEach((u, i) => indice.set(u.id, { ramal: r, unidade: u, i })));
     // Colunas do desenho cujas linhas são de outro EH (ex.: no começo da Linha Tronco, L1 = EH 01/03 e L2 = EH 04/06 lado a lado):
     // o trecho continua com o id do EH original, que aponta para a primeira coluna onde ele aparece.
-    ramais.forEach((r) => r.unidades.forEach((u, i) => Object.values(u.ref || {}).forEach((ref) => {
-      if (!indice.has(ref.id)) indice.set(ref.id, { ramal: r, unidade: originais.get(ref.id) || ref, i });
+    ramais.forEach((r) => r.unidades.forEach((u, i) => [...Object.values(u.ref || {}), ...(u.extras || [])].forEach((ref) => {
+      if (!indice.has(ref.id)) indice.set(ref.id, { ramal: r, unidade: originais.get(ref.id) || { tipo: u.tipo, ...ref }, i });
     })));
     return { ramais, indice };
   };
@@ -161,34 +161,72 @@
     const faTronco = fa && i86 > 0 ? fa.unidades.slice(0, i86 - 1) : [];
     const ultLt = lt.unidades[lt.unidades.length - 1];
     const unidLt = M.inicioTronco(lt.unidades, rhs);
-    // Da RH-75 à 77 a L3 fica acima da L1, como no painel (nasce na 75).
+    const mudar = (id, extra) => { const n = unidLt.findIndex((u) => u.id === id); if (n >= 0) unidLt[n] = { ...unidLt[n], ...extra }; return n >= 0; };
+    // Da RH-75 à 77, como no painel: a L3 nasce na 75 a partir da L1 e fica acima dela.
     const i75 = unidLt.findIndex((u) => u.tipo === 'EH' && String(u.eh) === '75');
-    if (i75 > 0) for (let n = i75 - 1; n < unidLt.length; n++) if (unidLt[n].linhas.includes('3')) unidLt[n] = { ...unidLt[n], slot: { 3: -1 } };
-    const nUlt = unidLt.length - 1;
+    const tem3 = i75 > 0 && unidLt[i75].linhas.includes('3');
+    if (tem3) {
+      for (let n = i75 - 1; n < unidLt.length; n++) if (unidLt[n].linhas.includes('3')) unidLt[n] = { ...unidLt[n], slot: { 3: -1 } };
+      // RH-75: a L3 sai da L1 (W20); travessões L2/L1 (W21, W22) e L1/L3 (W23); toco da linha 15.
+      if (unidLt[i75 - 1].tipo === 'RH') {
+        unidLt[i75 - 1] = { ...unidLt[i75 - 1], slot: undefined, larg: 1.5, casaFx: 0.55, casaSlot: -1,
+          via: { 3: [[0.06, 0], [0.16, -1], [1, -1]] },
+          tvs: [{ lado: 'E', la: '1', lb: '2', fx: [0.22, 0.32] }, { lado: 'D', la: '1', lb: '2', fx: [0.38, 0.48] }, { lado: 'E', la: '3', lb: '1', fx: [0.52, 0.62] }],
+          deco: [{ pts: [[0.68, -1], [0.78, -1.7]], fino: true, t: 'Linha 15 (pátio)' }] };
+      }
+      // RH-76: linha 14 do pátio e a escada de travessões 14 → L3 → L1 → L2 (W20, W21, W22); desvio que sai da L2 (W23).
+      mudar('LT:RH:75>76', { larg: 1.4, casaFx: 0.66,
+        tvs: [{ lado: 'D', la: '3', lb: '1', fx: [0.42, 0.52] }, { lado: 'D', la: '1', lb: '2', fx: [0.56, 0.66] }],
+        deco: [{ pts: [[0.02, -2], [0.28, -2], [0.38, -1]], t: 'Linha 14 (pátio)' }, { pts: [[0.72, 1], [0.8, 1.8]], fino: true, t: 'Desvio (pátio)' }] });
+    }
     const slotFa = { 1: -2, 2: -1 };
     if (faTronco.length && ultLt && ultLt.tipo === 'EH' && faTronco[0].tipo === 'EH') {
-      // RH-77: L1 e L2 da Tronco descem para Itabira; a L3 e a linha do pátio da 76 seguem para a 78 (L2 e L1 do trecho 77/78).
+      // RH-77, como no painel: a linha 13 nasce no pátio e segue para a 78 como L1; a L3 segue como L2;
+      // a L1 e a L2 da Tronco descem para Itabira. Travessões W20 a W26.
       const ita = it && it.unidades.find((u) => u.tipo === 'EH');
-      const rh77 = M.rhKm(rhs, 'LT', 'RH-77');
+      const rh77 = M.rhKm(rhs, 'LT', 'RH-77'); const fa77 = M.rhKm(rhs, 'FA', 'RH-77');
       const fimRh = ita ? ita.ini : rh77 ? rh77.fim : ultLt.fim;
-      if (unidLt[nUlt].id === ultLt.id) unidLt[nUlt] = { ...unidLt[nUlt], patio: [{ slot: -2, de: 0.55 }] };
-      unidLt.push({
-        id: 'LT:RH:77', tipo: 'RH', rotulo: 'RH-77', curto: '77', eh: '', ini: ultLt.fim, fim: Math.max(ultLt.fim, fimRh),
-        linhas: [...new Set([...ultLt.linhas, '1', '2'])].sort(), slot: ultLt.linhas.includes('3') ? { 3: -1 } : undefined,
-        patio: [{ slot: -2, de: 0 }],
-        saidas: it ? [{ linha: '1', tipo: 'desce', rotulo: 'Itabira' }, { linha: '2', tipo: 'desce' }] : []
-      });
-      const fa77 = M.rhKm(rhs, 'FA', 'RH-77');
-      unidLt.push({
-        id: 'FA:RH:77', tipo: 'RH', rotulo: 'RH-77 (Fábrica)', curto: '77', eh: '', ini: fa77 ? fa77.ini : 0, fim: faTronco[0].ini,
-        linhas: [...faTronco[0].linhas], semCasa: true, larg: 0.6, slot: slotFa
-      });
+      const tres = ultLt.linhas.includes('3');
+      const base = { id: 'LT:RH:77', tipo: 'RH', rotulo: 'RH-77', curto: '77', eh: '', ini: ultLt.fim, fim: Math.max(ultLt.fim, fimRh) };
+      if (tres) {
+        unidLt.push({ ...base, linhas: ['1', '2', '3'], slot: { 3: -1 }, larg: 2.6, casaFx: 0.3, casaSlot: -2,
+          via: { 1: [[0, 0], [0.8, 0], [0.9, 1], [1, 1]], 2: [[0, 1], [0.74, 1], [0.84, 2], [1, 2]] },
+          livres: it ? ['1', '2'] : [],
+          extras: [{ ch: 'A', linha: '1', id: 'FA:RH:77', rotulo: 'RH-77 (linha 13, segue para a 78)', ini: fa77 ? fa77.ini : 0, fim: faTronco[0].ini, pts: [[0.05, -2], [1, -2]] }],
+          tvs: [
+            { lado: 'D', la: 'A', lb: '3', fx: [0.1, 0.15] }, { lado: 'E', la: '3', lb: '1', fx: [0.24, 0.29] }, { lado: 'D', la: '3', lb: '1', fx: [0.33, 0.38] },
+            { lado: 'E', la: 'A', lb: '3', fx: [0.4, 0.45] }, { lado: 'D', la: '1', lb: '2', fx: [0.48, 0.53] }, { lado: 'E', la: '1', lb: '2', fx: [0.56, 0.61] }
+          ],
+          deco: [{ pts: [[0.65, 0], [0.7, -1]], fino: true, t: 'Travessão W26 (L1 → linha para a 78)' }],
+          textos: it ? [{ fx: 1, slot: 2, dy: 13, txt: 'Itabira →' }] : [] });
+      } else {
+        unidLt.push({ ...base, linhas: [...new Set([...ultLt.linhas, ...faTronco[0].linhas])].sort(), ligacao: true });
+      }
     }
-    faTronco.forEach((u) => unidLt.push({ ...u, slot: slotFa }));
+    const comSlot = tem3;
+    faTronco.forEach((u) => unidLt.push(comSlot ? { ...u, slot: slotFa } : u));
+    if (comSlot) {
+      // RH-85: desvio (linha 51) que sai da L2.
+      const i85 = idxEh(fa, '85');
+      if (i85 > 0) mudar(fa.unidades[i85 - 1].id, { deco: [{ pts: [[0.46, -1], [0.54, 0], [0.7, 0]], fino: true, t: 'Linha 51 (pátio)' }] });
+    }
     if (fa && i86 > 0) {
-      // RH-86: a L1 segue para Fábrica (09I); a L2 desce para BH (L1 do 86/201) e a L2 do BH nasce no pátio.
+      // RH-86, como no painel: a L1 segue para Fábrica; a L2 desce para BH (L1 do 86/201);
+      // a linha 73 nasce no pátio e desce para BH (L2 do 86/201); travessões W21 a W25 e o toco da linha 58.
       const rh = fa.unidades[i86 - 1];
-      unidLt.push({ ...rh, id: 'LT:RH:86', slot: slotFa, saidas: [{ linha: '1', tipo: 'reto', rotulo: 'Fábrica' }, ...(bh ? [{ linha: '2', tipo: 'desce', rotulo: 'BH', nasce: true }] : [])] });
+      const k1 = comSlot ? -2 : 0; const k2 = k1 + 1; const k3 = k1 + 2; const k4 = k1 + 3; const k5 = k1 + 4;
+      unidLt.push(bh ? { ...rh, id: 'LT:RH:86', slot: comSlot ? slotFa : undefined, larg: 2.4, casaFx: 0.2,
+        via: rh.linhas.includes('2') ? { 2: [[0, k2], [0.62, k2], [0.82, k4], [1, k4]] } : undefined,
+        livres: rh.linhas,
+        tvs: rh.linhas.includes('2') ? [{ lado: 'D', la: '1', lb: '2', fx: [0.08, 0.14] }, { lado: 'E', la: '1', lb: '2', fx: [0.22, 0.28] }] : [],
+        deco: rh.linhas.includes('2') ? [
+          { pts: [[0.03, k3], [0.55, k3], [0.75, k5], [1, k5]], t: 'Linha 73 (nasce no pátio e segue para BH como L2)' },
+          { pts: [[0.03, k4], [0.1, k4], [0.16, k3]], fino: true, t: 'Linha 58 (pátio)' },
+          { pts: [[0.16, k3], [0.22, k2]], fino: true, t: 'Travessão W23' },
+          { pts: [[0.34, k2], [0.4, k3]], fino: true, t: 'Travessão W24' }
+        ] : [],
+        textos: [{ fx: 1, slot: k1, dy: -7, txt: 'Fábrica →' }, ...(rh.linhas.includes('2') ? [{ fx: 1, slot: k5, dy: 13, txt: 'BH →' }] : [])]
+      } : { ...rh, id: 'LT:RH:86', ligacao: true });
     }
     out.push(tela('LT', unidLt));
     // Ramal de Fábrica: RH-86 até a RH-19I (sem o trecho 77 → 86 na planta: o ramal inteiro)
@@ -236,14 +274,24 @@
     const ref = (u) => ({ id: u.id, rotulo: u.rotulo, ini: u.ini, fim: u.fim });
     const k04 = r04 ? r04.ini : e04.ini; const k04f = r04 ? r04.fim : e04.ini;
     const k03 = r03 ? r03.ini : e01.fim; const k03f = r03 ? r03.fim : e03.ini;
+    const T = -3; // a linha que vem da 01 fica acima da linha dupla (que começa na 04)
+    const tu = 'Linha 1 da 04 para a 03 (Ramal de Tubarão)';
     const rh = (id, n, ini, fim, linhas, extra = {}) => ({ id, tipo: 'RH', rotulo: `RH-${n}`, curto: String(n).padStart(2, '0'), eh: '', ini, fim, linhas, ...extra });
-    const eh = (id, rotulo, ini, fim, refs) => ({ id, tipo: 'EH', rotulo, curto: rotulo.replace(/^EH /, ''), eh: '', ini, fim, linhas: Object.keys(refs).sort(), ref: refs });
+    const eh = (id, rotulo, ini, fim, refs, extra = {}) => ({ id, tipo: 'EH', rotulo, curto: rotulo.replace(/^EH /, ''), eh: '', ini, fim, linhas: Object.keys(refs).sort(), ref: refs, ...extra });
     return [
-      rh('LT:RH:01', 1, r01 ? r01.ini : e01.ini, e01.ini, ['1']),
-      eh('LT:COL:01a', e01.rotulo, e01.ini, k04, { 1: ref(e01) }),
-      rh('LT:RH:04', 4, k04, k04f, ['1', '2'], { ref: { 1: ref(e01) }, pontas: ['2'] }),
-      eh('LT:COL:01b', `${e01.rotulo} · ${e04.curto}`, k04f, k03, { 1: ref(e01), 2: ref(e04) }),
-      rh('LT:RH:03', 3, k03, k03f, ['1', '2'], { ref: { 2: ref(e04) } }),
+      // RH-01: linha 13 (segue para trás) e a linha 14 do pátio, que entra no W21.
+      rh('LT:RH:01', 1, r01 ? r01.ini : e01.ini, e01.ini, ['1'], { slot: { 1: T }, casaFx: 0.42, tvs: [],
+        deco: [{ pts: [[0, T + 1], [0.24, T + 1], [0.42, T]], t: 'Linha 14 (pátio)' }, { pts: [[0.58, T - 0.5], [0.66, T]], fino: true, t: 'Linha 32 (pátio)' }] }),
+      // a linha dupla (1E e 2E) começa antes da 04
+      eh('LT:COL:01a', e01.rotulo, e01.ini, k04, { 1: ref(e01) }, { slot: { 1: T }, deco: [{ pts: [[0.5, 0], [1, 0]], t: tu }, { pts: [[0.5, 1], [1, 1]], t: 'Linha 2 (antes da 04)' }] }),
+      // RH-04: fica na linha dupla; travessões W21 e W22 entre as duas linhas. A L1 (EH 01/03) passa por cima.
+      rh('LT:RH:04', 4, k04, k04f, ['1', '2'], { ref: { 1: ref(e01) }, slot: { 1: T }, casaSlot: 0, tvs: [],
+        deco: [{ pts: [[0, 0], [1, 0]], t: tu }, { pts: [[0.24, 1], [0.38, 0]], fino: true, t: 'Travessão W21' }, { pts: [[0.52, 0], [0.66, 1]], fino: true, t: 'Travessão W22' }] }),
+      eh('LT:COL:01b', `${e01.rotulo} · ${e04.curto}`, k04f, k03, { 1: ref(e01), 2: ref(e04) }, { slot: { 1: T }, deco: [{ pts: [[0, 0], [1, 0]], t: tu }] }),
+      // RH-03: a linha que vem da 01 desce e abre em duas pernas (W22): para a 04 (Tubarão) e para a 06 (L1).
+      rh('LT:RH:03', 3, k03, k03f, ['1', '2'], { ref: { 2: ref(e04) }, larg: 1.5, casaFx: 0.56, casaSlot: T, tvs: [],
+        via: { 1: [[0, T], [0.4, T], [0.48, T + 0.5], [0.76, 0], [1, 0]] },
+        deco: [{ pts: [[0, 0], [0.76, 0]], t: tu }, { pts: [[0.2, 0], [0.48, T + 0.5]], t: 'Perna da 03 para a 04 (Ramal de Tubarão)' }] }),
       eh('LT:COL:03', `${e03.rotulo} · ${e04.curto}`, k03f, e03.fim, { 1: ref(e03), 2: ref(e04) }),
       ...resto
     ];

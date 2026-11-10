@@ -84,11 +84,10 @@ test('telas da Rota: Linha Tronco até a 86, Fábrica, BH e Itabira (com Concei�
   const m = M.montar(p);
   assert.deepEqual(j(m.ramais.map((r) => r.ramal)), ['LT', 'FA', 'BH', 'IT']); // TU fica de fora
   const rot = (r) => m.ramais.find((x) => x.ramal === r).unidades.map((u) => u.rotulo);
-  assert.deepEqual(j(rot('LT')), ['EH 75/76', 'RH-76', 'EH 76/77', 'RH-77', 'RH-77 (Fábrica)', 'EH 77/78', 'RH-85', 'EH 85/86', 'RH-86']);
+  assert.deepEqual(j(rot('LT')), ['EH 75/76', 'RH-76', 'EH 76/77', 'RH-77', 'EH 77/78', 'RH-85', 'EH 85/86', 'RH-86']);
   const lt = m.ramais.find((x) => x.ramal === 'LT').unidades;
-  // RH-77: L1/L2 descem para Itabira; RH-86: L1 segue para Fábrica e L2 desce para BH
-  assert.deepEqual(j(lt.find((u) => u.id === 'LT:RH:77').saidas.map((x) => x.linha + x.tipo)), ['1desce', '2desce']);
-  assert.deepEqual(j(lt.find((u) => u.id === 'LT:RH:86').saidas.map((x) => x.rotulo)), ['Fábrica', 'BH']);
+  // RH-86: as linhas terminam na tela (seguem para Fábrica e BH)
+  assert.deepEqual(j(lt.find((u) => u.id === 'LT:RH:86').textos.map((x) => x.txt)), ['Fábrica →']);
   assert.deepEqual(j(rot('FA')), ['RH-86', 'EH 86/09I', 'RH-09I', 'EH 09I/09V', 'RH-19I']);
   assert.deepEqual(j(rot('BH')), ['RH-86', 'EH 86/201', 'RH-210V']);
   assert.deepEqual(j(rot('IT')), ['RH-77', 'EH 77/90', 'Entrada de Conceição', 'Conceição', 'Entrada de João Paulo', 'João Paulo']);
@@ -122,4 +121,29 @@ test('Linha Tronco: começo 01–06 com L1 e L2 lado a lado e RH da geometria qu
   const r8 = lt.find((u) => u.rotulo === 'RH-8');
   assert.ok(r8);
   assert.deepEqual([r8.ini, r8.fim], [24000, 25010]);
+});
+
+test('Linha Tronco 75 a 86 como no painel: L3 acima da L1, linha 13 na 77, saídas para Itabira, Fábrica e BH', () => {
+  const e = (ramal, linha, eh, ini, fim, nomeEh) => ({ ramal, linha: String(linha), eh: String(eh), ini, fim, tipo: 'T', nomeEh });
+  const p = { elementos: [
+    ...[1, 2].map((l) => e('LT', l, 74, 0, 1000, 'EH 74/75')),
+    ...[1, 2, 3].flatMap((l) => [e('LT', l, 75, 1100, 2000, 'EH 75/76'), e('LT', l, 76, 2100, 3000, 'EH 76/77')]),
+    ...[1, 2].flatMap((l) => [e('FA', l, 77, 300, 1000, 'EH 77/78'), e('FA', l, 85, 1100, 2000, 'EH 85/86'), e('BH', l, 86, 0, 900, 'EH 86/201'), e('IT', l, 77, 3100, 4000, 'EH 77/90')]),
+    e('FA', 1, 86, 2100, 3000, 'EH 86/09I')
+  ] };
+  const m = M.montar(p);
+  const lt = m.ramais.find((x) => x.ramal === 'LT').unidades;
+  const u = (id) => lt.find((x) => x.id === id);
+  assert.deepEqual(j(u('LT:EH:75').slot), { 3: -1 });
+  assert.ok(u('LT:RH:74>75').via['3']); // a L3 nasce na 75, saindo da L1
+  const r77 = u('LT:RH:77');
+  assert.deepEqual(j(r77.livres), ['1', '2']); // L1 e L2 descem para Itabira
+  assert.equal(r77.extras[0].id, 'FA:RH:77'); // linha 13: nasce no pátio e segue para a 78 como L1
+  assert.equal(m.indice.get('FA:RH:77').ramal.ramal, 'LT');
+  assert.equal(r77.tvs.length, 6);
+  assert.deepEqual(j(u('FA:EH:77').slot), { 1: -2, 2: -1 });
+  const r86 = u('LT:RH:86');
+  assert.deepEqual(j(r86.textos.map((x) => x.txt)), ['Fábrica →', 'BH →']);
+  assert.ok(r86.via['2']); // a L2 desce para BH
+  assert.equal(M.descrever(m, M.travessao('LT:RH:77', 'D', '1', '3')), 'LT · RH-77 · travessão L1→L3');
 });

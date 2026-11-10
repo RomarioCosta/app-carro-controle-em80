@@ -71,20 +71,58 @@
     const posicoes = distribuir(r, largura, op.faixa);
     const PASSO = largura < 600 ? 28 : 24; // no celular, linhas mais afastadas para acertar o toque
     const kDe = (l) => linhas.indexOf(l);
-    // Posição (faixa vertical) de cada linha na coluna: em geral a ordem L1, L2, L3; algumas colunas mudam
+    // Faixa (posição vertical) de cada linha na coluna: em geral a ordem L1, L2, L3; algumas colunas mudam
     // (ex.: da 75 à 77 a L3 fica acima da L1, como no painel). A continuidade entre colunas é pela faixa.
     const kU = (u, l) => (u.slot && u.slot[l] !== undefined ? u.slot[l] : kDe(l));
-    const faixas = (u) => new Set([...u.linhas.map((l) => kU(u, l)), ...(u.patio || []).map((p) => p.slot)]);
-    const linhaNaFaixa = (u, k) => (u ? u.linhas.find((l) => kU(u, l) === k) : undefined);
-    const trechoDe = (u, l) => M.trecho(M.idDe(u, l), l);
-    const temId = (u, id) => u.id === id || Object.values(u.ref || {}).some((x) => x.id === id);
+
+    /**
+     * Trilhos de uma coluna. Cada um é um caminho de pontos [fração da largura, faixa]:
+     * reto (a linha inteira numa faixa) ou com "via" (pátios desenhados como no painel: a linha desce, nasce no meio…).
+     * ke / ks = faixa por onde entra (à esquerda) e sai (à direita); null quando começa ou termina dentro da coluna.
+     */
+    const memo = new Map();
+    const trilhos = (u) => {
+      if (!u) return [];
+      if (memo.has(u)) return memo.get(u);
+      const lista = u.linhas.map((l) => {
+        const via = u.via && u.via[l];
+        const k = kU(u, l);
+        return { ch: l, l, id: M.idDe(u, l), pts: via || [[0, k], [1, k]], reto: !via, ponta: (u.pontas || []).includes(l), ref: u.ref && u.ref[l], livre: (u.livres || []).includes(l) };
+      });
+      (u.extras || []).forEach((e) => lista.push({ ch: e.ch, l: e.linha, id: e.id, pts: e.pts, reto: false, ponta: true, ref: e, livre: false }));
+      lista.forEach((t) => {
+        const fim = t.pts[t.pts.length - 1];
+        t.f0 = t.pts[0][0]; t.f1 = fim[0];
+        t.ke = t.f0 <= 0 ? t.pts[0][1] : null;
+        t.ks = t.f1 >= 1 && !t.livre ? fim[1] : null;
+      });
+      lista.sort((a, b) => a.pts[0][1] - b.pts[0][1]);
+      memo.set(u, lista);
+      return lista;
+    };
+    const pontas = (u, lado) => { // faixas que chegam à borda esquerda ('e') ou direita ('d') da coluna (trilhos e linhas só de desenho)
+      const out = new Set();
+      trilhos(u).forEach((t) => { const k = lado === 'e' ? t.ke : t.ks; if (k !== null) out.add(k); });
+      (u.deco || []).forEach((d) => { const p = lado === 'e' ? d.pts[0] : d.pts[d.pts.length - 1]; if ((lado === 'e' && p[0] <= 0) || (lado === 'd' && p[0] >= 1)) out.add(p[1]); });
+      return out;
+    };
+    const faixasDe = (u) => [...trilhos(u).flatMap((t) => t.pts.map((p) => p[1])), ...(u.deco || []).flatMap((d) => d.pts.map((p) => p[1])), ...(u.textos || []).map((t) => t.slot)];
+    const temId = (u, id) => u.id === id || Object.values(u.ref || {}).some((x) => x.id === id) || (u.extras || []).some((x) => x.id === id);
+    /** Faixa de um caminho numa fração da largura (interpolada). */
+    const faixaEm = (pts, fx) => {
+      if (fx <= pts[0][0]) return pts[0][1];
+      for (let n = 1; n < pts.length; n++) {
+        const [xa, ka] = pts[n - 1]; const [xb, kb] = pts[n];
+        if (fx <= xb) return xb === xa ? kb : ka + ((kb - ka) * (fx - xa)) / (xb - xa);
+      }
+      return pts[pts.length - 1][1];
+    };
 
     // Altura de cada fila conforme as faixas que existem nela (L3 só onde houver).
     const nFilas = posicoes.length ? posicoes[posicoes.length - 1].fila + 1 : 1;
     const minK = []; const maxK = [];
     posicoes.forEach((p) => {
-      const ks = [...faixas(p.u), ...(p.u.saidas || []).filter((x) => x.nasce).map((x) => kU(p.u, x.linha) + 1)];
-      ks.forEach((k) => { minK[p.fila] = Math.min(minK[p.fila] ?? k, k); maxK[p.fila] = Math.max(maxK[p.fila] ?? k, k); });
+      faixasDe(p.u).forEach((k) => { minK[p.fila] = Math.min(minK[p.fila] ?? k, Math.floor(k)); maxK[p.fila] = Math.max(maxK[p.fila] ?? k, Math.ceil(k)); });
     });
     const topoFila = [];
     let acc = 0;
@@ -109,91 +147,84 @@
     // Rótulos das linhas no começo de cada fila (a primeira linha que aparece em cada faixa).
     for (let f = 0; f < nFilas; f++) {
       const vistos = new Map();
-      posicoes.filter((p) => p.fila === f).forEach((p) => p.u.linhas.forEach((l) => { const k = kU(p.u, l); if (!vistos.has(k)) vistos.set(k, l); }));
+      posicoes.filter((p) => p.fila === f).forEach((p) => trilhos(p.u).forEach((t) => { const k = t.pts[0][1]; if (!vistos.has(k)) vistos.set(k, t.l); }));
       vistos.forEach((l, k) => gTxt.appendChild(s('text', { x: 2, y: yLinha(f, k) + 3, class: 'esq-rot-linha' }, `L${l}`)));
     }
 
-    // A rota usa a linha que está na faixa k da coluna idx? (para saber por onde chega e sai em cada pátio)
-    const usaK = (c, idx, k) => {
-      const u = r.unidades[idx];
-      const l = linhaNaFaixa(u, k);
-      return l !== undefined && c.trechos.has(trechoDe(u, l));
+    // A rota usa o trilho da coluna idx que chega à borda ('ks' = direita, 'ke' = esquerda) na faixa k?
+    const usaViz = (c, idx, campo, k) => {
+      const t = trilhos(r.unidades[idx]).find((x) => x[campo] === k);
+      return !!t && c.trechos.has(M.trecho(t.id, t.l));
     };
 
     posicoes.forEach(({ u, i: idx, x: ux, w, fila: f }) => {
-      const tr = u.linhas.map((l) => ({ l, k: kU(u, l) })).filter((t) => t.k >= -9).sort((a, b) => a.k - b.k);
+      const tr = trilhos(u);
       if (!tr.length) return;
-      const ks = tr.map((t) => t.k);
-      const saidaDe = (l) => (u.saidas || []).find((x) => x.linha === l);
+      const X = (fx) => ux + w * fx;
+      const Y = (k) => yLinha(f, k);
+      /** Caminho (atributo d) de um trecho do trilho, entre duas frações da largura. */
+      const caminho = (pts, fa, fb, dy = 0) => {
+        const a = Math.max(fa, pts[0][0]); const b = Math.min(fb, pts[pts.length - 1][0]);
+        const lista = [[a, faixaEm(pts, a)], ...pts.filter((p) => p[0] > a && p[0] < b), [b, faixaEm(pts, b)]];
+        return lista.map((p, n) => `${n ? 'L' : 'M'}${X(p[0]).toFixed(1)},${(Y(p[1]) + dy).toFixed(1)}`).join(' ');
+      };
 
       // Trilhos (base), como no painel do CCO: a linha que não existe na unidade vizinha começa (ou termina)
       // num desvio em diagonal a partir da linha mais próxima (de cima, se houver) — o desvio do pátio fica com o desenho de "trapézio".
       const ant = r.unidades[idx - 1]; const prox = r.unidades[idx + 1];
-      const fAnt = ant ? faixas(ant) : null; const fProx = prox ? faixas(prox) : null;
+      const fAnt = ant ? pontas(ant, 'd') : null; const fProx = prox ? pontas(prox, 'e') : null;
       const dx = Math.min(14, w * 0.22);
-      tr.forEach(({ l, k }) => {
-        const y = yLinha(f, k);
-        const ponta = (u.pontas || []).includes(l);
+      const retos = tr.filter((t) => t.reto);
+      tr.forEach((t) => {
+        if (!t.reto) { gBase.append(...trilho(caminho(t.pts, t.f0, t.f1))); return; }
+        const k = t.pts[0][1];
+        const y = Y(k);
         const vizinha = (fv) => {
-          const acima = tr.filter((t) => t.k < k && fv.has(t.k)).pop();
-          if (acima) return acima.k;
-          const abaixo = tr.find((t) => t.k > k && fv.has(t.k));
-          return abaixo ? abaixo.k : undefined;
+          const acima = retos.filter((x) => x.pts[0][1] < k && fv.has(x.pts[0][1])).pop();
+          if (acima) return acima.pts[0][1];
+          const abaixo = retos.find((x) => x.pts[0][1] > k && fv.has(x.pts[0][1]));
+          return abaixo ? abaixo.pts[0][1] : undefined;
         };
-        const kAnt = ant && !ponta && !fAnt.has(k) ? vizinha(fAnt) : undefined;
-        const kProx = prox && !ponta && !saidaDe(l) && !fProx.has(k) ? vizinha(fProx) : undefined;
-        const saida = saidaDe(l);
-        const xs = saida && saida.tipo === 'desce' ? ux + w * 0.5 : null;
-        const x0 = kAnt !== undefined ? ux + dx : ux; const x1 = xs ?? (kProx !== undefined ? ux + w - dx : ux + w);
+        const kAnt = ant && !t.ponta && !fAnt.has(k) ? vizinha(fAnt) : undefined;
+        const kProx = prox && !t.ponta && !t.livre && !fProx.has(k) ? vizinha(fProx) : undefined;
+        const x0 = kAnt !== undefined ? ux + dx : ux; const x1 = kProx !== undefined ? ux + w - dx : ux + w;
         gBase.append(...trilho(seg(x0, y, x1, y)));
-        if (kAnt !== undefined) gBase.append(...trilho(seg(ux, yLinha(f, kAnt), x0, y), 'fino'));
-        if (kProx !== undefined) gBase.append(...trilho(seg(x1, y, ux + w, yLinha(f, kProx)), 'fino'));
+        if (kAnt !== undefined) gBase.append(...trilho(seg(ux, Y(kAnt), x0, y), 'fino'));
+        if (kProx !== undefined) gBase.append(...trilho(seg(x1, y, ux + w, Y(kProx)), 'fino'));
       });
 
-      // Linha do pátio sem trecho (só desenho), que segue na coluna seguinte.
-      (u.patio || []).forEach((p) => {
-        const y = yLinha(f, p.slot);
-        const g = s('g', { class: 'esq-patio' }, s('title', {}, 'Linha do pátio (segue para a 78)'));
-        g.append(...trilho(seg(ux + w * (p.de || 0), y, ux + w, y)));
+      // Linhas só de desenho (pátio, tocos, travessões sem troca programável) e textos (saída para os ramais).
+      (u.deco || []).forEach((d) => {
+        const g = s('g', { class: 'esq-deco' }, d.t ? s('title', {}, d.t) : null);
+        g.append(...trilho(caminho(d.pts, d.pts[0][0], d.pts[d.pts.length - 1][0]), d.fino ? 'fino' : ''));
         gBase.appendChild(g);
       });
+      (u.textos || []).forEach((t) => gTxt.appendChild(s('text', { x: X(t.fx) - 2, y: Y(t.slot) + (t.dy || 0), class: 'esq-saida-txt', 'text-anchor': 'end' }, t.txt)));
 
-      // Saídas para os ramais (toco com seta e o nome): "reto" segue em frente, "desce" desce em diagonal.
-      const fundoDesce = Math.max(-99, ...(u.saidas || []).filter((x) => x.tipo === 'desce').map((x) => kU(u, x.linha) + (x.nasce ? 1 : 0)));
-      (u.saidas || []).forEach((sd) => {
-        const k = kU(u, sd.linha);
-        const y = yLinha(f, k);
-        const xa = ux + w * 0.5; const xb = ux + w - 2; const h = 16;
-        const g = s('g', { class: 'esq-saida' }, s('title', {}, `Saída para o ramal ${sd.rotulo || ''}`.trim()));
-        if (sd.tipo === 'desce') {
-          g.append(...trilho(seg(xa, y, xb, y + h), 'fino'));
-          if (sd.nasce) { const y2 = yLinha(f, k + 1); g.append(...trilho(seg(ux + w * 0.3, y2, xa, y2)), ...trilho(seg(xa, y2, xb, y2 + h), 'fino')); }
-          if (sd.rotulo) g.appendChild(s('text', { x: xb, y: yLinha(f, fundoDesce) + h + 11, class: 'esq-saida-txt', 'text-anchor': 'end' }, `${sd.rotulo} ↘`));
-        } else {
-          g.append(s('path', { d: `M${xb - 6},${y - 4} L${xb},${y} L${xb - 6},${y + 4}`, class: 'esq-saida-seta' }));
-          if (sd.rotulo) g.appendChild(s('text', { x: xb, y: y - 6, class: 'esq-saida-txt', 'text-anchor': 'end' }, `${sd.rotulo} →`));
-        }
-        gBase.appendChild(g);
-      });
-
-      // Travessões do pátio (entre cada par de linhas vizinhas): E "/" e D "\".
+      // Travessões do pátio: E "/" (da linha de baixo, à esquerda, para a de cima) e D "\" (da de cima para a de baixo).
+      // Em geral, um de cada entre cada par de linhas vizinhas; os pátios desenhados como no painel trazem a lista (tvs).
       const travessoes = [];
       if (u.tipo === 'RH') {
-        for (let n = 0; n < tr.length - 1; n++) {
-          const la = tr[n].l; const lb = tr[n + 1].l;
-          const yA = yLinha(f, tr[n].k); const yB = yLinha(f, tr[n + 1].k);
-          travessoes.push({ lado: 'E', la, lb, x1: ux + w * 0.12, y1: yB, x2: ux + w * 0.42, y2: yA, xCima: ux + w * 0.42, xBaixo: ux + w * 0.12, t: M.travessao(u.id, 'E', la, lb) });
-          travessoes.push({ lado: 'D', la, lb, x1: ux + w * 0.58, y1: yA, x2: ux + w * 0.88, y2: yB, xCima: ux + w * 0.58, xBaixo: ux + w * 0.88, t: M.travessao(u.id, 'D', la, lb) });
+        const novo = (lado, a, b, f1, f2, fixo) => {
+          const cimaF = lado === 'E' ? f2 : f1; const baixoF = lado === 'E' ? f1 : f2;
+          travessoes.push({ lado, la: a.ch, lb: b.ch, nA: a.l, nB: b.l, fixo, fCima: cimaF, fBaixo: baixoF,
+            x1: X(f1), y1: Y(faixaEm((lado === 'E' ? b : a).pts, f1)), x2: X(f2), y2: Y(faixaEm((lado === 'E' ? a : b).pts, f2)),
+            t: M.travessao(u.id, lado, a.l, b.l) });
+        };
+        if (u.tvs) {
+          u.tvs.forEach((v) => { const a = tr.find((t) => t.ch === v.la); const b = tr.find((t) => t.ch === v.lb); if (a && b) novo(v.lado, a, b, v.fx[0], v.fx[1], true); });
+        } else {
+          for (let n = 0; n < tr.length - 1; n++) { novo('E', tr[n], tr[n + 1], 0.12, 0.42, false); novo('D', tr[n], tr[n + 1], 0.58, 0.88, false); }
         }
         // No desenho só aparecem os travessões entre duas linhas que seguem dos dois lados (linha dupla);
         // onde uma delas começa ou termina no pátio, o próprio desvio já faz a ligação. Todos continuam tocáveis.
-        const segue = (l) => { const k = kU(u, l); return (!ant || fAnt.has(k)) && (!prox || fProx.has(k)) && !saidaDe(l); };
-        travessoes.filter((tv) => segue(tv.la) && segue(tv.lb)).forEach((tv) => gBase.append(...trilho(seg(tv.x1, tv.y1, tv.x2, tv.y2), 'fino')));
-        // Marcador do pátio, como no painel: casinha, número do pátio numa caixa e o km embaixo.
+        const segue = (ch) => { const t = tr.find((x) => x.ch === ch); return (!ant || fAnt.has(t.ke)) && (!prox || fProx.has(t.ks)); };
+        travessoes.filter((tv) => tv.fixo || (segue(tv.la) && segue(tv.lb))).forEach((tv) => gBase.append(...trilho(seg(tv.x1, tv.y1, tv.x2, tv.y2), 'fino')));
+        // Marcador do pátio, como no painel: casinha, número do pátio numa caixa e o km embaixo (acima da linha de cima do pátio).
         if (!u.semCasa) {
           const km = M.fmtKm(u.ini);
-          const top = topoFila[f];
-          const cx = ux + w / 2;
+          const top = Y(u.casaSlot ?? Math.min(...tr.flatMap((t) => t.pts.map((p) => p[1])))) - TOPO;
+          const cx = X(u.casaFx ?? 0.5);
           const nw = Math.max(18, String(u.curto).length * 7 + 6);
           gTxt.append(
             s('path', { d: `M${(cx - 7).toFixed(1)},${top + 13} L${(cx - 7).toFixed(1)},${top + 7} L${cx.toFixed(1)},${top + 1} L${(cx + 7).toFixed(1)},${top + 7} L${(cx + 7).toFixed(1)},${top + 13} Z`, class: 'esq-casa' }),
@@ -209,48 +240,54 @@
         const dy = c.desloc || 0;
         const classe = `esq-camada esq-${c.estilo || 'cheio'}`;
         const desenharRota = (d) => gRota.appendChild(s('path', { d, class: classe, stroke: c.cor }));
+        const usa = (t) => c.trechos.has(M.trecho(t.id, t.l));
         if (u.tipo !== 'RH') {
-          tr.forEach(({ l, k }) => { if (c.trechos.has(trechoDe(u, l))) desenharRota(seg(ux, yLinha(f, k) + dy, ux + w, yLinha(f, k) + dy)); });
+          tr.forEach((t) => { if (usa(t)) desenharRota(caminho(t.pts, t.f0, t.f1, dy)); });
           return;
         }
         // No pátio: linha por onde chega (EH anterior), por onde sai (EH seguinte) e travessões usados.
         const tvs = travessoes.filter((tv) => c.trechos.has(tv.t));
-        const yDe = (l) => yLinha(f, kU(u, l)) + dy;
         tvs.forEach((tv) => desenharRota(seg(tv.x1, tv.y1 + dy, tv.x2, tv.y2 + dy)));
-        tr.forEach(({ l, k }) => {
-          const chega = usaK(c, idx - 1, k); const sai = !saidaDe(l) && usaK(c, idx + 1, k); const noPatio = c.trechos.has(trechoDe(u, l));
-          const pontos = tvs.flatMap((tv) => (tv.la === l ? [tv.xCima] : tv.lb === l ? [tv.xBaixo] : []));
-          const x0 = ux; const x1 = ux + w; const Y = yDe(l);
-          if (chega && sai) return desenharRota(seg(x0, Y, x1, Y));
+        tr.forEach((t) => {
+          const chega = t.ke !== null && usaViz(c, idx - 1, 'ks', t.ke);
+          const sai = t.ks !== null && usaViz(c, idx + 1, 'ke', t.ks);
+          const noPatio = usa(t);
+          const pontos = tvs.flatMap((tv) => (tv.la === t.ch ? [tv.fCima] : tv.lb === t.ch ? [tv.fBaixo] : []));
+          const des = (a, b) => desenharRota(caminho(t.pts, a, b, dy));
+          const meio = (t.f0 + t.f1) / 2;
+          if (chega && sai) return des(t.f0, t.f1);
           if (!pontos.length) {
-            if (noPatio) desenharRota(seg(x0, Y, saidaDe(l) && saidaDe(l).tipo === 'desce' ? ux + w * 0.5 : x1, Y));
-            else if (chega) desenharRota(seg(x0, Y, ux + w * 0.5, Y)); // termina no pátio
-            else if (sai) desenharRota(seg(ux + w * 0.5, Y, x1, Y)); // começa no pátio
+            if (noPatio) des(t.f0, t.f1);
+            else if (chega) des(t.f0, meio); // termina no pátio
+            else if (sai) des(meio, t.f1); // começa no pátio
             return;
           }
           const pMin = Math.min(...pontos); const pMax = Math.max(...pontos);
-          if (chega) desenharRota(seg(x0, Y, pMax, Y)); // chega por esta linha até o travessão
-          else if (sai) desenharRota(seg(pMin, Y, x1, Y)); // sai por esta linha depois do travessão
-          else if (pontos.length > 1) desenharRota(seg(pMin, Y, pMax, Y)); // entre dois travessões
+          if (chega) des(t.f0, pMax); // chega por esta linha até o travessão
+          else if (sai) des(pMin, t.f1); // sai por esta linha depois do travessão
+          else if (noPatio && t.livre) des(pMin, t.f1); // segue para o ramal
+          else if (pontos.length > 1) des(pMin, pMax); // entre dois travessões
         });
       });
 
       // Áreas de toque (uma por linha) e travessões.
-      tr.forEach(({ l, k }) => {
-        const y = yLinha(f, k);
-        const t = trechoDe(u, l);
-        const ref = u.ref && u.ref[l];
-        if (op.inicioIntervalo === t) gRota.appendChild(s('circle', { cx: ux + w / 2, cy: y, r: 8, class: 'esq-inicio' }));
+      tr.forEach((t) => {
+        const trecho = M.trecho(t.id, t.l);
+        const fm = (t.f0 + t.f1) / 2;
+        if (op.inicioIntervalo === trecho) gRota.appendChild(s('circle', { cx: X(fm), cy: Y(faixaEm(t.pts, fm)), r: 8, class: 'esq-inicio' }));
         if (!op.aoTocar) return;
-        const alvo = s('rect', { x: ux, y: y - PASSO / 2 + 2, width: w, height: PASSO / 2 + 4, class: 'esq-alvo', 'data-trecho': t },
-          s('title', {}, `${ref ? ref.rotulo : u.rotulo} · L${l} · km ${M.fmtKm(ref ? ref.ini : u.ini)} a ${M.fmtKm(ref ? ref.fim : u.fim)}`));
-        alvo.addEventListener('click', () => op.aoTocar(t, u, l));
+        const dica = s('title', {}, `${t.ref ? t.ref.rotulo : u.rotulo} · L${t.l} · km ${M.fmtKm(t.ref ? t.ref.ini : u.ini)} a ${M.fmtKm(t.ref ? t.ref.fim : u.fim)}`);
+        const y = Y(t.pts[0][1]);
+        const alvo = t.reto
+          ? s('rect', { x: ux, y: y - PASSO / 2 + 2, width: w, height: PASSO / 2 + 4, class: 'esq-alvo', 'data-trecho': trecho }, dica)
+          : s('path', { d: caminho(t.pts, t.f0, t.f1), class: 'esq-alvo-via', 'data-trecho': trecho }, dica);
+        alvo.addEventListener('click', () => op.aoTocar(trecho, u, t.l));
         gAlvo.appendChild(alvo);
       });
       if (op.aoTocar) {
         travessoes.forEach((tv) => {
           const alvo = s('path', { d: seg(tv.x1, tv.y1, tv.x2, tv.y2), class: 'esq-alvo-tv', 'data-trecho': tv.t },
-            s('title', {}, `Travessão ${u.rotulo}: L${tv.lado === 'E' ? tv.lb : tv.la} → L${tv.lado === 'E' ? tv.la : tv.lb} (troca de linha)`));
+            s('title', {}, `Travessão ${u.rotulo}: ${tv.lado === 'E' ? 'sobe para a linha de cima' : 'desce para a linha de baixo'} (troca de linha)`));
           alvo.addEventListener('click', () => op.aoTocar(tv.t, u, ''));
           gAlvo.appendChild(alvo);
         });
@@ -284,8 +321,9 @@
     (op.pontos || []).forEach((p) => {
       const { id, linha } = M.separar(p.trecho || '');
       const x = r.unidades.find((u) => temId(u, id));
-      const kx = x ? x.linhas.map((l) => kU(x, l)).sort((a, b) => a - b) : [];
-      const k = x && x.linhas.includes(linha) ? kU(x, linha) : kx[kx.length - 1];
+      const kx = x ? trilhos(x).map((t) => faixaEm(t.pts, 0.5)).sort((a, b) => a - b) : [];
+      const tx = x ? trilhos(x).find((t) => t.id === id && t.l === linha) : null;
+      const k = tx ? faixaEm(tx.pts, 0.5) : kx[kx.length - 1];
       const lado = x && k === kx[0] && x.tipo !== 'RH' && x.linhas.length > 1 ? 'cima' : 'baixo';
       const chave = `${id}|${lado}`;
       if (!grupos.has(chave)) grupos.set(chave, { id, lado, lista: [] });
@@ -295,7 +333,7 @@
       const pos = posicoes.find((p) => temId(p.u, id));
       if (!pos) return;
       const { u, x: ux, w, fila: f } = pos;
-      const ks = u.linhas.map((l) => kU(u, l)).sort((a, b) => a - b);
+      const ks = trilhos(u).map((t) => faixaEm(t.pts, 0.5)).sort((a, b) => a - b);
       const y = lado === 'cima' ? yLinha(f, ks[0]) - 21 : yLinha(f, ks[ks.length - 1]) + 10;
       const mostrar = lista.length > 2 ? [lista[0], { ...lista[1], texto: `+${lista.length - 1}`, titulo: lista.slice(1).map((p) => p.titulo || p.texto).join('\n') }] : lista;
       const total = Math.max(56, w * 0.9);
@@ -319,7 +357,7 @@
   function faixaDe(ramal, trechos, folga = 1) {
     let a = Infinity; let b = -Infinity;
     ramal.unidades.forEach((u, i) => {
-      const ids = [u.id, ...Object.values(u.ref || {}).map((x) => x.id)];
+      const ids = [u.id, ...Object.values(u.ref || {}).map((x) => x.id), ...(u.extras || []).map((x) => x.id)];
       if (trechos.some((t) => ids.includes(M.separar(t).id))) { a = Math.min(a, i); b = Math.max(b, i); }
     });
     if (!Number.isFinite(a)) return null;
