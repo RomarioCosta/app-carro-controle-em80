@@ -938,3 +938,5 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-selo.mt-nivel-1 { background: var(--alerta-fundo); color: var(--alerta); }
 .mt-selo.mt-nivel-2 { background: var(--sup2); color: var(--texto); border: 1px solid var(--borda); }
 .mt-selo.mt-nivel-3 { background: var(--erro-fundo); color: var(--erro); }
+.mt-lancados summary { cursor: pointer; }
+.mt-lancados .mt-rolagem { max-height: 360px; overflow: auto; margin-top: 8px; }

@@ -221,3 +221,19 @@ test('alerta de geometria no RH (pátio, onde ficam os AMV): limite da tangente,
   assert.equal(al[0].limite, 21); // o da tangente
   assert.equal(Math.round(al[0].ini), 1040);
 });
+
+test('km lançados: trecho por trecho, sem juntar (linha muda, km pula, passada repetida)', () => {
+  // L1 de 0 a 1000; pula para 1500 até 2000 (buraco de 500 m); muda para L2 de 2000 a 2500; volta para L1 em 1800 a 2200 (repetida)
+  const p = []; const l = [];
+  for (let x = 0; x <= 1000; x++) { p.push(x); l.push(0); }
+  for (let x = 1500; x <= 2000; x++) { p.push(x); l.push(0); }
+  for (let x = 2000; x <= 2500; x++) { p.push(x); l.push(1); }
+  for (let x = 1800; x <= 2200; x++) { p.push(x); l.push(0); }
+  const r = { nome: 'x', ramal: 'LT', linhaRef: '1', amostras: { pos: Float64Array.from(p), aj: new Float32Array(p.length), linha: Uint8Array.from(l), linhas: ['1', '2'] } };
+  const t = C.kmLancados(r, null, planta);
+  assert.deepEqual(j(t.map((x) => [x.linha, Math.round(x.ini), Math.round(x.fim)])), [['1', 0, 1000], ['1', 1500, 2000], ['2', 2000, 2500], ['1', 1800, 2200]]);
+  assert.equal(t[0].ehIni, 'EH 0');
+  assert.match(t[1].ehIni, /^EH 1|RH/);
+  // corte: só o que está dentro
+  assert.equal(C.kmLancados(r, { de: 0, ate: 900 }, planta).length, 1);
+});

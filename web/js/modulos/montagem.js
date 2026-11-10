@@ -406,7 +406,59 @@
     return '';
   }
 
-  function cartaoLinha(l) {
+  /* ---------------- Km lançados (trecho por trecho, sem juntar) ---------------- */
+
+  const cacheLancados = new WeakMap(); // resumo → { chave, lista }
+  /** Km lançados de um arquivo (com o corte), trecho por trecho: ver C.kmLancados. */
+  function lancados(a) {
+    const chave = JSON.stringify(a.recorte || null);
+    const c = cacheLancados.get(a.resumo);
+    if (c && c.chave === chave) return c.lista;
+    const lista = a.antigo ? [] : C().kmLancados(a.resumo, a.recorte, planta);
+    cacheLancados.set(a.resumo, { chave, lista });
+    return lista;
+  }
+  const ehTxt = (t) => (t.ehIni === t.ehFim ? t.ehIni : `${t.ehIni} → ${t.ehFim}`);
+  const sedeTxt = (t) => [...new Set([t.sedeIni, t.sedeFim].filter(Boolean).map((x) => C().normSede(x)))].join(' → ') || '—';
+
+  /** Tabela "km lançados" de uma linha: cada trecho de cada arquivo, separado, em ordem de km. */
+  function tabelaLancadosLinha(l, lista) {
+    const linhasT = [];
+    lista.forEach((a) => lancados(a).filter((t) => String(t.linha) === String(l.linha)).forEach((t) => linhasT.push({ a, t })));
+    linhasT.sort((x, y) => x.t.ini - y.t.ini || x.a.nome.localeCompare(y.a.nome));
+    const chave = `lanc|${l.linha}`;
+    const arqs = new Set(linhasT.map((x) => x.a.id)).size;
+    return h('details', { class: 'mt-lancados', open: abertos.has(chave) || null, ontoggle: (e) => { if (e.target.open) abertos.add(chave); else abertos.delete(chave); } },
+      h('summary', null, h('strong', { text: `Km lançados na linha ${l.linha}` }),
+        h('span', { class: 'mt-sub', text: ` · ${n0(linhasT.length)} trecho(s) de ${n0(arqs)} arquivo(s), um por um, sem juntar` })),
+      linhasT.length ? h('div', { class: 'tabela-rolagem mt-rolagem' }, h('table', { class: 'tabela mt-tabela' },
+        h('thead', null, h('tr', null, ['Km inicial', 'Km final', 'Extensão', 'Sede', 'EH / RH', 'Arquivo', 'Km do arquivo'].map((x) => h('th', { text: x })))),
+        h('tbody', null, linhasT.map(({ a, t }) => h('tr', null,
+          h('td', { text: km(t.ini) }), h('td', { text: km(t.fim) }), h('td', { class: 'num', text: mTxt(t.m) }),
+          h('td', { text: sedeTxt(t) }), h('td', { text: ehTxt(t) }), h('td', { class: 'mt-sub', text: a.nome }),
+          h('td', { class: 'mt-sub', text: `${km(t.arqIni)} → ${km(t.arqFim)}` })))))) : h('p', { class: 'mt-sub', text: 'Nenhum arquivo lançado nesta linha.' }));
+  }
+
+  /** No arquivo: os km lançados em cada linha, na ordem do arquivo. */
+  function blocoLancadosArquivo(a) {
+    const lista = lancados(a);
+    if (!lista.length) return null;
+    const porLinha = {};
+    lista.forEach((t, k) => { (porLinha[t.linha] = porLinha[t.linha] || []).push({ t, k }); });
+    const chave = `lancarq|${a.id}`;
+    const resumoLinhas = Object.keys(porLinha).sort().map((l) => `L${l}: ${mTxt(porLinha[l].reduce((x, y) => x + y.t.m, 0))} em ${porLinha[l].length} trecho(s)`).join(' · ');
+    return h('details', { class: 'pilha mt-comp mt-lancados', open: abertos.has(chave) || null, ontoggle: (e) => { if (e.target.open) abertos.add(chave); else abertos.delete(chave); } },
+      h('summary', null, h('strong', { text: 'Km lançados por linha' }), h('span', { class: 'mt-sub', text: ` · ${resumoLinhas}` })),
+      h('div', { class: 'tabela-rolagem mt-rolagem' }, h('table', { class: 'tabela mt-tabela' },
+        h('thead', null, h('tr', null, ['Linha', 'Ordem', 'De (km)', 'Até (km)', 'Extensão', 'Sede', 'EH / RH', 'Km do arquivo'].map((x) => h('th', { text: x })))),
+        h('tbody', null, Object.keys(porLinha).sort().flatMap((l) => porLinha[l].map(({ t, k }) => h('tr', null,
+          h('td', null, h('strong', { text: `L${l}` })), h('td', { class: 'num', text: String(k + 1) }),
+          h('td', { text: km(t.de) }), h('td', { text: km(t.ate) }), h('td', { class: 'num', text: mTxt(t.m) }),
+          h('td', { text: sedeTxt(t) }), h('td', { text: ehTxt(t) }), h('td', { class: 'mt-sub', text: `${km(t.arqIni)} → ${km(t.arqFim)}` }))))))),
+      h('span', { class: 'mt-sub', text: 'Km da geometria (já corrigido), na ordem do arquivo. Um trecho novo começa quando a linha muda ou o km pula mais de 3 m. "Ordem" é a sequência no arquivo.' }));
+  }
+
+  function cartaoLinha(l, lista = []) {
     const ini = l.sedes.length ? l.sedes[0].ini : 0; const fim = l.sedes.length ? l.sedes[l.sedes.length - 1].fim : 1;
     const linhasTabela = [];
     l.sedes.forEach((s) => {
@@ -443,7 +495,8 @@
       h('div', { class: 'mt-legenda' }, ['mt-cob:Medido', 'mt-bur:Buraco', 'mt-sob:Medido 2×', 'mt-nec:Falta medir', 'mt-rh:RH (pátio)'].map((x) => { const [c, t] = x.split(':'); return h('span', null, h('i', { class: c }), t); })),
       h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela' },
         h('thead', null, h('tr', null, ['Sede', 'Trecho', 'Medido', 'Falta', 'Buracos', 'Arquivos', 'Divisa'].map((t) => h('th', { text: t })))),
-        h('tbody', null, linhasTabela))));
+        h('tbody', null, linhasTabela))),
+      tabelaLancadosLinha(l, lista.filter((a) => a.resumo.ramal === ramalEscolhido())));
   }
 
   function campoKm(valor, aoMudar, placeholder) {
@@ -547,6 +600,7 @@
               a.antigo ? h('div', { class: 'aviso' }, 'Adicionado numa versão anterior: sem o ajuste do km (Compensar) e sem a Tela do carro. ',
                 h('button', { class: 'btn btn-primario btn-pequeno', onclick: () => reAdicionar(a) }, ui.icone('upload'), 'Adicionar de novo')) : null,
               r.compensaveis.length ? listaCompensaveis(a) : null,
+              blocoLancadosArquivo(a),
               a.antigo ? null : cartaoLinhaArquivo(a),
               h('div', { class: 'linha-acoes' },
                 h('button', { class: 'btn btn-secundario btn-pequeno', onclick: () => abrirNaTela(a) }, ui.icone('play'), 'Rodar na Tela do carro')),
@@ -834,7 +888,7 @@
         const linhas = C().montar(planta, ramal, lista);
         const conferencia = C().conferirArquivos(planta, lista);
         partes.push(resumoGeral(linhas));
-        linhas.forEach((l) => partes.push(cartaoLinha(l)));
+        linhas.forEach((l) => partes.push(cartaoLinha(l, lista)));
         partes.push(cartaoArquivos(lista, conferencia));
         partes.push(cartaoRegras());
         partes.push(cartaoGeometria());
