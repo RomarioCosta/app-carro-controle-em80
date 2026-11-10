@@ -345,6 +345,50 @@
     return out.map(({ ultimo, ...x }) => x).sort((p, q) => q.grau - p.grau || p.linha.localeCompare(q.linha) || p.ini - q.ini);
   };
 
+  /**
+   * Km lançados de um arquivo, trecho por trecho, na ordem do arquivo e SEM juntar nada: um trecho novo começa
+   * quando a linha muda, quando o km (já corrigido pela geometria) pula mais que "folga" metros, ou no corte.
+   * Uma passada repetida no mesmo km aparece de novo. Retorna [{ linha, ini, fim, arqIni, arqFim, m, sedeIni,
+   * sedeFim, ehIni, ehFim }] (ini/fim = km da geometria, crescente; de/ate = km da geometria na ordem do arquivo;
+   * arqIni/arqFim = km do arquivo, na ordem dele).
+   */
+  C.kmLancados = (r, recorte = null, planta = null, folga = 3) => {
+    const { pos, aj, linha, linhas } = r.amostras;
+    const out = [];
+    const elsPorLinha = {};
+    const elsDe = (l) => { if (!elsPorLinha[l]) elsPorLinha[l] = planta && r.ramal ? B().elementosDaPlanta(planta, r.ramal, l) : []; return elsPorLinha[l]; };
+    const local = (l, y) => {
+      const els = elsDe(l);
+      let lo = 0; let hi = els.length - 1;
+      while (lo <= hi) { const m = (lo + hi) >> 1; if (els[m].fim < y) lo = m + 1; else if (els[m].ini > y) hi = m - 1; else return { eh: els[m].nomeEh || `EH ${els[m].eh}`, sede: els[m].sede || '' }; }
+      const prox = els[Math.min(lo, els.length - 1)];
+      return { eh: prox ? `RH (antes do ${prox.nomeEh || `EH ${prox.eh}`})` : '', sede: prox ? prox.sede || '' : '' };
+    };
+    let atual = null;
+    const fechar = () => {
+      if (atual && atual.fim - atual.ini > 0.5) {
+        const a = local(atual.linha, atual.yIni); const b = local(atual.linha, atual.yFim);
+        out.push({ linha: atual.linha, ini: atual.ini, fim: atual.fim, de: atual.yIni, ate: atual.yFim, arqIni: atual.arqIni, arqFim: atual.arqFim, m: atual.fim - atual.ini, sedeIni: a.sede, sedeFim: b.sede, ehIni: a.eh, ehFim: b.eh });
+      }
+      atual = null;
+    };
+    for (let k = 0; k < pos.length; k++) {
+      const p = pos[k];
+      if (recorte && ((recorte.de !== null && recorte.de !== undefined && p < recorte.de) || (recorte.ate !== null && recorte.ate !== undefined && p > recorte.ate))) { fechar(); continue; }
+      const l = linhas[linha[k]];
+      if (B().ehDeslocamento(l)) { fechar(); continue; } // LOCOM: fora
+      const g = p + aj[k];
+      if (atual && atual.linha === l && Math.abs(g - atual.ult) <= folga) {
+        atual.ini = Math.min(atual.ini, g); atual.fim = Math.max(atual.fim, g); atual.ult = g; atual.arqFim = p; atual.yFim = g;
+      } else {
+        fechar();
+        atual = { linha: l, ini: g, fim: g, ult: g, arqIni: p, arqFim: p, yIni: g, yFim: g };
+      }
+    }
+    fechar();
+    return out;
+  };
+
   /** Intervalos cobertos por um arquivo resumido, por linha, já no km da geometria. recorte = { de, ate } no km do arquivo. */
   C.coberturaDoArquivo = (r, recorte = null, folga = 3) => {
     const { pos, aj, linha, linhas } = r.amostras;

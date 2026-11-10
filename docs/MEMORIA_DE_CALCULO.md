@@ -472,6 +472,30 @@ Ordem: primeiro a troca de valor; depois os trechos (o trecho vale mais; entre d
 | Sem correção (TESTE01 vale a linha mais frequente, 1; LOCOM fora) | 2.500 m | 0 |
 | TESTE01 → Linha 2 e o trecho 1.000–1.500 → Linha 1 | 1.500 m | 1.500 m |
 
+### 15.6 Km lançados por linha (trecho por trecho)
+
+**O que é.** A barra de cobertura e o "Medido" de cada sede **juntam** os arquivos: se dois arquivos cobrem o mesmo km, ou se um arquivo passa duas vezes no mesmo lugar, aparece uma faixa só. Para ver o que foi lançado de fato, sem juntar nada, há duas tabelas:
+
+- **No arquivo → "Km lançados por linha":** cada trecho do arquivo, na ordem dele, com linha, km inicial e final (geometria), extensão, sede, EH/RH e o km do próprio arquivo.
+- **Na linha → "Km lançados na linha N":** todos os trechos de todos os arquivos daquela linha, em ordem de km, com o nome do arquivo.
+
+**Quando começa um trecho novo.** Andando ponto a ponto no arquivo, com o km já corrigido pela geometria (item 7), um trecho fecha e outro começa quando:
+- a **linha muda** (ex.: L1 → L2);
+- o km **pula mais de 3 m** (salto, volta ou passada repetida);
+- entra ou sai do **corte** do arquivo, ou de um trecho **LOCOM** (deslocamento, fica de fora).
+
+**Exemplo (RLT_PV de 20/10/2026, linha 1).**
+
+| Ordem | De | Até | Extensão | Por que separou |
+|---|---|---|---|---|
+| 1 | 12+678 | 14+474 | 1,8 km | início do arquivo |
+| 2 | 9+938 | 20+966 | 11,0 km | o km voltou de 14+474 para 9+938 (passada repetida) |
+| 3 | 20+989 | 39+002 | 18,0 km | salto de 23 m |
+| 4 | 39+012 | 47+995 | 9,0 km | salto de 10 m |
+| 5 | 48+007 | 51+265 | 3,3 km | salto de 12 m |
+
+A barra de cobertura mostra esses trechos como uma faixa só (9+938 – 51+265, com pequenos buracos). Nesta tabela aparecem os cinco, e dá para ver que de 12+678 a 14+474 o arquivo passou duas vezes.
+
 ---
 
 ## 16. Compensação de saltos e voltas do km (botão "Compensar")
