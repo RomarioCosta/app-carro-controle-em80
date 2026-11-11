@@ -32,7 +32,7 @@
     let x = 0; let fila = 0;
     for (let i = i0; i <= i1; i++) {
       const u = r.unidades[i];
-      const w = (u.tipo === 'RH' ? LARG_RH : LARG_EH) * fator * (u.larg || 1);
+      const w = Math.min(utilW, (u.tipo === 'RH' ? LARG_RH : LARG_EH) * fator * (u.larg || 1));
       if (x + w > utilW && x > 0) { fila++; x = 0; }
       posicoes.push({ u, i, x: ESQ + x, w, fila });
       x += w;
@@ -147,7 +147,7 @@
     // Rótulos das linhas no começo de cada fila (a primeira linha que aparece em cada faixa).
     for (let f = 0; f < nFilas; f++) {
       const vistos = new Map();
-      posicoes.filter((p) => p.fila === f).forEach((p) => trilhos(p.u).forEach((t) => { const k = t.pts[0][1]; if (!vistos.has(k)) vistos.set(k, t.l); }));
+      posicoes.filter((p) => p.fila === f).forEach((p) => trilhos(p.u).filter((t) => t.reto).forEach((t) => { const k = t.pts[0][1]; if (!vistos.has(k)) vistos.set(k, t.l); }));
       vistos.forEach((l, k) => gTxt.appendChild(s('text', { x: 2, y: yLinha(f, k) + 3, class: 'esq-rot-linha' }, `L${l}`)));
     }
 
@@ -196,7 +196,7 @@
       // Linhas só de desenho (pátio, tocos, travessões sem troca programável) e textos (saída para os ramais).
       (u.deco || []).forEach((d) => {
         const g = s('g', { class: 'esq-deco' }, d.t ? s('title', {}, d.t) : null);
-        g.append(...trilho(caminho(d.pts, d.pts[0][0], d.pts[d.pts.length - 1][0]), d.fino ? 'fino' : ''));
+        g.append(...trilho(d.pts.map((p, n) => `${n ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' '), d.fino ? 'fino' : '')); // inteira (pode voltar, como nos laços)
         gBase.appendChild(g);
       });
       (u.textos || []).forEach((t) => gTxt.appendChild(s('text', { x: X(t.fx) - 2, y: Y(t.slot) + (t.dy || 0), class: 'esq-saida-txt', 'text-anchor': 'end' }, t.txt)));

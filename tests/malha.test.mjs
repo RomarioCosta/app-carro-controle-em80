@@ -147,3 +147,25 @@ test('Linha Tronco 75 a 86 como no painel: L3 acima da L1, linha 13 na 77, saíd
   assert.ok(r86.via['2']); // a L2 desce para BH
   assert.equal(M.descrever(m, M.travessao('LT:RH:77', 'D', '1', '3')), 'LT · RH-77 · travessão L1→L3');
 });
+
+test('Ramais como no painel: desvio do pátio acima da linha e Itabira com Laboriaux, João Paulo e Conceição depois da 540', () => {
+  const e = (ramal, linha, eh, ini, fim, nomeEh) => ({ ramal, linha: String(linha), eh: String(eh), ini, fim, tipo: 'T', nomeEh });
+  const p = { elementos: [
+    e('LT', 1, 75, 0, 1000, 'EH 75/76'),
+    e('FA', 1, '09I', 0, 1000, 'EH 09I/09V'), e('FA', 2, '09I', 0, 1000, 'EH 09I/09V'), e('FA', 1, '09V', 1100, 2000, 'EH 09V/10I'),
+    ...['1', '2'].flatMap((l) => [e('IT', l, 91, 0, 1000, 'EH 91/92')]),
+    ...['1', '2', '3'].flatMap((l) => [e('IT', l, 92, 1100, 2000, 'EH 92/93'), e('IT', l, 93, 2100, 3000, 'EH 93/94'), e('IT', l, 94, 3100, 4000, 'EH 94/540')]),
+    e('IT', 3, 540, 4100, 5000, 'EH 540/IT'), e('CE', 1, 'RCE', 0, 900, 'EH RCE'), e('JP', 1, 'RJP', 0, 800, 'EH RJP')
+  ] };
+  const m = M.montar(p);
+  const fa = m.ramais.find((x) => x.ramal === 'FA').unidades;
+  assert.deepEqual(j(fa.find((u) => u.id === 'FA:EH:09I').slot), { 1: 0, 2: -1 }); // L1 reta, desvio (L2) acima
+  const it = m.ramais.find((x) => x.ramal === 'IT').unidades;
+  const fim = it[it.length - 1];
+  assert.equal(fim.id, 'IT:COL:540');
+  assert.equal(M.idDe(fim, '3'), 'IT:EH:540'); // L3 até a Estação Itabira
+  assert.deepEqual(j(fim.extras.map((x) => x.id)), ['CE:EH:RCE', 'JP:EH:RJP']); // Conceição pela L1, João Paulo pela L2
+  assert.equal(m.indice.get('JP:EH:RJP').ramal.ramal, 'IT');
+  assert.ok(fim.deco.some((d) => d.t === 'Silo 01') && fim.deco.some((d) => d.t === 'Silo 3'));
+  assert.ok(it.find((u) => u.id === 'IT:RH:93>94').deco.some((d) => /RBV/.test(d.t)));
+});

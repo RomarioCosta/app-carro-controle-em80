@@ -132,7 +132,7 @@
     // Colunas do desenho cujas linhas são de outro EH (ex.: no começo da Linha Tronco, L1 = EH 01/03 e L2 = EH 04/06 lado a lado):
     // o trecho continua com o id do EH original, que aponta para a primeira coluna onde ele aparece.
     ramais.forEach((r) => r.unidades.forEach((u, i) => [...Object.values(u.ref || {}), ...(u.extras || [])].forEach((ref) => {
-      if (!indice.has(ref.id)) indice.set(ref.id, { ramal: r, unidade: originais.get(ref.id) || { tipo: u.tipo, ...ref }, i });
+      if (!indice.has(ref.id)) indice.set(ref.id, { ramal: r, unidade: { tipo: u.tipo, ...(originais.get(ref.id) || {}), ...(ref.pts ? { rotulo: ref.rotulo } : {}), id: ref.id, ...(originais.has(ref.id) ? {} : ref) }, i });
     })));
     return { ramais, indice };
   };
@@ -210,45 +210,157 @@
       const i85 = idxEh(fa, '85');
       if (i85 > 0) mudar(fa.unidades[i85 - 1].id, { deco: [{ pts: [[0.46, -1], [0.54, 0], [0.7, 0]], fino: true, t: 'Linha 51 (pátio)' }] });
     }
-    if (fa && i86 > 0) {
-      // RH-86, como no painel: a L1 segue para Fábrica; a L2 desce para BH (L1 do 86/201);
-      // a linha 73 nasce no pátio e desce para BH (L2 do 86/201); travessões W21 a W25 e o toco da linha 58.
-      const rh = fa.unidades[i86 - 1];
-      const k1 = comSlot ? -2 : 0; const k2 = k1 + 1; const k3 = k1 + 2; const k4 = k1 + 3; const k5 = k1 + 4;
-      unidLt.push(bh ? { ...rh, id: 'LT:RH:86', slot: comSlot ? slotFa : undefined, larg: 2.4, casaFx: 0.2,
-        via: rh.linhas.includes('2') ? { 2: [[0, k2], [0.62, k2], [0.82, k4], [1, k4]] } : undefined,
-        livres: rh.linhas,
-        tvs: rh.linhas.includes('2') ? [{ lado: 'D', la: '1', lb: '2', fx: [0.08, 0.14] }, { lado: 'E', la: '1', lb: '2', fx: [0.22, 0.28] }] : [],
-        deco: rh.linhas.includes('2') ? [
-          { pts: [[0.03, k3], [0.55, k3], [0.75, k5], [1, k5]], t: 'Linha 73 (nasce no pátio e segue para BH como L2)' },
-          { pts: [[0.03, k4], [0.1, k4], [0.16, k3]], fino: true, t: 'Linha 58 (pátio)' },
-          { pts: [[0.16, k3], [0.22, k2]], fino: true, t: 'Travessão W23' },
-          { pts: [[0.34, k2], [0.4, k3]], fino: true, t: 'Travessão W24' }
-        ] : [],
-        textos: [{ fx: 1, slot: k1, dy: -7, txt: 'Fábrica →' }, ...(rh.linhas.includes('2') ? [{ fx: 1, slot: k5, dy: 13, txt: 'BH →' }] : [])]
-      } : { ...rh, id: 'LT:RH:86', ligacao: true });
+    /**
+     * Pátio da 86 como no painel, para as três telas: a L1 segue para Fábrica; a L2 desce para BH (L1 do 86/201);
+     * a linha 73 nasce no pátio e desce para BH (L2 do 86/201); travessões W21 a W24 e o toco da linha 58.
+     * k1 = faixa da L1; tipo: 'LT' (fim da tela), 'FA' (a L1 continua) ou 'BH' (as linhas da tela são as que descem).
+     */
+    const patio86 = (tipo, k1) => {
+      const k2 = k1 + 1; const k3 = k1 + 2; const k4 = k1 + 3; const k5 = k1 + 4;
+      const M2 = [[0, k2], [0.62, k2], [0.82, k4], [1, k4]]; const L73 = [[0.03, k3], [0.55, k3], [0.75, k5], [1, k5]];
+      const toco = { pts: [[0.03, k4], [0.1, k4], [0.16, k3]], fino: true, t: 'Linha 58 (pátio)' };
+      if (tipo === 'BH') {
+        return { larg: 2.4, casaFx: 0.2, casaSlot: k1, via: { 1: M2, 2: L73 },
+          tvs: [{ lado: 'E', la: '1', lb: '2', fx: [0.16, 0.22] }, { lado: 'D', la: '1', lb: '2', fx: [0.34, 0.4] }],
+          deco: [{ pts: [[0, k1], [1, k1]], t: 'L1 (segue para Fábrica)' }, toco,
+            { pts: [[0.08, k1], [0.14, k2]], fino: true, t: 'Travessão W21' }, { pts: [[0.22, k2], [0.28, k1]], fino: true, t: 'Travessão W22' }],
+          textos: [{ fx: 1, slot: k1, dy: -7, txt: 'Fábrica →' }] };
+      }
+      return { larg: 2.4, casaFx: 0.2, via: { 2: M2 }, livres: tipo === 'LT' ? ['1', '2'] : ['2'],
+        tvs: [{ lado: 'D', la: '1', lb: '2', fx: [0.08, 0.14] }, { lado: 'E', la: '1', lb: '2', fx: [0.22, 0.28] }],
+        deco: [{ pts: L73, t: 'Linha 73 (nasce no pátio e segue para BH como L2)' }, toco,
+          { pts: [[0.16, k3], [0.22, k2]], fino: true, t: 'Travessão W23' }, { pts: [[0.34, k2], [0.4, k3]], fino: true, t: 'Travessão W24' }],
+        textos: [...(tipo === 'LT' ? [{ fx: 1, slot: k1, dy: -7, txt: 'Fábrica →' }] : []), { fx: 1, slot: k5, dy: 13, txt: 'BH →' }] };
+    };
+    const rh86 = fa && i86 > 0 ? fa.unidades[i86 - 1] : null;
+    const duas86 = !!rh86 && rh86.linhas.includes('2') && !!bh;
+    if (rh86) {
+      unidLt.push(duas86 ? { ...rh86, id: 'LT:RH:86', slot: comSlot ? slotFa : undefined, ...patio86('LT', comSlot ? -2 : 0) }
+        : bh ? { ...rh86, id: 'LT:RH:86', slot: comSlot ? slotFa : undefined, livres: rh86.linhas, textos: [{ fx: 1, slot: comSlot ? -2 : 0, dy: -7, txt: 'Fábrica →' }] }
+          : { ...rh86, id: 'LT:RH:86', ligacao: true });
     }
     out.push(tela('LT', unidLt));
-    // Ramal de Fábrica: RH-86 até a RH-19I (sem o trecho 77 → 86 na planta: o ramal inteiro)
+
+    // Ajustes de desenho por id (só se a unidade existir) e pátios com o desvio acima da linha principal.
+    const mudarEm = (lista, id, extra) => { const n = lista.findIndex((u) => u.id === id); if (n >= 0) lista[n] = { ...lista[n], ...extra }; };
+    const desvioAcima = (lista, patios) => lista.forEach((u, n) => {
+      if (u.linhas.length !== 2 || u.linhas.join('') !== '12') return;
+      const nome = u.tipo === 'RH' ? u.rotulo.replace(/^RH-/, '') : String(u.eh);
+      const ok = patios.some((p) => (u.tipo === 'RH' ? nome === `${p}I` || nome === `${p}V` : nome === `${p}I`));
+      if (ok) lista[n] = { ...u, slot: { 1: 0, 2: -1 } }; // L1 segue reta; a L2 (desvio do pátio) fica acima
+    });
+    const des = (pts, t = 'Desvio (pátio)', fino = false) => ({ pts, t, fino });
+
+    // Ramal de Fábrica: RH-86 até a RH-19I (sem o trecho 77 → 86 na planta: o ramal inteiro).
+    // Linha singela com os desvios dos pátios acima (09, 10, 14, 16, 18) ou abaixo (11–12, 13, 15, 17), como no painel.
     if (fa && fa.unidades.length) {
       const i19 = idxEh(fa, '19I');
-      out.push(tela('FA', fa.unidades.slice(i86 > 0 ? i86 - 1 : 0, i19 > 0 ? i19 : fa.unidades.length)));
+      const lista = fa.unidades.slice(i86 > 0 ? i86 - 1 : 0, i19 > 0 ? i19 : fa.unidades.length);
+      if (duas86 && lista[0].id === rh86.id) lista[0] = { ...lista[0], ...patio86('FA', 0) };
+      desvioAcima(lista, ['09', '10', '14', '16', '18']);
+      mudarEm(lista, 'FA:RH:10V>11I', { deco: [des([[0.5, 0], [0.7, 1], [1, 1]])] });
+      mudarEm(lista, 'FA:EH:11I', { deco: [des([[0, 1], [1, 1]])] });
+      mudarEm(lista, 'FA:RH:11I>12V', { deco: [des([[0, 1], [0.3, 1], [0.5, 0]])] });
+      mudarEm(lista, 'FA:EH:14V', { deco: [des([[0.15, 0], [0.3, -1], [0.8, -1]], 'Linha 3 (pátio)')] });
+      mudarEm(lista, 'FA:EH:17V', { deco: [des([[0.55, -1], [1, -1]], 'Linha 11 (pátio)')] });
+      mudarEm(lista, 'FA:RH:17V>18I', { tvs: [{ lado: 'E', la: '1', lb: '2', fx: [0.3, 0.5] }] });
+      mudarEm(lista, 'FA:EH:18I', { deco: [des([[0.45, -1], [0.55, -2], [0.85, -2]], 'Linha 13 (pátio)')] });
+      mudarEm(lista, 'FA:RH:18V>19I', { deco: [des([[0.55, 0], [0.8, 1], [1, 1]])] });
+      out.push(tela('FA', lista));
     }
-    // Ramal de BH: RH-86 até a RH-210V
+    // Ramal de BH: RH-86 até a RH-210V. Linha dupla até a 204V; depois singela com os desvios acima (205, 206, 207, 209)
+    // ou abaixo (237, 208, 210), como no painel.
     if (bh && bh.unidades.length) {
       const i210 = idxEh(bh, '210V');
       const lista = bh.unidades.slice(0, i210 > 0 ? i210 : bh.unidades.length);
-      out.push(tela('BH', [marcador('BH:RH:86', '86', lista[0].ini, lista[0].linhas), ...lista]));
+      const r86 = M.rhKm(rhs, 'BH', 'RH-86');
+      const prim = lista[0].linhas.join('') === '12' && duas86
+        ? { id: 'BH:RH:86', tipo: 'RH', rotulo: 'RH-86', curto: '86', eh: '', ini: r86 ? r86.ini : lista[0].ini, fim: lista[0].ini, linhas: ['1', '2'], ...patio86('BH', -3) }
+        : marcador('BH:RH:86', '86', lista[0].ini, lista[0].linhas);
+      desvioAcima(lista, ['205', '206', '209']);
+      const E = (fx) => ({ lado: 'E', la: '1', lb: '2', fx }); const D = (fx) => ({ lado: 'D', la: '1', lb: '2', fx });
+      mudarEm(lista, 'BH:RH:86>201', { tvs: [E([0.2, 0.34])], deco: [des([[0, 2], [0.06, 2], [0.16, 1]], 'Toco (pátio)'), des([[0.45, 0], [0.55, -1], [0.95, -1]], 'Linha do pátio')] });
+      mudarEm(lista, 'BH:RH:201>202', { tvs: [D([0.2, 0.36]), E([0.5, 0.66])] });
+      mudarEm(lista, 'BH:RH:202>204I', { tvs: [D([0.2, 0.36]), E([0.5, 0.66])] });
+      mudarEm(lista, 'BH:EH:204I', { deco: [des([[0.45, 1], [0.6, 1.8], [0.95, 1.8]]), des([[0.6, 1.8], [0.72, 2.6], [0.95, 2.6]])] });
+      mudarEm(lista, 'BH:EH:205V', { deco: [des([[0.3, 0], [0.42, -1], [0.8, -1]], 'Linha 205A (pátio)')] });
+      mudarEm(lista, 'BH:EH:206I', { deco: [des([[0.5, -1], [0.65, -2], [0.95, -2]])] });
+      mudarEm(lista, 'BH:RH:237V>207I', { deco: [des([[0.5, 0], [0.7, -1], [1, -1]])] });
+      mudarEm(lista, 'BH:EH:207I', { deco: [des([[0, -1], [1, -1]]), des([[0.3, -1], [0.45, -2], [0.8, -2]])] });
+      mudarEm(lista, 'BH:RH:207I>207V', { deco: [des([[0, -1], [0.3, -1], [0.5, 0]])] });
+      mudarEm(lista, 'BH:EH:210I', { deco: [des([[0.45, 1], [0.6, 2], [0.9, 2]])] });
+      out.push(tela('BH', [prim, ...lista]));
     }
-    // Ramal de Itabira: RH-77 até a 540; acima dela Conceição e João Paulo
+    // Ramal de Itabira: RH-77 até a 540 e, depois dela, a Estação Itabira (L3), João Paulo (pela L2) e Conceição (pela L1).
+    // Laboriaux (92 a 540) segue o painel, no mesmo sentido do resto da tela: L4 e L5 acima da L1, só como desenho.
     if (it && it.unidades.length) {
-      const lista = [marcador('IT:RH:77', '77', it.unidades[0].ini, it.unidades[0].linhas), ...it.unidades];
+      const u0 = it.unidades[0];
+      const ent = u0.linhas.join('') === '12'
+        ? { ...marcador('IT:RH:77', '77', u0.ini, u0.linhas), tvs: [], via: { 1: [[0, -1], [0.35, -1], [0.65, 0], [1, 0]], 2: [[0, 0], [0.25, 0], [0.55, 1], [1, 1]] } }
+        : marcador('IT:RH:77', '77', u0.ini, u0.linhas);
+      const lista = [ent, ...it.unidades];
       const fimIt = it.unidades[it.unidades.length - 1];
-      [[ce, 'CE', 'Conceição'], [jp, 'JP', 'João Paulo']].forEach(([r, cod, nome]) => {
-        if (!r || !r.unidades.length) return;
-        lista.push({ ...marcador(`IT:RH:${cod}`, cod, fimIt.fim, r.unidades[0].linhas), rotulo: `Entrada de ${nome}` });
-        r.unidades.forEach((u) => lista.push(u.tipo === 'EH' && r.unidades.length === 1 ? { ...u, rotulo: nome, curto: cod } : u));
-      });
+      const lab = lista.some((u) => u.id === 'IT:RH:94>540' && u.linhas.join('') === '123') && fimIt.id === 'IT:EH:540';
+      if (lab) {
+        const tv = (lado, la, lb, fx) => ({ lado, la, lb, fx });
+        const l4 = 'Linha 4 (pátio)'; const l5 = 'Linha 5 (pátio)';
+        // 92: travessões W21/W22; a L3 sai da L2 (W23), a L4 sai da L1 (W24) e a L5 sai da L4 (W25).
+        mudarEm(lista, 'IT:RH:91>92', { larg: 1.8, casaFx: 0.3, casaSlot: 0,
+          via: { 3: [[0.6, 1], [0.72, 2], [1, 2]] },
+          tvs: [tv('E', '1', '2', [0.1, 0.22]), tv('D', '1', '2', [0.3, 0.42])],
+          deco: [des([[0.6, 0], [0.72, -1], [1, -1]], l4), des([[0.8, -1], [0.9, -2], [1, -2]], l5)] });
+        mudarEm(lista, 'IT:EH:92', { deco: [des([[0, -1], [1, -1]], l4), des([[0, -2], [1, -2]], l5)], textos: [{ fx: 0.2, slot: -1, dy: -4, txt: 'L4' }, { fx: 0.2, slot: -2, dy: -4, txt: 'L5' }] });
+        // 93: escada de travessões da L5 até a L3 (W25, W24, W21, W22).
+        mudarEm(lista, 'IT:RH:92>93', { larg: 1.6, casaSlot: -2,
+          tvs: [tv('D', '2', '3', [0.18, 0.28]), tv('D', '1', '2', [0.34, 0.44])],
+          deco: [des([[0, -1], [1, -1]], l4), des([[0, -2], [1, -2]], l5), des([[0.5, -1], [0.6, 0]], 'Travessão W24', true), des([[0.66, -2], [0.76, -1]], 'Travessão W25', true)] });
+        // 93/94: a L5 termina na L4 (W20).
+        mudarEm(lista, 'IT:EH:93', { deco: [des([[0, -1], [1, -1]], l4), des([[0, -2], [0.5, -2], [0.62, -1]], l5)] });
+        // 94: a L4 termina na L1 (W21); travessões W23 (L3/L2) e W22 (L1/L2); saem as linhas RBV (acima) e RBN (abaixo).
+        mudarEm(lista, 'IT:RH:93>94', { larg: 2, casaFx: 0.3, casaSlot: -1,
+          tvs: [tv('E', '2', '3', [0.14, 0.24]), tv('D', '1', '2', [0.32, 0.42])],
+          deco: [des([[0, -1], [0.06, -1], [0.14, 0]], l4), des([[0.5, 0], [0.6, -1], [0.85, -1]], 'Linha RBV (pátio)'), des([[0.4, 2], [0.5, 3], [0.8, 3]], 'Linha RBN (pátio)')] });
+        // 540: travessões W1 (L2 → L1) e W2 (L3 → L2).
+        mudarEm(lista, 'IT:RH:94>540', { larg: 1.4, tvs: [tv('E', '1', '2', [0.2, 0.34]), tv('E', '2', '3', [0.48, 0.62])] });
+        // depois da 540: L3 até a Estação Itabira; a L2 segue para João Paulo; a L1 sobe para Conceição.
+        const eCe = ce && ce.unidades.find((u) => u.tipo === 'EH'); const eJp = jp && jp.unidades.find((u) => u.tipo === 'EH');
+        const extras = []; const deco = []; const textos = [{ fx: 0.11, slot: 2, dy: 13, txt: 'Estação Itabira' }];
+        const nome = (fx, slot, txt) => textos.push({ fx, slot, dy: -3, txt });
+        /** Pátio em balão, como no painel: linhas em leque a partir de um ponto e fechadas em pares por laços à direita. */
+        const balao = (de, grupos, pares, xLaco) => {
+          grupos.forEach(([ini, rows]) => rows.forEach((r, n) => deco.push(des([ini, [ini[0] + 0.025 + 0.012 * n, r[0]], [xLaco - 0.02 - 0.015 * pares.findIndex((p) => p.includes(r[0])), r[0]]], r[1]))));
+          pares.forEach(([a, b], n) => { const x = xLaco - 0.015 * n; deco.push(des([[x - 0.02, a], [x, a + 0.3], [x, b - 0.3], [x - 0.02, b]], `Laço ${de}`)); });
+        };
+        if (eCe) {
+          // Conceição: a L1 sobe até o W1; R Saída (SP3, SP4) e R Entrada (Silo 3, Silo 4); laços Silo 3–SP3 e Silo 4–SP4.
+          extras.push({ ch: 'CE', linha: eCe.linhas[0], id: eCe.id, rotulo: 'Conceição', ini: eCe.ini, fim: eCe.fim, pts: [[0, 0], [0.05, 0], [0.12, -2.5], [0.18, -2.5]] });
+          deco.push(des([[0.18, -2.5], [0.21, -3.4], [0.25, -3.4]], 'R Saída'), des([[0.18, -2.5], [0.23, -5], [0.27, -5]], 'R Entrada'));
+          balao('de Conceição', [[[0.25, -3.4], [[-3, 'SP3'], [-3.8, 'SP4']]], [[0.27, -5], [[-4.6, 'Silo 4'], [-5.4, 'Silo 3']]]], [[-5.4, -3], [-4.6, -3.8]], 0.6);
+          [[-3, 'SP3'], [-3.8, 'SP4'], [-4.6, 'Silo 4'], [-5.4, 'Silo 3']].forEach(([k, t]) => nome(0.5, k, t));
+          textos.push({ fx: 0.5, slot: -5.4, dy: -16, txt: 'CONCEIÇÃO' });
+        }
+        if (eJp) {
+          // João Paulo: a L2 desce até o W; leque de cima (M3B, M3A, 1SV-P1, SP1/SP2) e de baixo (Silo 02, Silo Velho, Linha KM, Silo 01);
+          // laços M3B–Silo 01, M3A–Linha KM, 1SV-P1–Silo Velho e SP1/SP2–Silo 02; CONVAP sai da Silo 02.
+          extras.push({ ch: 'JP', linha: eJp.linhas[0], id: eJp.id, rotulo: 'João Paulo', ini: eJp.ini, fim: eJp.fim, pts: [[0, 1], [0.1, 1], [0.16, 3], [0.22, 3]] });
+          deco.push(des([[0.22, 3], [0.28, 3]], 'Ramal VJP'), des([[0.22, 3], [0.26, 7.4]], 'Ramal Vale'));
+          const cima = [[3.8, 'M3B'], [4.6, 'M3A'], [5.4, '1SV-P1'], [6.2, 'SP1/SP2']];
+          const baixo = [[7.8, 'Silo 02'], [8.6, 'Silo Velho'], [9.4, 'Linha KM'], [10.2, 'Silo 01']];
+          balao('de João Paulo', [[[0.28, 3], cima], [[0.26, 7.4], baixo]], [[3.8, 10.2], [4.6, 9.4], [5.4, 8.6], [6.2, 7.8]], 0.98);
+          deco.push(des([[0.55, 7.8], [0.58, 7], [0.75, 7]], 'CONVAP', true));
+          [...cima, ...baixo].forEach(([k, t]) => nome(0.85, k, t));
+          nome(0.75, 7, 'CONVAP');
+          textos.push({ fx: 0.85, slot: 10.2, dy: 14, txt: 'JOÃO PAULO' });
+        }
+        lista[lista.length - 1] = { ...fimIt, id: 'IT:COL:540', rotulo: 'Depois da 540', larg: 9, ref: { 3: { id: fimIt.id, rotulo: 'Estação Itabira (EH 540/IT)', ini: fimIt.ini, fim: fimIt.fim } },
+          via: { 3: [[0, 2], [0.12, 2]] }, extras, deco, textos };
+      } else {
+        [[ce, 'CE', 'Conceição'], [jp, 'JP', 'João Paulo']].forEach(([r, cod, nome]) => {
+          if (!r || !r.unidades.length) return;
+          lista.push({ ...marcador(`IT:RH:${cod}`, cod, fimIt.fim, r.unidades[0].linhas), rotulo: `Entrada de ${nome}` });
+          r.unidades.forEach((u) => lista.push(u.tipo === 'EH' && r.unidades.length === 1 ? { ...u, rotulo: nome, curto: cod } : u));
+        });
+      }
       out.push(tela('IT', lista));
     }
     return out;
