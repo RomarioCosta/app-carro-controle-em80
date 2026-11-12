@@ -1209,7 +1209,7 @@ window.App = window.App || {};
     versao: '2026.11.12',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-5a973dc7ed', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-6e5442aa98', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -5972,14 +5972,14 @@ window.App = window.App || {};
     const i45 = e45 ? rTu.unidades.indexOf(e45) : -1;
     const rh04tu = i45 > 0 && rTu.unidades[i45 - 1].tipo === 'RH' ? { ...rTu.unidades[i45 - 1], rotulo: 'RH-04' } : null;
     const r05 = M.rhKm(rhs, 'TU', 'RH-05');
-    const S45 = { 0: 1, 1: 2, 2: 3 }; // faixas das linhas do Tubarão abaixo da linha dupla; a L0 fica à esquerda (acima) da L1
+    const S45 = { 0: -1, 1: 0, 2: 1 }; // linhas do Tubarão retas, na altura da linha dupla da 04; a L0 fica à esquerda (acima) da L1
     const l45 = e45 ? ['1', '2', '0'].filter((l) => e45.linhas.includes(l)) : [];
     const x45 = (fn) => (e45 ? l45.map((l) => ext(e45, `T${l}`, l, fn(l, S45[l]))) : []);
     const mais = (o, extras) => (extras.length ? { ...o, extras: [...(o.extras || []), ...extras] } : o);
     const tu = 'Linha 1 da 04 para a 03 (Ramal de Tubarão)';
     const rh = (id, n, ini, fim, linhas, extra = {}) => ({ id, tipo: 'RH', rotulo: `RH-${n}`, curto: String(n).padStart(2, '0'), eh: '', ini, fim, linhas, ...extra });
     const eh = (id, rotulo, ini, fim, refs, extra = {}) => ({ id, tipo: 'EH', rotulo, curto: rotulo.replace(/^EH /, ''), eh: '', ini, fim, linhas: Object.keys(refs).sort(), ref: refs, ...extra });
-    const rh05 = e45 && r05 ? [rh('TU:RH:05', 5, r05.ini, r05.fim, r05.linhas.filter((l) => l45.includes(l)), { slot: S45, casaSlot: 1, rotulo: 'RH-05 (Ramal de Tubarão)', curto: '05' })] : [];
+    const rh05 = e45 && r05 ? [rh('TU:RH:05', 5, r05.ini, r05.fim, r05.linhas.filter((l) => l45.includes(l)), { slot: S45, casaSlot: -1, rotulo: 'RH-05 (Ramal de Tubarão)', curto: '05' })] : [];
     return [
       ...rh05,
       // RH-01: linha 13 (segue para trás) e a linha 14 do pátio, que entra no W21.
@@ -5989,7 +5989,7 @@ window.App = window.App || {};
       // a linha dupla (1E e 2E) começa antes da 04
       e45
         ? mais(eh('LT:COL:01a', e01.rotulo, e01.ini, k04, { 1: ref(e01) }, { slot: { 1: T } }),
-          x45((l, k) => (l === '0' ? [[0, k], [0.08, k], [0.18, k + 1]] : [[0, k], [0.25, k], [0.5, k - 2], [1, k - 2]]))) // a L0 (longa) termina na L1 perto da 04
+          x45((l, k) => (l === '0' ? [[0, k], [0.08, k], [0.18, k + 1]] : [[0, k], [1, k]]))) // a L0 (longa) termina na L1 perto da 04
         : eh('LT:COL:01a', e01.rotulo, e01.ini, k04, { 1: ref(e01) }, { slot: { 1: T }, deco: [{ pts: [[0.5, 0], [1, 0]], t: tu }, { pts: [[0.5, 1], [1, 1]], t: 'Linha 2 (antes da 04)' }] }),
       // RH-04: fica na linha dupla; travessões W21 e W22 entre as duas linhas. A L1 (EH 01/03) passa por cima.
       e34
