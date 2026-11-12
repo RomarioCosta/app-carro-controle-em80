@@ -160,7 +160,7 @@
     const i86 = idxEh(fa, '86'); // EH 86/09I: a RH antes dele é a 86
     const faTronco = fa && i86 > 0 ? fa.unidades.slice(0, i86 - 1) : [];
     const ultLt = lt.unidades[lt.unidades.length - 1];
-    const unidLt = M.inicioTronco(lt.unidades, rhs);
+    const unidLt = M.inicioTronco(lt.unidades, rhs, de('TU'));
     const mudar = (id, extra) => { const n = unidLt.findIndex((u) => u.id === id); if (n >= 0) unidLt[n] = { ...unidLt[n], ...extra }; return n >= 0; };
     // Da RH-75 à 77, como no painel: a L3 nasce na 75 a partir da L1 e fica acima dela.
     const i75 = unidLt.findIndex((u) => u.tipo === 'EH' && String(u.eh) === '75');
@@ -282,7 +282,19 @@
       mudarEm(lista, 'BH:RH:86>201', { tvs: [E([0.2, 0.34])], deco: [des([[0, 2], [0.06, 2], [0.16, 1]], 'Toco (pátio)'), des([[0.45, 0], [0.55, -1], [0.95, -1]], 'Linha do pátio')] });
       mudarEm(lista, 'BH:RH:201>202', { tvs: [D([0.2, 0.36]), E([0.5, 0.66])] });
       mudarEm(lista, 'BH:RH:202>204I', { tvs: [D([0.2, 0.36]), E([0.5, 0.66])] });
-      mudarEm(lista, 'BH:EH:204I', { deco: [des([[0.45, 1], [0.6, 1.8], [0.95, 1.8]]), des([[0.6, 1.8], [0.72, 2.6], [0.95, 2.6]])] });
+      // Ramal de Brucutu (RBR, L1 e L2): sai da L2 do BH na 204I e corre por baixo até a 204V, com os travessões entre as duas linhas.
+      const br = de('BR'); const eBr = br && br.unidades.find((u) => u.tipo === 'EH');
+      if (eBr) {
+        const bx = (l, pts) => ({ ch: `BR${l}`, linha: l, id: eBr.id, rotulo: 'Ramal de Brucutu', ini: eBr.ini, fim: eBr.fim, pts });
+        const l2 = eBr.linhas.includes('2');
+        mudarEm(lista, 'BH:EH:204I', { extras: [bx('1', [[0.45, 1], [0.6, 1.8], [1, 1.8]]), ...(l2 ? [bx('2', [[0.6, 1.8], [0.72, 2.6], [1, 2.6]])] : [])],
+          textos: [{ fx: 0.98, slot: 2.6, dy: 13, txt: 'Brucutu' }] });
+        mudarEm(lista, 'BH:RH:204I>204V', { extras: [bx('1', [[0, 1.8], [0.8, 1.8]]), ...(l2 ? [bx('2', [[0, 2.6], [0.8, 2.6]])] : [])],
+          tvs: [{ lado: 'E', la: '1', lb: '2', fx: [0.12, 0.42], fixo: false }, { lado: 'D', la: '1', lb: '2', fx: [0.58, 0.88], fixo: false },
+            ...(l2 ? [{ lado: 'E', la: 'BR1', lb: 'BR2', fx: [0.3, 0.4], id: eBr.id }, { lado: 'D', la: 'BR1', lb: 'BR2', fx: [0.45, 0.55], id: eBr.id }] : [])] });
+      } else {
+        mudarEm(lista, 'BH:EH:204I', { deco: [des([[0.45, 1], [0.6, 1.8], [0.95, 1.8]]), des([[0.6, 1.8], [0.72, 2.6], [0.95, 2.6]])] });
+      }
       mudarEm(lista, 'BH:EH:205V', { deco: [des([[0.3, 0], [0.42, -1], [0.8, -1]], 'Linha 205A (pátio)')] });
       mudarEm(lista, 'BH:EH:206I', { deco: [des([[0.5, -1], [0.65, -2], [0.95, -2]])] });
       mudarEm(lista, 'BH:RH:237V>207I', { deco: [des([[0.5, 0], [0.7, -1], [1, -1]])] });
@@ -377,7 +389,7 @@
    * as duas lado a lado até a RH-06. As colunas do meio apontam (ref) para o EH original de cada linha: o trecho
    * continua "LT:EH:01@1", "LT:EH:04@2"… Sem esses EH na planta, a lista fica como veio.
    */
-  M.inicioTronco = (unidades, rhs = []) => {
+  M.inicioTronco = (unidades, rhs = [], rTu = null) => {
     const ach = (id) => unidades.find((u) => u.id === id);
     const e01 = ach('LT:EH:01'); const e04 = ach('LT:EH:04'); const e03 = ach('LT:EH:03');
     if (!e01 || !e04 || !e03 || !(e04.ini > e01.ini && e04.ini < e01.fim)) return [...unidades];
@@ -387,6 +399,9 @@
     const k04 = r04 ? r04.ini : e04.ini; const k04f = r04 ? r04.fim : e04.ini;
     const k03 = r03 ? r03.ini : e01.fim; const k03f = r03 ? r03.fim : e03.ini;
     const T = -3; // a linha que vem da 01 fica acima da linha dupla (que começa na 04)
+    // Linha da 04 para a 03 = EH 03/04 do Ramal de Tubarão (L1): programável, com os travessões W21/W22 da 04.
+    const e34 = rTu && rTu.unidades.find((u) => u.tipo === 'EH' && String(u.eh) === '03');
+    const tuX = (pts) => (e34 ? { extras: [{ ch: 'TU', linha: e34.linhas.includes('1') ? '1' : e34.linhas[0], id: e34.id, rotulo: `${e34.rotulo} (Ramal de Tubarão)`, ini: e34.ini, fim: e34.fim, pts }] } : {});
     const tu = 'Linha 1 da 04 para a 03 (Ramal de Tubarão)';
     const rh = (id, n, ini, fim, linhas, extra = {}) => ({ id, tipo: 'RH', rotulo: `RH-${n}`, curto: String(n).padStart(2, '0'), eh: '', ini, fim, linhas, ...extra });
     const eh = (id, rotulo, ini, fim, refs, extra = {}) => ({ id, tipo: 'EH', rotulo, curto: rotulo.replace(/^EH /, ''), eh: '', ini, fim, linhas: Object.keys(refs).sort(), ref: refs, ...extra });
@@ -397,13 +412,17 @@
       // a linha dupla (1E e 2E) começa antes da 04
       eh('LT:COL:01a', e01.rotulo, e01.ini, k04, { 1: ref(e01) }, { slot: { 1: T }, deco: [{ pts: [[0.5, 0], [1, 0]], t: tu }, { pts: [[0.5, 1], [1, 1]], t: 'Linha 2 (antes da 04)' }] }),
       // RH-04: fica na linha dupla; travessões W21 e W22 entre as duas linhas. A L1 (EH 01/03) passa por cima.
-      rh('LT:RH:04', 4, k04, k04f, ['1', '2'], { ref: { 1: ref(e01) }, slot: { 1: T }, casaSlot: 0, tvs: [],
-        deco: [{ pts: [[0, 0], [1, 0]], t: tu }, { pts: [[0.24, 1], [0.38, 0]], fino: true, t: 'Travessão W21' }, { pts: [[0.52, 0], [0.66, 1]], fino: true, t: 'Travessão W22' }] }),
-      eh('LT:COL:01b', `${e01.rotulo} · ${e04.curto}`, k04f, k03, { 1: ref(e01), 2: ref(e04) }, { slot: { 1: T }, deco: [{ pts: [[0, 0], [1, 0]], t: tu }] }),
+      e34
+        ? rh('LT:RH:04', 4, k04, k04f, ['1', '2'], { ref: { 1: ref(e01) }, slot: { 1: T }, casaSlot: 0, ...tuX([[0, 0], [1, 0]]),
+          tvs: [{ lado: 'E', la: 'TU', lb: '2', fx: [0.24, 0.38] }, { lado: 'D', la: 'TU', lb: '2', fx: [0.52, 0.66] }] })
+        : rh('LT:RH:04', 4, k04, k04f, ['1', '2'], { ref: { 1: ref(e01) }, slot: { 1: T }, casaSlot: 0, tvs: [],
+          deco: [{ pts: [[0, 0], [1, 0]], t: tu }, { pts: [[0.24, 1], [0.38, 0]], fino: true, t: 'Travessão W21' }, { pts: [[0.52, 0], [0.66, 1]], fino: true, t: 'Travessão W22' }] }),
+      eh('LT:COL:01b', `${e01.rotulo} · ${e04.curto}`, k04f, k03, { 1: ref(e01), 2: ref(e04) }, { slot: { 1: T }, ...(e34 ? tuX([[0, 0], [1, 0]]) : { deco: [{ pts: [[0, 0], [1, 0]], t: tu }] }) }),
       // RH-03: a linha que vem da 01 desce e abre em duas pernas (W22): para a 04 (Tubarão) e para a 06 (L1).
       rh('LT:RH:03', 3, k03, k03f, ['1', '2'], { ref: { 2: ref(e04) }, larg: 1.5, casaFx: 0.56, casaSlot: T, tvs: [],
         via: { 1: [[0, T], [0.4, T], [0.48, T + 0.5], [0.76, 0], [1, 0]] },
-        deco: [{ pts: [[0, 0], [0.76, 0]], t: tu }, { pts: [[0.2, 0], [0.48, T + 0.5]], t: 'Perna da 03 para a 04 (Ramal de Tubarão)' }] }),
+        ...(e34 ? { ...tuX([[0, 0], [0.2, 0], [0.48, T + 0.5]]), deco: [{ pts: [[0.2, 0], [0.76, 0]], t: 'Ligação da linha dupla (03)' }] }
+          : { deco: [{ pts: [[0, 0], [0.76, 0]], t: tu }, { pts: [[0.2, 0], [0.48, T + 0.5]], t: 'Perna da 03 para a 04 (Ramal de Tubarão)' }] }) }),
       eh('LT:COL:03', `${e03.rotulo} · ${e04.curto}`, k03f, e03.fim, { 1: ref(e03), 2: ref(e04) }),
       ...resto
     ];

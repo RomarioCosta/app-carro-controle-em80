@@ -175,6 +175,19 @@
       const fAnt = ant ? pontas(ant, 'd') : null; const fProx = prox ? pontas(prox, 'e') : null;
       const dx = Math.min(14, w * 0.22);
       const retos = tr.filter((t) => t.reto);
+      const desvios = []; // diagonais dos desvios dos pátios: também são travessões (tocáveis e com rota)
+      const desvio = (t, kv, esquerda, xa, xb) => {
+        const v = retos.find((x) => x.pts[0][1] === kv);
+        if (!v) return;
+        const cima = kv < t.pts[0][1] ? v : t; const baixo = cima === v ? t : v;
+        // na esquerda: do vizinho (borda) para esta linha; na direita: desta linha para o vizinho (borda)
+        const [pa, pb] = esquerda ? [[xa, kv], [xb, t.pts[0][1]]] : [[xa, t.pts[0][1]], [xb, kv]];
+        const lado = pa[1] < pb[1] ? 'D' : 'E'; // "\" desce para a direita; "/" sobe
+        const fa = (pa[0] - ux) / w; const fb = (pb[0] - ux) / w;
+        desvios.push({ lado, la: cima.ch, lb: baixo.ch, fixo: true, desvio: true,
+          fCima: pa[1] < pb[1] ? fa : fb, fBaixo: pa[1] < pb[1] ? fb : fa,
+          x1: pa[0], y1: Y(pa[1]), x2: pb[0], y2: Y(pb[1]), t: M.travessao(u.id, lado, cima.l, baixo.l) });
+      };
       tr.forEach((t) => {
         if (!t.reto) { gBase.append(...trilho(caminho(t.pts, t.f0, t.f1))); return; }
         const k = t.pts[0][1];
@@ -189,8 +202,8 @@
         const kProx = prox && !t.ponta && !t.livre && !fProx.has(k) ? vizinha(fProx) : undefined;
         const x0 = kAnt !== undefined ? ux + dx : ux; const x1 = kProx !== undefined ? ux + w - dx : ux + w;
         gBase.append(...trilho(seg(x0, y, x1, y)));
-        if (kAnt !== undefined) gBase.append(...trilho(seg(ux, Y(kAnt), x0, y), 'fino'));
-        if (kProx !== undefined) gBase.append(...trilho(seg(x1, y, ux + w, Y(kProx)), 'fino'));
+        if (kAnt !== undefined) { gBase.append(...trilho(seg(ux, Y(kAnt), x0, y), 'fino')); desvio(t, kAnt, true, ux, x0); }
+        if (kProx !== undefined) { gBase.append(...trilho(seg(x1, y, ux + w, Y(kProx)), 'fino')); desvio(t, kProx, false, x1, ux + w); }
       });
 
       // Linhas só de desenho (pátio, tocos, travessões sem troca programável) e textos (saída para os ramais).
@@ -203,23 +216,24 @@
 
       // Travessões do pátio: E "/" (da linha de baixo, à esquerda, para a de cima) e D "\" (da de cima para a de baixo).
       // Em geral, um de cada entre cada par de linhas vizinhas; os pátios desenhados como no painel trazem a lista (tvs).
-      const travessoes = [];
+      const travessoes = [...desvios];
       if (u.tipo === 'RH') {
-        const novo = (lado, a, b, f1, f2, fixo) => {
+        const novo = (lado, a, b, f1, f2, fixo, idTv) => {
+          if (desvios.some((d) => d.t === M.travessao(idTv || u.id, lado, a.l, b.l))) return; // o desvio já é este travessão
           const cimaF = lado === 'E' ? f2 : f1; const baixoF = lado === 'E' ? f1 : f2;
           travessoes.push({ lado, la: a.ch, lb: b.ch, nA: a.l, nB: b.l, fixo, fCima: cimaF, fBaixo: baixoF,
             x1: X(f1), y1: Y(faixaEm((lado === 'E' ? b : a).pts, f1)), x2: X(f2), y2: Y(faixaEm((lado === 'E' ? a : b).pts, f2)),
-            t: M.travessao(u.id, lado, a.l, b.l) });
+            t: M.travessao(idTv || u.id, lado, a.l, b.l) });
         };
         if (u.tvs) {
-          u.tvs.forEach((v) => { const a = tr.find((t) => t.ch === v.la); const b = tr.find((t) => t.ch === v.lb); if (a && b) novo(v.lado, a, b, v.fx[0], v.fx[1], true); });
+          u.tvs.forEach((v) => { const a = tr.find((t) => t.ch === v.la); const b = tr.find((t) => t.ch === v.lb); if (a && b) novo(v.lado, a, b, v.fx[0], v.fx[1], v.fixo !== false, v.id); });
         } else {
           for (let n = 0; n < tr.length - 1; n++) { novo('E', tr[n], tr[n + 1], 0.12, 0.42, false); novo('D', tr[n], tr[n + 1], 0.58, 0.88, false); }
         }
         // No desenho só aparecem os travessões entre duas linhas que seguem dos dois lados (linha dupla);
         // onde uma delas começa ou termina no pátio, o próprio desvio já faz a ligação. Todos continuam tocáveis.
         const segue = (ch) => { const t = tr.find((x) => x.ch === ch); return (!ant || fAnt.has(t.ke)) && (!prox || fProx.has(t.ks)); };
-        travessoes.filter((tv) => tv.fixo || (segue(tv.la) && segue(tv.lb))).forEach((tv) => gBase.append(...trilho(seg(tv.x1, tv.y1, tv.x2, tv.y2), 'fino')));
+        travessoes.filter((tv) => !tv.desvio && (tv.fixo || (segue(tv.la) && segue(tv.lb)))).forEach((tv) => gBase.append(...trilho(seg(tv.x1, tv.y1, tv.x2, tv.y2), 'fino')));
         // Marcador do pátio, como no painel: casinha, número do pátio numa caixa e o km embaixo (acima da linha de cima do pátio).
         if (!u.semCasa) {
           const km = M.fmtKm(u.ini);
@@ -243,6 +257,7 @@
         const usa = (t) => c.trechos.has(M.trecho(t.id, t.l));
         if (u.tipo !== 'RH') {
           tr.forEach((t) => { if (usa(t)) desenharRota(caminho(t.pts, t.f0, t.f1, dy)); });
+          travessoes.filter((tv) => c.trechos.has(tv.t)).forEach((tv) => desenharRota(seg(tv.x1, tv.y1 + dy, tv.x2, tv.y2 + dy)));
           return;
         }
         // No pátio: linha por onde chega (EH anterior), por onde sai (EH seguinte) e travessões usados.

@@ -123,34 +123,90 @@
    * "11/12 (SING)". Na RH-86 (que existe em mais de uma tela) fica a primeira, a da Linha Tronco.
    * → { trecho, id, linhas, nome } ou null.
    */
-  function localizar(malha, s) {
-    if (!malha || !s || !s.local) return null;
-    const nomes = indiceNomes(malha);
-    let t = semAcento(s.local).toUpperCase().replace(/\(.*?\)/g, ' ').trim();
-    let nome = '';
+  /** LOCAL → nome de EH/RH ("EH 11/12", "RH-65") e os números lidos. */
+  function nomeDoLocal(local) {
+    const t = semAcento(local).toUpperCase().replace(/\(.*?\)/g, ' ').trim();
     let m = t.match(/^RH[\s-]*([0-9]+[A-Z]?)\b/);
-    if (m) nome = `RH-${m[1]}`;
-    else if ((m = t.match(/^(?:EH[\s-]*)?([0-9]+[A-Z]?)\s*\/\s*([0-9]+[A-Z]?)\b/))) nome = `EH ${m[1]}/${m[2]}`;
-    else if ((m = t.match(/^([0-9]+[A-Z]?)$/))) nome = `RH-${m[1]}`;
-    if (!nome) return null;
-    let ids = nomes.get(nomeComparavel(nome));
-    if ((!ids || !ids.length) && m[2]) ids = nomes.get(nomeComparavel(`EH ${m[2]}/${m[1]}`)); // "05/04" → EH 04/05
-    if (!ids || !ids.length) { // sem a letra do pátio: "12/13I" → EH 12V/13I (só se for um único)
-      const solto = (x) => nomeComparavel(x).replace(/([0-9])[IV]\b/g, '$1').replace(/([0-9])[IV](?=\/|$)/g, '$1');
-      const alvo = solto(nome); const achados = [];
-      const comLetra = /[0-9][IV]/.test(nomeComparavel(nome)); // "12/13I" é de pátio com letra (Fábrica/BH), não o EH 12/13 da Tronco
-      nomes.forEach((lista, k) => { if (solto(k) === alvo && /[0-9][IV]/.test(k) === comLetra) achados.push(...lista); });
-      if (achados.length === 1) ids = achados;
+    if (m) return { nome: `RH-${m[1]}` };
+    if ((m = t.match(/^(?:EH[\s-]*)?([0-9]+[A-Z]?)\s*\/\s*([0-9]+[A-Z]?)\b/))) return { nome: `EH ${m[1]}/${m[2]}`, inv: `EH ${m[2]}/${m[1]}` };
+    if ((m = t.match(/^([0-9]+[A-Z]?)$/))) return { nome: `RH-${m[1]}` };
+    return null;
+  }
+
+  const solto = (x) => nomeComparavel(x).replace(/([0-9])[IV](?=\b|\/|$)/g, '$1');
+  const temLetra = (x) => /[0-9][IV]/.test(nomeComparavel(x));
+
+  /**
+   * Ids da malha que podem ser o LOCAL. O mesmo nome pode existir em mais de um ramal
+   * (ex.: EH 11/12 na Linha Tronco e EH 11V/12V em Fábrica): devolve todos, os de nome exato primeiro.
+   */
+  function candidatos(malha, local, soExatos = false) {
+    const n = nomeDoLocal(local);
+    if (!n) return [];
+    const nomes = indiceNomes(malha);
+    const exatos = [...(nomes.get(nomeComparavel(n.nome)) || []), ...(n.inv ? nomes.get(nomeComparavel(n.inv)) || [] : [])];
+    if (soExatos) return [...new Set(exatos)].filter((id) => malha.indice.has(id));
+    const alvos = [solto(n.nome), ...(n.inv ? [solto(n.inv)] : [])];
+    const soltos = [];
+    nomes.forEach((lista, k) => { if (alvos.includes(solto(k))) soltos.push(...lista.map((id) => ({ id, igual: temLetra(k) === temLetra(n.nome) }))); });
+    return [...new Set([...exatos, ...soltos.filter((x) => x.igual).map((x) => x.id), ...soltos.map((x) => x.id)])].filter((id) => malha.indice.has(id));
+  }
+
+  const telaDe = (malha, id) => malha.indice.get(id).ramal.ramal;
+
+  /** Tela (ramal da Rota) mais comum de cada SEDE, pelos serviços sem dúvida de local. Ajuda a separar nomes repetidos. */
+  function telasPorSede(malha, servicos) {
+    const cont = {};
+    (servicos || []).forEach((s) => {
+      const c = candidatos(malha, s.local, true);
+      if (c.length !== 1 || !s.sede) return;
+      const t = telaDe(malha, c[0]);
+      cont[s.sede] = cont[s.sede] || {};
+      cont[s.sede][t] = (cont[s.sede][t] || 0) + 1;
+    });
+    const out = {};
+    // só as sedes que ficam (quase) toda numa tela: uma sede que cobre dois ramais não ajuda a decidir
+    Object.entries(cont).forEach(([sede, c]) => {
+      const [tela, n] = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+      const tot = Object.values(c).reduce((a, b) => a + b, 0);
+      if (n / tot >= 0.9) out[sede] = tela;
+    });
+    return out;
+  }
+
+  /**
+   * Trecho da malha para o serviço. LOCAL aceito: "84/85" (EH), "RH-65", "RH 77 T21/T22", "RH-11 (VFZ)", "206v" (pátio),
+   * "11/12 (SING)". Nome repetido em mais de um ramal (EH 11/12 da Tronco × 11V/12V de Fábrica): decide pelo km do
+   * serviço (o EH mais perto) e, sem km, pela SEDE (sedePorTela, de telasPorSede).
+   * → { trecho, id, linhas, nome } ou null.
+   */
+  function localizar(malha, s, sedeTela) {
+    if (!malha || !s || !s.local) return null;
+    const c = candidatos(malha, s.local);
+    if (!c.length) return null;
+    let id = c[0];
+    if (c.length > 1) {
+      // "10V/11" (com letra de pátio) é de Fábrica/BH; "11/12" (sem letra) prefere a Tronco
+      const n = nomeDoLocal(s.local);
+      const iguais = c.filter((x) => temLetra(malha.indice.get(x).unidade.rotulo || '') === temLetra(n.nome));
+      const daSede = sedeTela && sedeTela[s.sede] ? c.filter((x) => telaDe(malha, x) === sedeTela[s.sede]) : [];
+      // com letra de pátio no LOCAL só servem os EH/RH com letra (a Tronco não tem); sem letra, decide a sede
+      if (temLetra(n.nome) && iguais.length) c.splice(0, c.length, ...iguais);
+      else if (!(s.kmIni > 0) && daSede.length) c.splice(0, c.length, ...daSede);
+      const km = s.kmIni > 0 ? s.kmIni * 1000 : null;
+      const dist = (x) => { const u = malha.indice.get(x).unidade; const ini = Math.min(u.ini, u.fim); const fim = Math.max(u.ini, u.fim); return km < ini ? ini - km : km > fim ? km - fim : 0; };
+      const pelaSede = sedeTela && sedeTela[s.sede] ? c.filter((x) => telaDe(malha, x) === sedeTela[s.sede]) : [];
+      if (km !== null) {
+        const ord = c.map((x) => [x, dist(x)]).sort((a, b) => a[1] - b[1]);
+        id = ord[0][1] < 5000 ? ord[0][0] : (pelaSede[0] || c[0]);
+      } else if (pelaSede.length) id = pelaSede[0];
     }
-    if (!ids || !ids.length) return null;
-    const id = ids[0];
     const x = malha.indice.get(id);
-    if (!x) return null;
     const lin = linhasDe(s.linha);
     const col = x.ramal.unidades.find((u) => u.id === id || Object.values(u.ref || {}).some((r) => r.id === id));
     const daUnidade = col ? Object.keys(col.ref || {}).filter((l) => col.ref[l].id === id).concat(col.id === id ? col.linhas : []) : ['1'];
     const linha = lin.find((l) => daUnidade.includes(l)) || daUnidade[0] || '1';
-    return { trecho: App.malha.trecho(id, linha), id, linhas: lin, nome: (x.unidade && x.unidade.rotulo) || nome };
+    return { trecho: App.malha.trecho(id, linha), id, linhas: lin, nome: (x.unidade && x.unidade.rotulo) || nomeDoLocal(s.local).nome };
   }
 
   /** Serviços do dia (a data cai entre o início e o fim). */
@@ -173,5 +229,5 @@
 
   const horario = (s) => [s.horaIni, s.horaFim].filter(Boolean).join(' às ');
 
-  App.mensal = { ler, localizar, doDia, tipoCurto, horario, linhasDe, nomeComparavel, data, hora, aprovado };
+  App.mensal = { ler, localizar, candidatos, telasPorSede, doDia, tipoCurto, horario, linhasDe, nomeComparavel, data, hora, aprovado };
 })(window.App);

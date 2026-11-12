@@ -1209,7 +1209,7 @@ window.App = window.App || {};
     versao: '2026.11.12',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-96ab178b15', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-491f724038', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -5723,7 +5723,7 @@ window.App = window.App || {};
     const i86 = idxEh(fa, '86'); // EH 86/09I: a RH antes dele é a 86
     const faTronco = fa && i86 > 0 ? fa.unidades.slice(0, i86 - 1) : [];
     const ultLt = lt.unidades[lt.unidades.length - 1];
-    const unidLt = M.inicioTronco(lt.unidades, rhs);
+    const unidLt = M.inicioTronco(lt.unidades, rhs, de('TU'));
     const mudar = (id, extra) => { const n = unidLt.findIndex((u) => u.id === id); if (n >= 0) unidLt[n] = { ...unidLt[n], ...extra }; return n >= 0; };
     // Da RH-75 à 77, como no painel: a L3 nasce na 75 a partir da L1 e fica acima dela.
     const i75 = unidLt.findIndex((u) => u.tipo === 'EH' && String(u.eh) === '75');
@@ -5845,7 +5845,19 @@ window.App = window.App || {};
       mudarEm(lista, 'BH:RH:86>201', { tvs: [E([0.2, 0.34])], deco: [des([[0, 2], [0.06, 2], [0.16, 1]], 'Toco (pátio)'), des([[0.45, 0], [0.55, -1], [0.95, -1]], 'Linha do pátio')] });
       mudarEm(lista, 'BH:RH:201>202', { tvs: [D([0.2, 0.36]), E([0.5, 0.66])] });
       mudarEm(lista, 'BH:RH:202>204I', { tvs: [D([0.2, 0.36]), E([0.5, 0.66])] });
-      mudarEm(lista, 'BH:EH:204I', { deco: [des([[0.45, 1], [0.6, 1.8], [0.95, 1.8]]), des([[0.6, 1.8], [0.72, 2.6], [0.95, 2.6]])] });
+      // Ramal de Brucutu (RBR, L1 e L2): sai da L2 do BH na 204I e corre por baixo até a 204V, com os travessões entre as duas linhas.
+      const br = de('BR'); const eBr = br && br.unidades.find((u) => u.tipo === 'EH');
+      if (eBr) {
+        const bx = (l, pts) => ({ ch: `BR${l}`, linha: l, id: eBr.id, rotulo: 'Ramal de Brucutu', ini: eBr.ini, fim: eBr.fim, pts });
+        const l2 = eBr.linhas.includes('2');
+        mudarEm(lista, 'BH:EH:204I', { extras: [bx('1', [[0.45, 1], [0.6, 1.8], [1, 1.8]]), ...(l2 ? [bx('2', [[0.6, 1.8], [0.72, 2.6], [1, 2.6]])] : [])],
+          textos: [{ fx: 0.98, slot: 2.6, dy: 13, txt: 'Brucutu' }] });
+        mudarEm(lista, 'BH:RH:204I>204V', { extras: [bx('1', [[0, 1.8], [0.8, 1.8]]), ...(l2 ? [bx('2', [[0, 2.6], [0.8, 2.6]])] : [])],
+          tvs: [{ lado: 'E', la: '1', lb: '2', fx: [0.12, 0.42], fixo: false }, { lado: 'D', la: '1', lb: '2', fx: [0.58, 0.88], fixo: false },
+            ...(l2 ? [{ lado: 'E', la: 'BR1', lb: 'BR2', fx: [0.3, 0.4], id: eBr.id }, { lado: 'D', la: 'BR1', lb: 'BR2', fx: [0.45, 0.55], id: eBr.id }] : [])] });
+      } else {
+        mudarEm(lista, 'BH:EH:204I', { deco: [des([[0.45, 1], [0.6, 1.8], [0.95, 1.8]]), des([[0.6, 1.8], [0.72, 2.6], [0.95, 2.6]])] });
+      }
       mudarEm(lista, 'BH:EH:205V', { deco: [des([[0.3, 0], [0.42, -1], [0.8, -1]], 'Linha 205A (pátio)')] });
       mudarEm(lista, 'BH:EH:206I', { deco: [des([[0.5, -1], [0.65, -2], [0.95, -2]])] });
       mudarEm(lista, 'BH:RH:237V>207I', { deco: [des([[0.5, 0], [0.7, -1], [1, -1]])] });
@@ -5940,7 +5952,7 @@ window.App = window.App || {};
    * as duas lado a lado até a RH-06. As colunas do meio apontam (ref) para o EH original de cada linha: o trecho
    * continua "LT:EH:01@1", "LT:EH:04@2"… Sem esses EH na planta, a lista fica como veio.
    */
-  M.inicioTronco = (unidades, rhs = []) => {
+  M.inicioTronco = (unidades, rhs = [], rTu = null) => {
     const ach = (id) => unidades.find((u) => u.id === id);
     const e01 = ach('LT:EH:01'); const e04 = ach('LT:EH:04'); const e03 = ach('LT:EH:03');
     if (!e01 || !e04 || !e03 || !(e04.ini > e01.ini && e04.ini < e01.fim)) return [...unidades];
@@ -5950,6 +5962,9 @@ window.App = window.App || {};
     const k04 = r04 ? r04.ini : e04.ini; const k04f = r04 ? r04.fim : e04.ini;
     const k03 = r03 ? r03.ini : e01.fim; const k03f = r03 ? r03.fim : e03.ini;
     const T = -3; // a linha que vem da 01 fica acima da linha dupla (que começa na 04)
+    // Linha da 04 para a 03 = EH 03/04 do Ramal de Tubarão (L1): programável, com os travessões W21/W22 da 04.
+    const e34 = rTu && rTu.unidades.find((u) => u.tipo === 'EH' && String(u.eh) === '03');
+    const tuX = (pts) => (e34 ? { extras: [{ ch: 'TU', linha: e34.linhas.includes('1') ? '1' : e34.linhas[0], id: e34.id, rotulo: `${e34.rotulo} (Ramal de Tubarão)`, ini: e34.ini, fim: e34.fim, pts }] } : {});
     const tu = 'Linha 1 da 04 para a 03 (Ramal de Tubarão)';
     const rh = (id, n, ini, fim, linhas, extra = {}) => ({ id, tipo: 'RH', rotulo: `RH-${n}`, curto: String(n).padStart(2, '0'), eh: '', ini, fim, linhas, ...extra });
     const eh = (id, rotulo, ini, fim, refs, extra = {}) => ({ id, tipo: 'EH', rotulo, curto: rotulo.replace(/^EH /, ''), eh: '', ini, fim, linhas: Object.keys(refs).sort(), ref: refs, ...extra });
@@ -5960,13 +5975,17 @@ window.App = window.App || {};
       // a linha dupla (1E e 2E) começa antes da 04
       eh('LT:COL:01a', e01.rotulo, e01.ini, k04, { 1: ref(e01) }, { slot: { 1: T }, deco: [{ pts: [[0.5, 0], [1, 0]], t: tu }, { pts: [[0.5, 1], [1, 1]], t: 'Linha 2 (antes da 04)' }] }),
       // RH-04: fica na linha dupla; travessões W21 e W22 entre as duas linhas. A L1 (EH 01/03) passa por cima.
-      rh('LT:RH:04', 4, k04, k04f, ['1', '2'], { ref: { 1: ref(e01) }, slot: { 1: T }, casaSlot: 0, tvs: [],
-        deco: [{ pts: [[0, 0], [1, 0]], t: tu }, { pts: [[0.24, 1], [0.38, 0]], fino: true, t: 'Travessão W21' }, { pts: [[0.52, 0], [0.66, 1]], fino: true, t: 'Travessão W22' }] }),
-      eh('LT:COL:01b', `${e01.rotulo} · ${e04.curto}`, k04f, k03, { 1: ref(e01), 2: ref(e04) }, { slot: { 1: T }, deco: [{ pts: [[0, 0], [1, 0]], t: tu }] }),
+      e34
+        ? rh('LT:RH:04', 4, k04, k04f, ['1', '2'], { ref: { 1: ref(e01) }, slot: { 1: T }, casaSlot: 0, ...tuX([[0, 0], [1, 0]]),
+          tvs: [{ lado: 'E', la: 'TU', lb: '2', fx: [0.24, 0.38] }, { lado: 'D', la: 'TU', lb: '2', fx: [0.52, 0.66] }] })
+        : rh('LT:RH:04', 4, k04, k04f, ['1', '2'], { ref: { 1: ref(e01) }, slot: { 1: T }, casaSlot: 0, tvs: [],
+          deco: [{ pts: [[0, 0], [1, 0]], t: tu }, { pts: [[0.24, 1], [0.38, 0]], fino: true, t: 'Travessão W21' }, { pts: [[0.52, 0], [0.66, 1]], fino: true, t: 'Travessão W22' }] }),
+      eh('LT:COL:01b', `${e01.rotulo} · ${e04.curto}`, k04f, k03, { 1: ref(e01), 2: ref(e04) }, { slot: { 1: T }, ...(e34 ? tuX([[0, 0], [1, 0]]) : { deco: [{ pts: [[0, 0], [1, 0]], t: tu }] }) }),
       // RH-03: a linha que vem da 01 desce e abre em duas pernas (W22): para a 04 (Tubarão) e para a 06 (L1).
       rh('LT:RH:03', 3, k03, k03f, ['1', '2'], { ref: { 2: ref(e04) }, larg: 1.5, casaFx: 0.56, casaSlot: T, tvs: [],
         via: { 1: [[0, T], [0.4, T], [0.48, T + 0.5], [0.76, 0], [1, 0]] },
-        deco: [{ pts: [[0, 0], [0.76, 0]], t: tu }, { pts: [[0.2, 0], [0.48, T + 0.5]], t: 'Perna da 03 para a 04 (Ramal de Tubarão)' }] }),
+        ...(e34 ? { ...tuX([[0, 0], [0.2, 0], [0.48, T + 0.5]]), deco: [{ pts: [[0.2, 0], [0.76, 0]], t: 'Ligação da linha dupla (03)' }] }
+          : { deco: [{ pts: [[0, 0], [0.76, 0]], t: tu }, { pts: [[0.2, 0], [0.48, T + 0.5]], t: 'Perna da 03 para a 04 (Ramal de Tubarão)' }] }) }),
       eh('LT:COL:03', `${e03.rotulo} · ${e04.curto}`, k03f, e03.fim, { 1: ref(e03), 2: ref(e04) }),
       ...resto
     ];
@@ -6223,6 +6242,19 @@ window.App = window.App || {};
       const fAnt = ant ? pontas(ant, 'd') : null; const fProx = prox ? pontas(prox, 'e') : null;
       const dx = Math.min(14, w * 0.22);
       const retos = tr.filter((t) => t.reto);
+      const desvios = []; // diagonais dos desvios dos pátios: também são travessões (tocáveis e com rota)
+      const desvio = (t, kv, esquerda, xa, xb) => {
+        const v = retos.find((x) => x.pts[0][1] === kv);
+        if (!v) return;
+        const cima = kv < t.pts[0][1] ? v : t; const baixo = cima === v ? t : v;
+        // na esquerda: do vizinho (borda) para esta linha; na direita: desta linha para o vizinho (borda)
+        const [pa, pb] = esquerda ? [[xa, kv], [xb, t.pts[0][1]]] : [[xa, t.pts[0][1]], [xb, kv]];
+        const lado = pa[1] < pb[1] ? 'D' : 'E'; // "\" desce para a direita; "/" sobe
+        const fa = (pa[0] - ux) / w; const fb = (pb[0] - ux) / w;
+        desvios.push({ lado, la: cima.ch, lb: baixo.ch, fixo: true, desvio: true,
+          fCima: pa[1] < pb[1] ? fa : fb, fBaixo: pa[1] < pb[1] ? fb : fa,
+          x1: pa[0], y1: Y(pa[1]), x2: pb[0], y2: Y(pb[1]), t: M.travessao(u.id, lado, cima.l, baixo.l) });
+      };
       tr.forEach((t) => {
         if (!t.reto) { gBase.append(...trilho(caminho(t.pts, t.f0, t.f1))); return; }
         const k = t.pts[0][1];
@@ -6237,8 +6269,8 @@ window.App = window.App || {};
         const kProx = prox && !t.ponta && !t.livre && !fProx.has(k) ? vizinha(fProx) : undefined;
         const x0 = kAnt !== undefined ? ux + dx : ux; const x1 = kProx !== undefined ? ux + w - dx : ux + w;
         gBase.append(...trilho(seg(x0, y, x1, y)));
-        if (kAnt !== undefined) gBase.append(...trilho(seg(ux, Y(kAnt), x0, y), 'fino'));
-        if (kProx !== undefined) gBase.append(...trilho(seg(x1, y, ux + w, Y(kProx)), 'fino'));
+        if (kAnt !== undefined) { gBase.append(...trilho(seg(ux, Y(kAnt), x0, y), 'fino')); desvio(t, kAnt, true, ux, x0); }
+        if (kProx !== undefined) { gBase.append(...trilho(seg(x1, y, ux + w, Y(kProx)), 'fino')); desvio(t, kProx, false, x1, ux + w); }
       });
 
       // Linhas só de desenho (pátio, tocos, travessões sem troca programável) e textos (saída para os ramais).
@@ -6251,23 +6283,24 @@ window.App = window.App || {};
 
       // Travessões do pátio: E "/" (da linha de baixo, à esquerda, para a de cima) e D "\" (da de cima para a de baixo).
       // Em geral, um de cada entre cada par de linhas vizinhas; os pátios desenhados como no painel trazem a lista (tvs).
-      const travessoes = [];
+      const travessoes = [...desvios];
       if (u.tipo === 'RH') {
-        const novo = (lado, a, b, f1, f2, fixo) => {
+        const novo = (lado, a, b, f1, f2, fixo, idTv) => {
+          if (desvios.some((d) => d.t === M.travessao(idTv || u.id, lado, a.l, b.l))) return; // o desvio já é este travessão
           const cimaF = lado === 'E' ? f2 : f1; const baixoF = lado === 'E' ? f1 : f2;
           travessoes.push({ lado, la: a.ch, lb: b.ch, nA: a.l, nB: b.l, fixo, fCima: cimaF, fBaixo: baixoF,
             x1: X(f1), y1: Y(faixaEm((lado === 'E' ? b : a).pts, f1)), x2: X(f2), y2: Y(faixaEm((lado === 'E' ? a : b).pts, f2)),
-            t: M.travessao(u.id, lado, a.l, b.l) });
+            t: M.travessao(idTv || u.id, lado, a.l, b.l) });
         };
         if (u.tvs) {
-          u.tvs.forEach((v) => { const a = tr.find((t) => t.ch === v.la); const b = tr.find((t) => t.ch === v.lb); if (a && b) novo(v.lado, a, b, v.fx[0], v.fx[1], true); });
+          u.tvs.forEach((v) => { const a = tr.find((t) => t.ch === v.la); const b = tr.find((t) => t.ch === v.lb); if (a && b) novo(v.lado, a, b, v.fx[0], v.fx[1], v.fixo !== false, v.id); });
         } else {
           for (let n = 0; n < tr.length - 1; n++) { novo('E', tr[n], tr[n + 1], 0.12, 0.42, false); novo('D', tr[n], tr[n + 1], 0.58, 0.88, false); }
         }
         // No desenho só aparecem os travessões entre duas linhas que seguem dos dois lados (linha dupla);
         // onde uma delas começa ou termina no pátio, o próprio desvio já faz a ligação. Todos continuam tocáveis.
         const segue = (ch) => { const t = tr.find((x) => x.ch === ch); return (!ant || fAnt.has(t.ke)) && (!prox || fProx.has(t.ks)); };
-        travessoes.filter((tv) => tv.fixo || (segue(tv.la) && segue(tv.lb))).forEach((tv) => gBase.append(...trilho(seg(tv.x1, tv.y1, tv.x2, tv.y2), 'fino')));
+        travessoes.filter((tv) => !tv.desvio && (tv.fixo || (segue(tv.la) && segue(tv.lb)))).forEach((tv) => gBase.append(...trilho(seg(tv.x1, tv.y1, tv.x2, tv.y2), 'fino')));
         // Marcador do pátio, como no painel: casinha, número do pátio numa caixa e o km embaixo (acima da linha de cima do pátio).
         if (!u.semCasa) {
           const km = M.fmtKm(u.ini);
@@ -6291,6 +6324,7 @@ window.App = window.App || {};
         const usa = (t) => c.trechos.has(M.trecho(t.id, t.l));
         if (u.tipo !== 'RH') {
           tr.forEach((t) => { if (usa(t)) desenharRota(caminho(t.pts, t.f0, t.f1, dy)); });
+          travessoes.filter((tv) => c.trechos.has(tv.t)).forEach((tv) => desenharRota(seg(tv.x1, tv.y1 + dy, tv.x2, tv.y2 + dy)));
           return;
         }
         // No pátio: linha por onde chega (EH anterior), por onde sai (EH seguinte) e travessões usados.
@@ -6542,34 +6576,90 @@ window.App = window.App || {};
    * "11/12 (SING)". Na RH-86 (que existe em mais de uma tela) fica a primeira, a da Linha Tronco.
    * → { trecho, id, linhas, nome } ou null.
    */
-  function localizar(malha, s) {
-    if (!malha || !s || !s.local) return null;
-    const nomes = indiceNomes(malha);
-    let t = semAcento(s.local).toUpperCase().replace(/\(.*?\)/g, ' ').trim();
-    let nome = '';
+  /** LOCAL → nome de EH/RH ("EH 11/12", "RH-65") e os números lidos. */
+  function nomeDoLocal(local) {
+    const t = semAcento(local).toUpperCase().replace(/\(.*?\)/g, ' ').trim();
     let m = t.match(/^RH[\s-]*([0-9]+[A-Z]?)\b/);
-    if (m) nome = `RH-${m[1]}`;
-    else if ((m = t.match(/^(?:EH[\s-]*)?([0-9]+[A-Z]?)\s*\/\s*([0-9]+[A-Z]?)\b/))) nome = `EH ${m[1]}/${m[2]}`;
-    else if ((m = t.match(/^([0-9]+[A-Z]?)$/))) nome = `RH-${m[1]}`;
-    if (!nome) return null;
-    let ids = nomes.get(nomeComparavel(nome));
-    if ((!ids || !ids.length) && m[2]) ids = nomes.get(nomeComparavel(`EH ${m[2]}/${m[1]}`)); // "05/04" → EH 04/05
-    if (!ids || !ids.length) { // sem a letra do pátio: "12/13I" → EH 12V/13I (só se for um único)
-      const solto = (x) => nomeComparavel(x).replace(/([0-9])[IV]\b/g, '$1').replace(/([0-9])[IV](?=\/|$)/g, '$1');
-      const alvo = solto(nome); const achados = [];
-      const comLetra = /[0-9][IV]/.test(nomeComparavel(nome)); // "12/13I" é de pátio com letra (Fábrica/BH), não o EH 12/13 da Tronco
-      nomes.forEach((lista, k) => { if (solto(k) === alvo && /[0-9][IV]/.test(k) === comLetra) achados.push(...lista); });
-      if (achados.length === 1) ids = achados;
+    if (m) return { nome: `RH-${m[1]}` };
+    if ((m = t.match(/^(?:EH[\s-]*)?([0-9]+[A-Z]?)\s*\/\s*([0-9]+[A-Z]?)\b/))) return { nome: `EH ${m[1]}/${m[2]}`, inv: `EH ${m[2]}/${m[1]}` };
+    if ((m = t.match(/^([0-9]+[A-Z]?)$/))) return { nome: `RH-${m[1]}` };
+    return null;
+  }
+
+  const solto = (x) => nomeComparavel(x).replace(/([0-9])[IV](?=\b|\/|$)/g, '$1');
+  const temLetra = (x) => /[0-9][IV]/.test(nomeComparavel(x));
+
+  /**
+   * Ids da malha que podem ser o LOCAL. O mesmo nome pode existir em mais de um ramal
+   * (ex.: EH 11/12 na Linha Tronco e EH 11V/12V em Fábrica): devolve todos, os de nome exato primeiro.
+   */
+  function candidatos(malha, local, soExatos = false) {
+    const n = nomeDoLocal(local);
+    if (!n) return [];
+    const nomes = indiceNomes(malha);
+    const exatos = [...(nomes.get(nomeComparavel(n.nome)) || []), ...(n.inv ? nomes.get(nomeComparavel(n.inv)) || [] : [])];
+    if (soExatos) return [...new Set(exatos)].filter((id) => malha.indice.has(id));
+    const alvos = [solto(n.nome), ...(n.inv ? [solto(n.inv)] : [])];
+    const soltos = [];
+    nomes.forEach((lista, k) => { if (alvos.includes(solto(k))) soltos.push(...lista.map((id) => ({ id, igual: temLetra(k) === temLetra(n.nome) }))); });
+    return [...new Set([...exatos, ...soltos.filter((x) => x.igual).map((x) => x.id), ...soltos.map((x) => x.id)])].filter((id) => malha.indice.has(id));
+  }
+
+  const telaDe = (malha, id) => malha.indice.get(id).ramal.ramal;
+
+  /** Tela (ramal da Rota) mais comum de cada SEDE, pelos serviços sem dúvida de local. Ajuda a separar nomes repetidos. */
+  function telasPorSede(malha, servicos) {
+    const cont = {};
+    (servicos || []).forEach((s) => {
+      const c = candidatos(malha, s.local, true);
+      if (c.length !== 1 || !s.sede) return;
+      const t = telaDe(malha, c[0]);
+      cont[s.sede] = cont[s.sede] || {};
+      cont[s.sede][t] = (cont[s.sede][t] || 0) + 1;
+    });
+    const out = {};
+    // só as sedes que ficam (quase) toda numa tela: uma sede que cobre dois ramais não ajuda a decidir
+    Object.entries(cont).forEach(([sede, c]) => {
+      const [tela, n] = Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+      const tot = Object.values(c).reduce((a, b) => a + b, 0);
+      if (n / tot >= 0.9) out[sede] = tela;
+    });
+    return out;
+  }
+
+  /**
+   * Trecho da malha para o serviço. LOCAL aceito: "84/85" (EH), "RH-65", "RH 77 T21/T22", "RH-11 (VFZ)", "206v" (pátio),
+   * "11/12 (SING)". Nome repetido em mais de um ramal (EH 11/12 da Tronco × 11V/12V de Fábrica): decide pelo km do
+   * serviço (o EH mais perto) e, sem km, pela SEDE (sedePorTela, de telasPorSede).
+   * → { trecho, id, linhas, nome } ou null.
+   */
+  function localizar(malha, s, sedeTela) {
+    if (!malha || !s || !s.local) return null;
+    const c = candidatos(malha, s.local);
+    if (!c.length) return null;
+    let id = c[0];
+    if (c.length > 1) {
+      // "10V/11" (com letra de pátio) é de Fábrica/BH; "11/12" (sem letra) prefere a Tronco
+      const n = nomeDoLocal(s.local);
+      const iguais = c.filter((x) => temLetra(malha.indice.get(x).unidade.rotulo || '') === temLetra(n.nome));
+      const daSede = sedeTela && sedeTela[s.sede] ? c.filter((x) => telaDe(malha, x) === sedeTela[s.sede]) : [];
+      // com letra de pátio no LOCAL só servem os EH/RH com letra (a Tronco não tem); sem letra, decide a sede
+      if (temLetra(n.nome) && iguais.length) c.splice(0, c.length, ...iguais);
+      else if (!(s.kmIni > 0) && daSede.length) c.splice(0, c.length, ...daSede);
+      const km = s.kmIni > 0 ? s.kmIni * 1000 : null;
+      const dist = (x) => { const u = malha.indice.get(x).unidade; const ini = Math.min(u.ini, u.fim); const fim = Math.max(u.ini, u.fim); return km < ini ? ini - km : km > fim ? km - fim : 0; };
+      const pelaSede = sedeTela && sedeTela[s.sede] ? c.filter((x) => telaDe(malha, x) === sedeTela[s.sede]) : [];
+      if (km !== null) {
+        const ord = c.map((x) => [x, dist(x)]).sort((a, b) => a[1] - b[1]);
+        id = ord[0][1] < 5000 ? ord[0][0] : (pelaSede[0] || c[0]);
+      } else if (pelaSede.length) id = pelaSede[0];
     }
-    if (!ids || !ids.length) return null;
-    const id = ids[0];
     const x = malha.indice.get(id);
-    if (!x) return null;
     const lin = linhasDe(s.linha);
     const col = x.ramal.unidades.find((u) => u.id === id || Object.values(u.ref || {}).some((r) => r.id === id));
     const daUnidade = col ? Object.keys(col.ref || {}).filter((l) => col.ref[l].id === id).concat(col.id === id ? col.linhas : []) : ['1'];
     const linha = lin.find((l) => daUnidade.includes(l)) || daUnidade[0] || '1';
-    return { trecho: App.malha.trecho(id, linha), id, linhas: lin, nome: (x.unidade && x.unidade.rotulo) || nome };
+    return { trecho: App.malha.trecho(id, linha), id, linhas: lin, nome: (x.unidade && x.unidade.rotulo) || nomeDoLocal(s.local).nome };
   }
 
   /** Serviços do dia (a data cai entre o início e o fim). */
@@ -6592,7 +6682,7 @@ window.App = window.App || {};
 
   const horario = (s) => [s.horaIni, s.horaFim].filter(Boolean).join(' às ');
 
-  App.mensal = { ler, localizar, doDia, tipoCurto, horario, linhasDe, nomeComparavel, data, hora, aprovado };
+  App.mensal = { ler, localizar, candidatos, telasPorSede, doDia, tipoCurto, horario, linhasDe, nomeComparavel, data, hora, aprovado };
 })(window.App);
 
 </script>
@@ -12016,7 +12106,8 @@ window.App = window.App || {};
 
   const todosServicos = () => ((mensal && mensal.arquivos) || []).flatMap((a) => a.servicos || []);
   const localDe = (s) => {
-    if (!locMensal.has(s.id)) locMensal.set(s.id, malha ? X.localizar(malha, s) : null);
+    if (!locMensal.size && malha) locMensal.set('__sedes', X.telasPorSede(malha, todosServicos())); // sede → tela, para nomes repetidos
+    if (!locMensal.has(s.id)) locMensal.set(s.id, malha ? X.localizar(malha, s, locMensal.get('__sedes')) : null);
     return locMensal.get(s.id);
   };
   const ocultosDo = (dia) => new Set(ocultos[dia.id] || []);

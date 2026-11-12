@@ -62,3 +62,20 @@ test('localiza o LOCAL e a LINHA na malha da Rota (EH, RH e pátios sem EH)', ()
   assert.deepEqual(j(X.linhasDe('1 e 2')), ['1', '2']);
   assert.deepEqual(j(X.linhasDe('PÁTIO')), []);
 });
+
+test('mesmo nome em dois ramais (EH 11/12 da Tronco e 11I/12V de Fábrica): separa pelo km e pela sede', () => {
+  const el = (ramal, linha, eh, ini, fim, nomeEh) => ({ ramal, linha: String(linha), eh: String(eh), ini, fim, tipo: 'T', nomeEh });
+  const m = M.montar({ elementos: [
+    el('LT', 1, 11, 49800, 56800, 'EH 11/12'), el('LT', 1, 12, 57000, 64000, 'EH 12/13'),
+    el('FA', 1, '11I', 89000, 91000, 'EH 11I/12V'), el('FA', 1, '12V', 91200, 95000, 'EH 12V/13I')
+  ] });
+  assert.equal(X.candidatos(m, '11/12 (SING)').length, 2);
+  const sv = (local, sede, kmIni) => ({ local, sede, kmIni, linha: '1' });
+  const servicos = [sv('12/13', 'JN', null), sv('12/13', 'JN', null), sv('12V/13I', 'FU', null), sv('12V/13I', 'FU', null)];
+  const st = X.telasPorSede(m, servicos);
+  assert.deepEqual(j(st), { JN: 'LT', FU: 'FA' });
+  assert.equal(X.localizar(m, sv('11/12 (SING)', 'FU', 90.2), st).id, 'FA:EH:11I'); // pelo km
+  assert.equal(X.localizar(m, sv('11/12', 'JN', 52), st).id, 'LT:EH:11');
+  assert.equal(X.localizar(m, sv('11/12 (SING)', 'FU', null), st).id, 'FA:EH:11I'); // sem km: pela sede
+  assert.equal(X.localizar(m, sv('11/12', 'JN', null), st).id, 'LT:EH:11');
+});
