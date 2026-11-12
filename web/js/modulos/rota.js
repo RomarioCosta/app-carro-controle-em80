@@ -545,7 +545,8 @@
 
   const todosServicos = () => ((mensal && mensal.arquivos) || []).flatMap((a) => a.servicos || []);
   const localDe = (s) => {
-    if (!locMensal.has(s.id)) locMensal.set(s.id, malha ? X.localizar(malha, s) : null);
+    if (!locMensal.size && malha) locMensal.set('__sedes', X.telasPorSede(malha, todosServicos())); // sede → tela, para nomes repetidos
+    if (!locMensal.has(s.id)) locMensal.set(s.id, malha ? X.localizar(malha, s, locMensal.get('__sedes')) : null);
     return locMensal.get(s.id);
   };
   const ocultosDo = (dia) => new Set(ocultos[dia.id] || []);
