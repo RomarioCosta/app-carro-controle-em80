@@ -968,9 +968,14 @@ async function main() {
       // trecho a trecho: retira o pátio
       await page.getByRole('button', { name: 'Trecho a trecho' }).click();
       await page.locator('.esq-alvo[data-trecho="TST:RH:10>11@1"]').click();
-      // o carro continua passando pelo pátio (entre dois EH da rota na mesma linha): o desenho segue contínuo
+      // a marcação fica delimitada: sem a RH na rota, o pátio não é pintado (só os dois EH)
+      await page.getByText(/km programados/).waitFor();
+      assert.equal(await page.locator('.esq-camada').count(), 2);
+      await page.locator('.esq-alvo[data-trecho="TST:RH:10>11@1"]').click();
       await page.getByText(/km programados/).waitFor();
       assert.equal(await page.locator('.esq-camada').count(), 3);
+      await page.locator('.esq-alvo[data-trecho="TST:RH:10>11@1"]').click(); // retira de novo o pátio
+      await aguardar(async () => (await page.locator('.esq-camada').count()) === 2, 'pátio retirado');
       // ponto de atenção pelo esquema
       await page.getByRole('button', { name: 'Ponto de atenção' }).click();
       await page.locator('.esq-alvo[data-trecho="TST:EH:11@1"]').click();
