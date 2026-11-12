@@ -254,14 +254,13 @@
           const noPatio = usa(t);
           const pontos = tvs.flatMap((tv) => (tv.la === t.ch ? [tv.fCima] : tv.lb === t.ch ? [tv.fBaixo] : []));
           const des = (a, b) => desenharRota(caminho(t.pts, a, b, dy));
-          const meio = (t.f0 + t.f1) / 2;
-          if (chega && sai) return des(t.f0, t.f1);
+          // A marcação fica dentro do que foi selecionado: o EH não invade o pátio (RH); a linha do pátio
+          // só é pintada quando a própria RH está na rota (ou quando um travessão dela é usado).
           if (!pontos.length) {
             if (noPatio) des(t.f0, t.f1);
-            else if (chega) des(t.f0, meio); // termina no pátio
-            else if (sai) des(meio, t.f1); // começa no pátio
             return;
           }
+          if (chega && sai && noPatio) return des(t.f0, t.f1);
           const pMin = Math.min(...pontos); const pMax = Math.max(...pontos);
           if (chega) des(t.f0, pMax); // chega por esta linha até o travessão
           else if (sai) des(pMin, t.f1); // sai por esta linha depois do travessão
