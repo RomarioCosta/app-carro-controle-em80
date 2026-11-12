@@ -960,3 +960,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mt-trecho-manual summary { cursor: pointer; }
 .mt-destaque { outline: 2px solid var(--alerta); outline-offset: 2px; }
 .mt-corte-tag { font-size: .78rem; color: var(--alerta); white-space: nowrap; }
+
+/* Planejamento mensal na Rota */
+.mensal-item .sub { display: block; font-size: 0.82em; }
+.mensal-item.oculto { opacity: 0.55; }
+.mensal-sem-local { margin-top: 10px; }
+.mensal-sem-local > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.detalhes-servico { display: grid; grid-template-columns: 1fr; gap: 6px; }
+.linha-detalhe { display: flex; gap: 10px; justify-content: space-between; border-bottom: 1px solid var(--borda, #e3e7ea); padding: 4px 0; }
+.linha-detalhe strong { text-align: right; }

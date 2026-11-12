@@ -8,10 +8,12 @@
 'use strict';
 
 (function (App) {
-  const { U, ui, store, sync, api, malha: M, esquema } = App;
+  const { U, ui, store, sync, api, malha: M, esquema, mensal: X } = App;
   const { h } = ui;
   const XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
   const CHAVE_PLANTA = 'planta:base';
+  const CHAVE_MENSAL = 'rota:mensal'; // planejamento mensal importado: { arquivos: [{ mes, nome, importadoEm, total, servicos }] }
+  const CHAVE_OCULTOS = 'rota:mensal:ocultos'; // { [diaId]: [ids de serviço que não entram naquele dia] }
 
   const CORES_DIA = ['#1f6feb', '#e8590c', '#2b8a3e', '#9c36b5', '#0c8599', '#f08c00', '#364fc7', '#a61e4d', '#5c940d', '#495057'];
   const GRAVIDADES = {
@@ -35,6 +37,10 @@
   let ferramenta = 'trecho'; // trecho | intervalo | ponto
   let inicioIntervalo = null;
   let ciclosServidor = [];
+  let mensal = null; // { arquivos: [...] }
+  let ocultos = {};
+  let locMensal = new Map(); // id do serviço → trecho na malha (ou null)
+  let filtroMensal = U.pref.get('rota:mensal:filtro', 'rota'); // rota | todos
 
   /* ---------------- Dados ---------------- */
 
@@ -49,6 +55,9 @@
     malha = planta && planta.elementos ? M.montar(planta) : null;
     if (malha && (!ramalSel || !malha.ramais.some((r) => r.ramal === ramalSel))) ramalSel = malha.ramais[0] ? malha.ramais[0].ramal : '';
     dados = ciclo ? (await store.get(chaveCiclo(ciclo))) || { ciclo, dias: [], pontos: [] } : null;
+    try { mensal = await store.get(CHAVE_MENSAL); } catch (e) { mensal = null; }
+    try { ocultos = (await store.get(CHAVE_OCULTOS)) || {}; } catch (e) { ocultos = {}; }
+    locMensal = new Map();
   }
 
   async function ciclosLocais() {
@@ -198,8 +207,9 @@
       h('div', { class: 'linha-campo' }, sel,
         h('button', { class: 'btn-icone', 'aria-label': 'Atualizar do servidor', title: 'Atualizar', onclick: () => atualizarServidor({ avisar: true }) }, ui.icone('sync')),
         h('button', { class: 'btn btn-secundario', onclick: novaRota }, ui.icone('mais'), 'Nova rota')),
-      dados && diasOrdenados().length ? h('div', { class: 'linha-campo' },
-        h('button', { class: 'btn btn-primario', onclick: abrirPdf }, ui.icone('documento'), modo === 'execucao' ? 'PDF da execução' : 'PDF da rota')) : null));
+      h('div', { class: 'linha-campo', style: { flexWrap: 'wrap' } },
+        h('button', { class: 'btn btn-secundario', onclick: abrirMensal }, ui.icone('calendario'), 'Planejamento mensal'),
+        dados && diasOrdenados().length ? h('button', { class: 'btn btn-primario', onclick: abrirPdf }, ui.icone('documento'), modo === 'execucao' ? 'PDF da execução' : 'PDF da rota') : null)));
   }
 
   function novaRota() {
@@ -395,6 +405,7 @@
   function telaProgramacao(dia) {
     const ramal = malha.ramais.find((r) => r.ramal === ramalSel) || malha.ramais[0];
     const caixaEsquema = h('div', { class: 'esquema-caixa' });
+    const mensalEl = h('div', { class: 'pilha' }, cartaoMensal(dia));
     const resumoEl = h('p', { class: 'sub resumo-rota' });
 
     function desenharEsquema() {
@@ -403,10 +414,10 @@
         ramal,
         largura: largura(),
         camadas: [{ trechos: prog, cor: dia.cor, estilo: 'cheio' }],
-        pontos: pontosParaEsquema(pontosDo(dia)),
+        pontos: pontosParaEsquema([...pontosDo(dia), ...pontosMensais(dia, { todos: filtroMensal === 'todos' || !dia.programados.length })]),
         inicioIntervalo,
         aoTocar: (t, u, l) => tocar(t, u, l),
-        aoTocarPonto: (p) => editarPonto(dia, p.ponto)
+        aoTocarPonto: (p) => (p.ponto.mensal ? abrirServico(dia, p.ponto.mensal) : editarPonto(dia, p.ponto))
       });
       ui.trocar(caixaEsquema, svg);
       const km = M.extensao(malha, dia.programados) / 1000;
@@ -433,6 +444,7 @@
       } else if (lista.has(t)) lista.delete(t); else lista.add(t);
       dia.programados = ordenarTrechos([...lista]);
       desenharEsquema();
+      ui.trocar(mensalEl, cartaoMensal(dia)); // os serviços do mensal acompanham a rota
       renderDias();
       await salvarDia(dia, { render: false });
     }
@@ -486,6 +498,7 @@
           }, ui.icone('lixo'), `Limpar ${ramal.ramal}`) : null),
         legendaEsquema(false)),
       cartaoPontos(dia, true),
+      mensalEl,
       cartaoObservacoes(dia)
     ];
   }
@@ -526,6 +539,185 @@
               renderDias(); renderConteudo();
             }
           }, ui.icone('lixo'), 'Excluir dia'))));
+  }
+
+  /* ---------------- Planejamento mensal ---------------- */
+
+  const todosServicos = () => ((mensal && mensal.arquivos) || []).flatMap((a) => a.servicos || []);
+  const localDe = (s) => {
+    if (!locMensal.has(s.id)) locMensal.set(s.id, malha ? X.localizar(malha, s) : null);
+    return locMensal.get(s.id);
+  };
+  const ocultosDo = (dia) => new Set(ocultos[dia.id] || []);
+  const naRota = (dia, loc) => !!loc && dia.programados.some((t) => M.separar(t).id === loc.id);
+
+  /** Serviços aprovados do planejamento mensal na data do dia (todos, com o local na malha quando houver). */
+  function servicosDoDia(dia) {
+    if (!dia || !dia.data) return [];
+    const fora = ocultosDo(dia);
+    return X.doDia(todosServicos(), dia.data).map((s) => ({ s, loc: localDe(s), oculto: fora.has(s.id) }));
+  }
+
+  /** Serviços do dia como pontos de atenção (só os que têm EH/RH): os da rota ou, com todos, todos os do dia. */
+  function pontosMensais(dia, { todos = false } = {}) {
+    return servicosDoDia(dia).filter((x) => x.loc && !x.oculto && (todos || naRota(dia, x.loc))).map(({ s, loc }) => ({
+      id: `mensal:${s.id}`,
+      trecho: loc.trecho,
+      gravidade: 'Interdição',
+      tipo: X.tipoCurto(s),
+      local: `${loc.nome}${s.linha ? ` · L ${s.linha}` : ''}`,
+      horario: X.horario(s),
+      descricao: `${s.tarefa}${s.kmIni !== null ? ` (km ${s.kmIni}${s.kmFim !== null && s.kmFim !== s.kmIni ? ` a ${s.kmFim}` : ''})` : ''} · Planejamento mensal`,
+      mensal: s
+    }));
+  }
+
+  function cartaoMensal(dia) {
+    const arquivos = (mensal && mensal.arquivos) || [];
+    const cab = (extra) => h('div', { class: 'cartao-cab' }, h('h2', { text: 'Planejamento mensal' }), extra || null);
+    if (!arquivos.length) {
+      return h('section', { class: 'cartao' }, cab(),
+        h('p', { class: 'sub', text: 'Carregue o arquivo do planejamento mensal (.xlsm): os serviços aprovados da data do dia aparecem como pontos de atenção no esquema.' }),
+        h('button', { class: 'btn btn-secundario', onclick: abrirMensal }, ui.icone('calendario'), 'Carregar planejamento mensal'));
+    }
+    if (!dia.data) return h('section', { class: 'cartao' }, cab(), h('p', { class: 'vazio', text: 'Informe a data do dia (em "1º dia…", acima) para trazer os serviços aprovados do planejamento mensal.' }));
+    const lista = servicosDoDia(dia);
+    const noEsquema = lista.filter((x) => x.loc);
+    const semLocal = lista.filter((x) => !x.loc);
+    const naRotaN = noEsquema.filter((x) => naRota(dia, x.loc)).length;
+    const mostrar = (filtroMensal === 'todos' || !dia.programados.length ? noEsquema : noEsquema.filter((x) => naRota(dia, x.loc)))
+      .sort((a, b) => {
+        const x = malha.indice.get(a.loc.id); const y = malha.indice.get(b.loc.id);
+        return (malha.ramais.indexOf(x.ramal) * 10000 + x.i) - (malha.ramais.indexOf(y.ramal) * 10000 + y.i) || String(a.s.horaIni).localeCompare(String(b.s.horaIni));
+      });
+    const filtro = h('div', { class: 'seg', role: 'group', 'aria-label': 'Serviços do planejamento mensal' },
+      [['rota', `Na rota (${naRotaN})`], ['todos', `Todos do dia (${noEsquema.length})`]].map(([id, rot]) => h('button', {
+        class: `seg-opcao${filtroMensal === id ? ' ativo' : ''}`,
+        'aria-pressed': filtroMensal === id ? 'true' : 'false',
+        onclick: () => { filtroMensal = id; U.pref.set('rota:mensal:filtro', id); renderConteudo(); }
+      }, rot)));
+    const item = ({ s, loc, oculto }) => h('div', {
+      class: `ponto-item mensal-item${oculto ? ' oculto' : ''}`,
+      style: { '--cor-ponto': oculto ? 'var(--texto2)' : GRAVIDADES['Interdição'] },
+      role: 'button', tabindex: '0',
+      onclick: () => abrirServico(dia, s)
+    },
+    h('span', { class: 'ponto-tag', text: X.tipoCurto(s) }),
+    h('div', { class: 'ponto-texto' },
+      h('strong', { text: [loc ? loc.nome : s.local, s.linha ? `L ${s.linha}` : '', X.horario(s)].filter(Boolean).join(' · ') }),
+      h('span', { text: s.tarefa }),
+      h('span', { class: 'sub', text: [s.sede && `Sede ${s.sede}`, s.kmIni !== null ? `km ${s.kmIni}${s.kmFim !== null && s.kmFim !== s.kmIni ? ` a ${s.kmFim}` : ''}` : '', s.recurso, oculto ? 'fora deste dia' : ''].filter(Boolean).join(' · ') })));
+    return h('section', { class: 'cartao' },
+      cab(h('span', { class: 'sub', text: `${U.fmtData(dia.data)} · ${lista.length} aprovado(s)` })),
+      h('p', { class: 'sub', text: dia.programados.length
+        ? 'Os serviços aprovados da data que estão na rota entram como pontos de atenção (no esquema e no PDF). Toque num serviço para ver os detalhes ou tirá-lo deste dia.'
+        : 'Ainda sem rota neste dia: o esquema mostra todos os serviços aprovados da data. Depois de desenhar a rota, ficam só os que estão nela.' }),
+      dia.programados.length ? filtro : null,
+      mostrar.length ? h('div', { class: 'lista-pontos' }, mostrar.map(item)) : h('p', { class: 'vazio', text: dia.programados.length && filtroMensal === 'rota' ? 'Nenhum serviço aprovado nos trechos da rota deste dia.' : 'Nenhum serviço aprovado com EH/RH nesta data.' }),
+      semLocal.length ? h('details', { class: 'detalhes mensal-sem-local' },
+        h('summary', { text: `Serviços sem EH/RH (${semLocal.length}) — pátios e terminais` }),
+        h('div', { class: 'lista-pontos' }, semLocal.map(item))) : null);
+  }
+
+  function abrirServico(dia, s) {
+    const loc = localDe(s);
+    const fora = ocultosDo(dia).has(s.id);
+    const linha = (rot, v) => (v === null || v === undefined || v === '' ? null : h('div', { class: 'linha-detalhe' }, h('span', { class: 'sub', text: rot }), h('strong', { text: String(v) })));
+    ui.modal({
+      titulo: X.tipoCurto(s),
+      conteudo: h('div', { class: 'pilha' },
+        h('p', { text: s.tarefa }),
+        s.descricao && s.descricao !== s.tarefa ? h('p', { class: 'sub', text: s.descricao }) : null,
+        h('div', { class: 'detalhes-servico' },
+          linha('Data', s.dataFim && s.dataFim !== s.dataIni ? `${U.fmtData(s.dataIni)} a ${U.fmtData(s.dataFim)}` : U.fmtData(s.dataIni)),
+          linha('Horário', X.horario(s)),
+          linha('Local', s.local),
+          linha('No esquema', loc ? M.descrever(malha, loc.trecho) : 'sem EH/RH na malha'),
+          linha('Linha', s.linha),
+          linha('Sede', s.sede),
+          linha('Km', s.kmIni !== null ? `${s.kmIni}${s.kmFim !== null ? ` a ${s.kmFim}` : ''}` : ''),
+          linha('AMV', s.amv),
+          linha('Interdição', [s.interdicao, s.detalhe].filter(Boolean).join(' ')),
+          linha('Recurso', s.recurso),
+          linha('Status', s.status))),
+      acoes: [
+        { texto: fora ? 'Voltar para este dia' : 'Tirar deste dia', classe: 'btn-secundario', onClick: async (fechar) => {
+          const set = ocultosDo(dia);
+          if (fora) set.delete(s.id); else set.add(s.id);
+          ocultos = { ...ocultos, [dia.id]: [...set] };
+          await store.set(CHAVE_OCULTOS, ocultos);
+          fechar(); renderConteudo();
+        } },
+        { texto: 'Fechar', classe: 'btn-primario', onClick: (f) => f() }
+      ]
+    });
+  }
+
+  function abrirMensal() {
+    const arquivos = (mensal && mensal.arquivos) || [];
+    const input = h('input', { type: 'file', accept: '.xlsm,.xlsx,.xls', 'aria-label': 'Arquivo do planejamento mensal' });
+    const nomeMes = (m) => { const [a, n] = m.split('-'); return `${['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][Number(n) - 1] || n}/${a}`; };
+    let fecharModal = null;
+    input.addEventListener('change', async () => {
+      const f = input.files && input.files[0];
+      if (!f) return;
+      if (await importarMensal(f) && fecharModal) fecharModal();
+    });
+    fecharModal = ui.modal({
+      titulo: 'Planejamento mensal',
+      conteudo: h('div', { class: 'pilha' },
+        h('p', { class: 'sub', text: 'Arquivo do planejamento do mês (.xlsm), aba "Tarefas Mensal". Entram só os serviços com status aprovado (APROVADO, ALTERADO/APROVADO, INCLUÍDO/APROVADO). Fica guardado neste aparelho; carregar o mesmo mês de novo substitui o anterior.' }),
+        arquivos.length ? h('div', { class: 'lista-pontos' }, arquivos.slice().sort((a, b) => a.mes.localeCompare(b.mes)).map((a) => {
+          const noEsq = malha ? a.servicos.filter((s) => localDe(s)).length : 0;
+          return h('div', { class: 'ponto-item mensal-arquivo' },
+            h('span', { class: 'ponto-tag', text: nomeMes(a.mes) }),
+            h('div', { class: 'ponto-texto' },
+              h('strong', { text: a.nome }),
+              h('span', { class: 'sub', text: `${a.servicos.length.toLocaleString('pt-BR')} aprovado(s) de ${Number(a.total || 0).toLocaleString('pt-BR')} · ${noEsq.toLocaleString('pt-BR')} com EH/RH · carregado em ${U.fmtDataHora(a.importadoEm)}` })),
+            h('button', { class: 'btn btn-fantasma btn-pequeno', 'aria-label': `Remover ${nomeMes(a.mes)}`, onclick: async () => {
+              if (!(await ui.confirmar('Remover planejamento', `Remover o planejamento de ${nomeMes(a.mes)} deste aparelho?`, { ok: 'Remover', perigo: true }))) return;
+              mensal = { arquivos: arquivos.filter((x) => x.mes !== a.mes) };
+              await store.set(CHAVE_MENSAL, mensal);
+              locMensal = new Map();
+              if (fecharModal) fecharModal();
+              if (dados) renderConteudo();
+            } }, ui.icone('lixo')));
+        })) : null,
+        ui.campo(arquivos.length ? 'Carregar outro mês (ou atualizar)' : 'Arquivo do planejamento mensal', input)),
+      acoes: [{ texto: 'Fechar', classe: 'btn-primario', onClick: (f) => f() }]
+    }).fechar;
+  }
+
+  async function importarMensal(f) {
+    ui.toast('Lendo o planejamento mensal…', 'info', 3000);
+    try {
+      const XLSX = await carregarXLSX();
+      const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: false });
+      const chave = (n) => String(n).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+      // a aba "Tarefas Mensal" primeiro; a "Tarefas M+3" tem o mesmo cabeçalho mas é outra programação
+      const abas = wb.SheetNames.filter((n) => !/M\s*\+\s*\d/.test(chave(n))).sort((a, b) => Number(/MENSAL/.test(chave(b))) - Number(/MENSAL/.test(chave(a))));
+      let lido = null; let erro = null;
+      for (const nome of abas) {
+        try { lido = X.ler(XLSX.utils.sheet_to_json(wb.Sheets[nome], { header: 1, raw: true, defval: '' })); break; } catch (e) { erro = e; }
+      }
+      if (!lido) throw erro || new Error('Aba "Tarefas Mensal" não encontrada.');
+      if (!lido.servicos.length) throw new Error('Nenhum serviço aprovado no arquivo.');
+      const cont = {};
+      lido.servicos.forEach((s) => { const m = s.dataIni.slice(0, 7); cont[m] = (cont[m] || 0) + 1; });
+      const mes = Object.entries(cont).sort((a, b) => b[1] - a[1])[0][0];
+      const arquivos = ((mensal && mensal.arquivos) || []).filter((a) => a.mes !== mes);
+      arquivos.push({ mes, nome: f.name, importadoEm: U.agora(), total: lido.total, servicos: lido.servicos });
+      mensal = { arquivos };
+      await store.set(CHAVE_MENSAL, mensal);
+      locMensal = new Map();
+      const noEsq = malha ? lido.servicos.filter((s) => localDe(s)).length : 0;
+      ui.toast(`Planejamento carregado: ${lido.servicos.length.toLocaleString('pt-BR')} serviços aprovados (${noEsq.toLocaleString('pt-BR')} com EH/RH).`, 'ok', 6000);
+      if (dados) renderConteudo();
+      return true;
+    } catch (e) {
+      ui.toast(`Não foi possível ler o planejamento: ${e.message}`, 'erro', 8000);
+      return false;
+    }
   }
 
   /* ---------------- Pontos de atenção ---------------- */
@@ -805,7 +997,7 @@
     }
 
     dias.forEach((d) => {
-      const pontos = pontosDo(d);
+      const pontos = [...pontosDo(d), ...pontosMensais(d)];
       const trechos = execucao ? [...d.programados, ...d.executados] : d.programados;
       const camadas = execucao
         ? [{ trechos: new Set(d.programados), cor: d.cor, estilo: 'tracejado' }, { trechos: new Set(d.executados), cor: COR_EXEC, estilo: 'cheio' }]
