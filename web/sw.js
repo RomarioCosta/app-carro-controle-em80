@@ -5,7 +5,7 @@
  */
 'use strict';
 
-const VERSAO = 'em80-5a973dc7ed';
+const VERSAO = 'em80-6e5442aa98';
 const ARQUIVOS = [
   './',
   'index.html',
