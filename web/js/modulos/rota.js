@@ -41,6 +41,7 @@
   let ocultos = {};
   let locMensal = new Map(); // id do serviço → trecho na malha (ou null)
   let filtroMensal = U.pref.get('rota:mensal:filtro', 'rota'); // rota | todos
+  let filtroLocalMensal = ''; // filtro da lista do mensal pelo local do serviço
 
   /* ---------------- Dados ---------------- */
 
@@ -616,16 +617,32 @@
       h('strong', { text: [loc ? loc.nome : s.local, s.linha ? `L ${s.linha}` : '', X.horario(s)].filter(Boolean).join(' · ') }),
       h('span', { text: s.tarefa }),
       h('span', { class: 'sub', text: [s.sede && `Sede ${s.sede}`, s.kmIni !== null ? `km ${s.kmIni}${s.kmFim !== null && s.kmFim !== s.kmIni ? ` a ${s.kmFim}` : ''}` : '', s.recurso, oculto ? 'fora deste dia' : ''].filter(Boolean).join(' · ') })));
-    return h('section', { class: 'cartao' },
-      cab(h('span', { class: 'sub', text: `${U.fmtData(dia.data)} · ${lista.length} aprovado(s)` })),
-      h('p', { class: 'sub', text: dia.programados.length
-        ? 'Os serviços aprovados da data que estão na rota entram como pontos de atenção (no esquema e no PDF). Toque num serviço para ver os detalhes ou tirá-lo deste dia.'
-        : 'Ainda sem rota neste dia: o esquema mostra todos os serviços aprovados da data. Depois de desenhar a rota, ficam só os que estão nela.' }),
-      dia.programados.length ? filtro : null,
-      mostrar.length ? h('div', { class: 'lista-pontos' }, mostrar.map(item)) : h('p', { class: 'vazio', text: dia.programados.length && filtroMensal === 'rota' ? 'Nenhum serviço aprovado nos trechos da rota deste dia.' : 'Nenhum serviço aprovado com EH/RH nesta data.' }),
-      semLocal.length ? h('details', { class: 'detalhes mensal-sem-local' },
-        h('summary', { text: `Serviços sem EH/RH (${semLocal.length}) — pátios e terminais` }),
-        h('div', { class: 'lista-pontos' }, semLocal.map(item))) : null);
+    // Filtro pelo local do serviço (EH, RH, pátio…): refaz só as listas, sem perder o foco do campo.
+    const norm = (x) => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, '');
+    const passa = (x) => { const q = norm(filtroLocalMensal); return !q || norm(x.s.local).includes(q) || (x.loc && norm(x.loc.nome).includes(q)); };
+    const listaEl = h('div'); const semEl = h('div');
+    const desenharListas = () => {
+      const m1 = mostrar.filter(passa); const m2 = semLocal.filter(passa);
+      ui.trocar(listaEl, m1.length ? h('div', { class: 'lista-pontos' }, m1.map(item))
+        : h('p', { class: 'vazio', text: filtroLocalMensal ? 'Nenhum serviço neste local.' : dia.programados.length && filtroMensal === 'rota' ? 'Nenhum serviço aprovado nos trechos da rota deste dia.' : 'Nenhum serviço aprovado com EH/RH nesta data.' }));
+      ui.trocar(semEl, m2.length ? h('details', { class: 'detalhes mensal-sem-local', open: filtroLocalMensal ? true : null },
+        h('summary', { text: `Serviços sem EH/RH (${m2.length}) — pátios e terminais` }),
+        h('div', { class: 'lista-pontos' }, m2.map(item))) : h('span'));
+    };
+    desenharListas();
+    const busca = h('input', { type: 'search', value: filtroLocalMensal, placeholder: 'Ex.: 14/15, RH-50, VCS', 'aria-label': 'Filtrar pelo local do serviço',
+      oninput: (e) => { filtroLocalMensal = e.target.value; desenharListas(); } });
+    const aberto = U.pref.get('rota:mensal:aberto', true);
+    return h('details', { class: 'cartao detalhes mensal-cartao', open: aberto ? true : null, ontoggle: (e) => U.pref.set('rota:mensal:aberto', e.target.open) },
+      h('summary', null, h('strong', { text: 'Planejamento mensal' }), h('span', { class: 'sub', text: ` · ${U.fmtData(dia.data)} · ${lista.length} aprovado(s) · ${naRotaN} na rota` })),
+      h('div', { class: 'pilha', style: { marginTop: '10px' } },
+        h('p', { class: 'sub', text: dia.programados.length
+          ? 'Os serviços aprovados da data que estão na rota entram como pontos de atenção (no esquema e no PDF). Toque num serviço para ver os detalhes ou tirá-lo deste dia.'
+          : 'Ainda sem rota neste dia: o esquema mostra todos os serviços aprovados da data. Depois de desenhar a rota, ficam só os que estão nela.' }),
+        dia.programados.length ? filtro : null,
+        ui.campo('Filtrar pelo local do serviço', busca),
+        listaEl,
+        semEl));
   }
 
   /** "+N" no esquema: os outros pontos de atenção do mesmo local, para abrir um deles. */
