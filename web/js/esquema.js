@@ -347,7 +347,7 @@
     // tocar abre o ponto (ou a lista do local). Assim o esquema fica limpo, sem textos sobrepostos.
     // Cada local vira um ícone (triângulo de alerta) do lado de fora da via, nunca sobre o traçado: a linha de cima
     // da coluna tem o ícone acima; as outras, abaixo da última linha (com o nome da linha quando ela é do meio).
-    // Com mais de um ponto, mostra a quantidade; tocar abre o ponto (ou a lista do local).
+    // Tocar abre o ponto (ou a lista do local, quando há mais de um). Pisca quando mudou na semanal.
     const ESC = 1.5;
     grupos.forEach(({ pos, t, lista }) => {
       const { u, x: ux, w, fila: f } = pos;
@@ -358,15 +358,13 @@
       const cima = k <= kMin;
       const meio = !cima && k < kMax;
       const cx = ux + w * fm;
-      const cy = cima ? yLinha(f, kMin) - 9 * ESC - 2 : yLinha(f, kMax) + 9 * ESC + 5; // sem encostar na linha (nem a bolinha da quantidade)
+      const cy = cima ? yLinha(f, kMin) - 9 * ESC - 2 : yLinha(f, kMax) + 9 * ESC + 2; // sem encostar na linha
       const cor = (lista.find((p) => p.prioridade) || lista[0]).cor;
-      const g = s('g', { class: 'esq-ponto', transform: `translate(${cx.toFixed(1)},${cy.toFixed(1)}) scale(${ESC})`, role: 'button', 'aria-label': `${lista.length} ponto(s) de atenção` },
+      const pisca = lista.some((p) => p.pisca); // mudou na semanal em relação à mensal
+      const g = s('g', { class: `esq-ponto${pisca ? ' esq-ponto-pisca' : ''}`, transform: `translate(${cx.toFixed(1)},${cy.toFixed(1)}) scale(${ESC})`, role: 'button', 'aria-label': `${lista.length} ponto(s) de atenção` },
         s('circle', { r: 10, class: 'esq-ponto-toque' }),
         s('path', { d: 'M0,-7 L7.2,5.5 L-7.2,5.5 Z', fill: cor, class: 'esq-ponto-icone' }),
         s('text', { x: 0, y: 4, class: 'esq-ponto-exc', 'text-anchor': 'middle' }, '!'),
-        lista.length > 1 ? s('g', { transform: 'translate(7,-6)' },
-          s('circle', { r: 5.5, class: 'esq-ponto-qtd' }),
-          s('text', { x: 0, y: 2.6, class: 'esq-ponto-qtd-txt', 'text-anchor': 'middle' }, lista.length > 9 ? '9+' : String(lista.length))) : null,
         meio ? s('text', { x: -9, y: 4, class: 'esq-ponto-linha', 'text-anchor': 'end' }, `L${t.l}`) : null,
         s('title', {}, lista.map((p) => p.titulo || p.texto).join('\n')));
       if (op.aoTocarPonto) g.addEventListener('click', (e) => { e.stopPropagation(); op.aoTocarPonto(lista[0], lista); });

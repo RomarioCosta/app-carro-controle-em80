@@ -154,15 +154,19 @@
 
   const telaDe = (malha, id) => malha.indice.get(id).ramal.ramal;
 
+  /** Região do serviço: a SEDE (mensal) ou o TRECHO da coluna Cor (semanal: "TRECHO 11"). */
+  const sedeDe = (s) => s.sede || (s.trecho ? `T:${s.trecho}` : '');
+
   /** Tela (ramal da Rota) mais comum de cada SEDE, pelos serviços sem dúvida de local. Ajuda a separar nomes repetidos. */
   function telasPorSede(malha, servicos) {
     const cont = {};
     (servicos || []).forEach((s) => {
       const c = candidatos(malha, s.local, true);
-      if (c.length !== 1 || !s.sede) return;
+      const sede = sedeDe(s);
+      if (c.length !== 1 || !sede) return;
       const t = telaDe(malha, c[0]);
-      cont[s.sede] = cont[s.sede] || {};
-      cont[s.sede][t] = (cont[s.sede][t] || 0) + 1;
+      cont[sede] = cont[sede] || {};
+      cont[sede][t] = (cont[sede][t] || 0) + 1;
     });
     const out = {};
     // só as sedes que ficam (quase) toda numa tela: uma sede que cobre dois ramais não ajuda a decidir
@@ -189,13 +193,13 @@
       // "10V/11" (com letra de pátio) é de Fábrica/BH; "11/12" (sem letra) prefere a Tronco
       const n = nomeDoLocal(s.local);
       const iguais = c.filter((x) => temLetra(malha.indice.get(x).unidade.rotulo || '') === temLetra(n.nome));
-      const daSede = sedeTela && sedeTela[s.sede] ? c.filter((x) => telaDe(malha, x) === sedeTela[s.sede]) : [];
+      const daSede = sedeTela && sedeTela[sedeDe(s)] ? c.filter((x) => telaDe(malha, x) === sedeTela[sedeDe(s)]) : [];
       // com letra de pátio no LOCAL só servem os EH/RH com letra (a Tronco não tem); sem letra, decide a sede
       if (temLetra(n.nome) && iguais.length) c.splice(0, c.length, ...iguais);
       else if (!(s.kmIni > 0) && daSede.length) c.splice(0, c.length, ...daSede);
       const km = s.kmIni > 0 ? s.kmIni * 1000 : null;
       const dist = (x) => { const u = malha.indice.get(x).unidade; const ini = Math.min(u.ini, u.fim); const fim = Math.max(u.ini, u.fim); return km < ini ? ini - km : km > fim ? km - fim : 0; };
-      const pelaSede = sedeTela && sedeTela[s.sede] ? c.filter((x) => telaDe(malha, x) === sedeTela[s.sede]) : [];
+      const pelaSede = sedeTela && sedeTela[sedeDe(s)] ? c.filter((x) => telaDe(malha, x) === sedeTela[sedeDe(s)]) : [];
       if (km !== null) {
         const ord = c.map((x) => [x, dist(x)]).sort((a, b) => a[1] - b[1]);
         id = ord[0][1] < 5000 ? ord[0][0] : (pelaSede[0] || c[0]);
@@ -229,5 +233,99 @@
 
   const horario = (s) => [s.horaIni, s.horaFim].filter(Boolean).join(' às ');
 
-  App.mensal = { ler, localizar, candidatos, telasPorSede, doDia, tipoCurto, horario, linhasDe, nomeComparavel, data, hora, aprovado };
+  /* ---------------- Programação semanal ---------------- */
+
+  // Cabeçalho da aba "Aprovada Semanal VP…" → campo.
+  const CAMPOS_SEM = {
+    COR: 'trecho', DATA: 'data', LOCAL: 'local', LINHA: 'linha', HRINI: 'horaIni', HRFIM: 'horaFim', TIPO: 'interdicao',
+    SERVICO: 'tarefa', DESCRICAO: 'descricao', TREMDESERVICO: 'trem', TURMA: 'recurso', STATUS: 'status',
+    OBSERVACOESPCM: 'obsPcm', OBSERVACOESCOI: 'obsCoi'
+  };
+  /** Status da semanal que valem como serviço programado (o condicionado também vai para a via). */
+  const valeSemanal = (st) => /^(APROVADO|CONDICIONADO)/.test(semAcento(st).toUpperCase().trim());
+
+  /**
+   * Linhas da aba "Aprovada Semanal VP" → serviços da semana (todos os status; vale = aprovado ou condicionado).
+   * Cada serviço é de um dia (coluna Data).
+   */
+  function lerSemanal(linhas) {
+    const iCab = (linhas || []).findIndex((l) => Array.isArray(l) && l.some((c) => chaveCab(c) === 'HRINI') && l.some((c) => chaveCab(c) === 'STATUS'));
+    if (iCab < 0) throw new Error('Aba "Aprovada Semanal VP" não encontrada (cabeçalho com Data, Hrini e STATUS).');
+    const col = {};
+    linhas[iCab].forEach((c, i) => { const campo = CAMPOS_SEM[chaveCab(c)]; if (campo && col[campo] === undefined) col[campo] = i; });
+    const out = [];
+    linhas.slice(iCab + 1).forEach((l, n) => {
+      if (!Array.isArray(l)) return;
+      const v = (campo) => (col[campo] === undefined ? '' : l[col[campo]]);
+      const dia = data(v('data'));
+      if (!dia) return;
+      const txt = (campo, max = 300) => { const x = v(campo); return String(x == null || x === 0 ? '' : x).replace(/_x000D_/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, max); };
+      const km = String(v('descricao') || '').match(/DO KM\s*([\d.,]+)\s*AO\s*([\d.,]+)/i);
+      const status = txt('status', 30);
+      out.push({
+        id: `w${iCab + 1 + n + 1}`,
+        semanal: true,
+        vale: valeSemanal(status),
+        dataIni: dia, dataFim: dia,
+        horaIni: hora(v('horaIni')), horaFim: hora(v('horaFim')),
+        interdicao: txt('interdicao', 40), detalhe: '', sede: '', trecho: txt('trecho', 30),
+        local: txt('local', 60), linha: txt('linha', 30), tarefa: txt('tarefa', 160), descricao: txt('descricao', 400),
+        amv: '', kmIni: km ? parseFloat(km[1].replace(',', '.')) : null, kmFim: km ? parseFloat(km[2].replace(',', '.')) : null,
+        recurso: txt('recurso', 60), trem: txt('trem', 20), status, obs: [txt('obsPcm', 300), txt('obsCoi', 300)].filter(Boolean).join(' · ')
+      });
+    });
+    return { servicos: out, total: out.length };
+  }
+
+  const chaveLocal = (x) => semAcento(x).toUpperCase().replace(/\(.*?\)/g, '').replace(/[^A-Z0-9/]/g, '').replace(/(^|[^0-9])0+(\d)/g, '$1$2');
+  const chaveTarefa = (x) => semAcento(x).toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  /**
+   * Compara a mensal com a semanal num dia coberto pela semanal. Vale a semanal:
+   * - serviço da semanal que está na mensal (mesmo local e serviço) com o mesmo horário e linha → sem mudança;
+   * - com horário ou linha diferentes → "alterado" (guarda o "antes", da mensal);
+   * - que não está na mensal → "novo";
+   * - serviço da mensal que não está na semanal (ou está reprovado/retirado nela) → "retirado".
+   * → [{ s, mudanca: null | 'novo' | 'alterado' | 'retirado', antes }]
+   */
+  function comparar(mensalDia, semanalDia) {
+    const chave = (s) => `${chaveLocal(s.local)}|${chaveTarefa(s.tarefa)}`;
+    const restantes = new Map();
+    mensalDia.forEach((m) => { const k = chave(m); if (!restantes.has(k)) restantes.set(k, []); restantes.get(k).push(m); });
+    const out = [];
+    const semPar = [];
+    semanalDia.forEach((s) => {
+      const k = chave(s);
+      const cand = restantes.get(k) || [];
+      // o mais parecido: mesmo horário e linha primeiro
+      const i = Math.max(0, cand.findIndex((m) => m.horaIni === s.horaIni && chaveLocal(m.linha) === chaveLocal(s.linha)));
+      const m = cand.length ? cand.splice(i, 1)[0] : null;
+      if (!s.vale) { if (m) out.push({ s: m, mudanca: 'retirado', antes: `${s.status || 'Reprovado'} na semanal (reprovado ou retirado)` }); return; }
+      if (!m) return semPar.push(s);
+      out.push(par(s, m));
+    });
+    // 2ª passada: no mesmo local, um serviço da semanal sem par e um da mensal sem par com o mesmo horário e linha
+    // (ou com um nome contido no outro: "SUBSTITUIÇÃO DE TRILHO - 68" × "... - COM ALÍVIO") → o serviço foi alterado.
+    semPar.forEach((s) => {
+      const tl = chaveLocal(s.local); const ts = chaveTarefa(s.tarefa);
+      let achado = null;
+      restantes.forEach((lista, k) => {
+        if (achado || k.split('|')[0] !== tl) return;
+        const i = lista.findIndex((m) => { const tm = chaveTarefa(m.tarefa); return (m.horaIni === s.horaIni && chaveLocal(m.linha) === chaveLocal(s.linha)) || (tm && ts && (tm.includes(ts) || ts.includes(tm))); });
+        if (i >= 0) achado = lista.splice(i, 1)[0];
+      });
+      out.push(achado ? par(s, achado) : { s, mudanca: 'novo', antes: null });
+    });
+    function par(s, m) {
+      const mudou = [];
+      if (chaveTarefa(m.tarefa) !== chaveTarefa(s.tarefa)) mudou.push(`serviço ${m.tarefa}`);
+      if (m.horaIni !== s.horaIni || m.horaFim !== s.horaFim) mudou.push(`horário ${horario(m) || '—'}`);
+      if (chaveLocal(m.linha) !== chaveLocal(s.linha)) mudou.push(`linha ${m.linha || '—'}`);
+      return { s, mudanca: mudou.length ? 'alterado' : null, antes: mudou.length ? `Na mensal: ${mudou.join(' · ')}` : null, mensal: m };
+    }
+    restantes.forEach((lista) => lista.forEach((m) => out.push({ s: m, mudanca: 'retirado', antes: 'Não está na semanal' })));
+    return out;
+  }
+
+  App.mensal = { ler, lerSemanal, comparar, valeSemanal, localizar, candidatos, telasPorSede, doDia, tipoCurto, horario, linhasDe, nomeComparavel, data, hora, aprovado };
 })(window.App);

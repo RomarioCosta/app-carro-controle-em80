@@ -79,3 +79,35 @@ test('mesmo nome em dois ramais (EH 11/12 da Tronco e 11I/12V de Fábrica): sepa
   assert.equal(X.localizar(m, sv('11/12 (SING)', 'FU', null), st).id, 'FA:EH:11I'); // sem km: pela sede
   assert.equal(X.localizar(m, sv('11/12', 'JN', null), st).id, 'LT:EH:11');
 });
+
+test('semanal: lê aprovados e condicionados e compara com a mensal (novo, alterado, retirado)', () => {
+  const CAB_S = ['', 'Cor', 'Data', 'Local', 'Linha', 'Hrini', 'Tempo', 'Hrfim', 'Tipo', 'Serviço', 'Descrição', 'Trem de serviço?', 'TURMA', 'STATUS', 'OBSERVAÇÕES PCM', 'OBSERVAÇÕES COI'];
+  const ls = (data, local, linha, hi, hf, servico, status, desc = '') => ['', 'TRECHO 11', data, local, linha, hi, '', hf, 'PRINCIPAL', servico, desc, 0, 'TURMA X', status, 0, 0];
+  const d = '2026-11-16';
+  const { servicos: sem } = X.lerSemanal([[], [], CAB_S,
+    ls(d, '49/50', 1, '09:00', '15:00', 'ROÇADA', 'APROVADO'),
+    ls(d, '49/50', 2, '08:00', '16:00', 'SUBSTITUIÇÃO DE TRILHO - 68', 'CONDICIONADO', 'TR1 DO KM 11.155 AO 11.479'),
+    ls(d, '50/51', 1, '09:00', '15:00', 'SOCARIA MECANIZADA DE LINHA', 'APROVADO'),
+    ls(d, '51/52', 1, '09:00', '15:00', 'DESCARGA DE BRITA', 'REPROVADO')
+  ]);
+  assert.equal(sem.length, 4);
+  assert.deepEqual(j(sem.map((s) => s.vale)), [true, true, true, false]);
+  assert.equal(sem[1].kmIni, 11.155);
+  const men = [
+    { id: 'm1', dataIni: d, dataFim: d, local: '49/50', linha: '1', horaIni: '09:00', horaFim: '15:00', tarefa: 'ROÇADA' },
+    { id: 'm2', dataIni: d, dataFim: d, local: '49/50', linha: '2', horaIni: '08:30', horaFim: '15:00', tarefa: 'SUBSTITUIÇÃO DE TRILHO - 68 - COM ALÍVIO' },
+    { id: 'm3', dataIni: d, dataFim: d, local: '51/52', linha: '1', horaIni: '09:00', horaFim: '15:00', tarefa: 'DESCARGA DE BRITA' },
+    { id: 'm4', dataIni: d, dataFim: d, local: '60/61', linha: '1', horaIni: '09:00', horaFim: '15:00', tarefa: 'ROÇADA' }
+  ];
+  const c = X.comparar(men, sem);
+  const por = (local, tarefa) => c.find((x) => x.s.local === local && x.s.tarefa.startsWith(tarefa));
+  assert.equal(por('49/50', 'ROÇADA').mudanca, null); // igual
+  const alt = por('49/50', 'SUBSTITUIÇÃO DE TRILHO - 68');
+  assert.equal(alt.mudanca, 'alterado');
+  assert.match(alt.antes, /horário 08:30 às 15:00/);
+  assert.equal(por('50/51', 'SOCARIA').mudanca, 'novo');
+  assert.equal(por('51/52', 'DESCARGA').mudanca, 'retirado'); // reprovado na semanal
+  assert.match(por('51/52', 'DESCARGA').antes, /REPROVADO na semanal/);
+  assert.equal(por('60/61', 'ROÇADA').mudanca, 'retirado'); // não está na semanal
+  assert.equal(c.length, 5);
+});
