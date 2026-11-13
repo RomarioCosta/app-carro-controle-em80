@@ -330,35 +330,33 @@
       }
     }
 
-    // Pontos de atenção: etiqueta acima da primeira linha ou abaixo da última, como na planilha.
+    // Pontos de atenção: a etiqueta fica colada logo acima da linha do ponto (a linha da interdição: L1, L2…),
+    // na coluna do EH/RH. Vários pontos no mesmo lugar: o primeiro e "+N" (os outros N, que abrem numa lista).
     const grupos = new Map();
     (op.pontos || []).forEach((p) => {
       const { id, linha } = M.separar(p.trecho || '');
-      const x = r.unidades.find((u) => temId(u, id));
-      const kx = x ? trilhos(x).map((t) => faixaEm(t.pts, 0.5)).sort((a, b) => a - b) : [];
-      const tx = x ? trilhos(x).find((t) => t.id === id && t.l === linha) : null;
-      const k = tx ? faixaEm(tx.pts, 0.5) : kx[kx.length - 1];
-      const lado = x && k === kx[0] && x.tipo !== 'RH' && x.linhas.length > 1 ? 'cima' : 'baixo';
-      const chave = `${id}|${lado}`;
-      if (!grupos.has(chave)) grupos.set(chave, { id, lado, lista: [] });
+      const pos = posicoes.find((q) => trilhos(q.u).some((t) => t.id === id && t.l === linha)) || posicoes.find((q) => temId(q.u, id));
+      if (!pos) return;
+      const tr = trilhos(pos.u);
+      const t = tr.find((x) => x.id === id && x.l === linha) || tr[0];
+      const chave = `${pos.i}|${t.ch}`;
+      if (!grupos.has(chave)) grupos.set(chave, { pos, t, lista: [] });
       grupos.get(chave).lista.push(p);
     });
-    grupos.forEach(({ id, lado, lista }) => {
-      const pos = posicoes.find((p) => temId(p.u, id));
-      if (!pos) return;
-      const { u, x: ux, w, fila: f } = pos;
-      const ks = trilhos(u).map((t) => faixaEm(t.pts, 0.5)).sort((a, b) => a - b);
-      const y = lado === 'cima' ? yLinha(f, ks[0]) - 21 : yLinha(f, ks[ks.length - 1]) + 10;
-      const mostrar = lista.length > 2 ? [lista[0], { ...lista[1], texto: `+${lista.length - 1}`, titulo: lista.slice(1).map((p) => p.titulo || p.texto).join('\n') }] : lista;
-      const total = Math.max(56, w * 0.9);
+    grupos.forEach(({ pos, t, lista }) => {
+      const { x: ux, w, fila: f } = pos;
+      const fm = (t.f0 + t.f1) / 2;
+      const y = yLinha(f, faixaEm(t.pts, fm)) - 13;
+      const mostrar = lista.length > 2 ? [lista[0], { ...lista[1], texto: `+${lista.length - 1}`, titulo: `Mais ${lista.length - 1} ponto(s) neste local (toque para ver):\n${lista.slice(1).map((p) => p.titulo || p.texto).join('\n')}` }] : lista;
+      const total = Math.min(Math.max(56, w * 0.9), Math.max(56, w * (t.f1 - t.f0)));
       const larg = total / mostrar.length;
-      const x0 = ux + w / 2 - total / 2;
+      const x0 = ux + w * fm - total / 2;
       mostrar.forEach((p, n) => {
-        const g = s('g', { class: 'esq-ponto', transform: `translate(${(x0 + n * larg).toFixed(1)},${y})` },
+        const g = s('g', { class: 'esq-ponto', transform: `translate(${(x0 + n * larg).toFixed(1)},${y.toFixed(1)})` },
           s('rect', { width: Math.max(8, larg - 1).toFixed(1), height: 11, fill: p.cor, class: 'esq-ponto-caixa' }),
           s('text', { x: (larg - 1) / 2, y: 8.3, class: 'esq-ponto-txt', 'text-anchor': 'middle' }, String(p.texto || '').slice(0, Math.max(3, Math.floor(larg / 4.4)))),
           s('title', {}, p.titulo || p.texto || ''));
-        if (op.aoTocarPonto) g.addEventListener('click', (e) => { e.stopPropagation(); op.aoTocarPonto(n === 0 ? lista[0] : lista[1]); });
+        if (op.aoTocarPonto) g.addEventListener('click', (e) => { e.stopPropagation(); if (n === 0) op.aoTocarPonto(lista[0]); else op.aoTocarPonto(lista[1], lista.slice(1)); });
         gPontos.appendChild(g);
       });
     });
