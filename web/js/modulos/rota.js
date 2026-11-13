@@ -209,7 +209,7 @@
         h('button', { class: 'btn-icone', 'aria-label': 'Atualizar do servidor', title: 'Atualizar', onclick: () => atualizarServidor({ avisar: true }) }, ui.icone('sync')),
         h('button', { class: 'btn btn-secundario', onclick: novaRota }, ui.icone('mais'), 'Nova rota')),
       h('div', { class: 'linha-campo', style: { flexWrap: 'wrap' } },
-        h('button', { class: 'btn btn-secundario', onclick: abrirMensal }, ui.icone('calendario'), 'Planejamento mensal'),
+        h('button', { class: 'btn btn-secundario', onclick: abrirMensal }, ui.icone('calendario'), 'Planejamento'),
         dados && diasOrdenados().length ? h('button', { class: 'btn btn-primario', onclick: abrirPdf }, ui.icone('documento'), modo === 'execucao' ? 'PDF da execução' : 'PDF da rota') : null)));
   }
 
@@ -374,7 +374,8 @@
     return lista.map((p) => ({
       id: p.id,
       trecho: p.trecho,
-      cor: GRAVIDADES[p.gravidade] || GRAVIDADES['Atenção'],
+      cor: p.cor || GRAVIDADES[p.gravidade] || GRAVIDADES['Atenção'],
+      pisca: !!p.pisca,
       texto: p.tipo || p.gravidade,
       titulo: [p.tipo, p.horario, p.descricao].filter(Boolean).join(' · '),
       ponto: p
@@ -418,7 +419,7 @@
         pontos: pontosParaEsquema([...pontosDo(dia), ...pontosMensais(dia, { todos: filtroMensal === 'todos' || !dia.programados.length })]),
         inicioIntervalo,
         aoTocar: (t, u, l) => tocar(t, u, l),
-        aoTocarPonto: (p, grupo) => (grupo && grupo.length > 1 ? abrirGrupoPontos(dia, grupo) : p.ponto.mensal ? abrirServico(dia, p.ponto.mensal) : editarPonto(dia, p.ponto))
+        aoTocarPonto: (p, grupo) => (grupo && grupo.length > 1 ? abrirGrupoPontos(dia, grupo) : p.ponto.mensal ? abrirServico(dia, p.ponto.mensal, p.ponto) : editarPonto(dia, p.ponto))
       });
       ui.trocar(caixaEsquema, svg);
       const km = M.extensao(malha, dia.programados) / 1000;
@@ -552,32 +553,47 @@
 
   /* ---------------- Planejamento mensal ---------------- */
 
-  const todosServicos = () => ((mensal && mensal.arquivos) || []).flatMap((a) => a.servicos || []);
+  const arquivosDe = (tipo) => ((mensal && mensal.arquivos) || []).filter((a) => (a.tipo || 'mensal') === tipo);
+  const todosServicos = () => arquivosDe('mensal').flatMap((a) => a.servicos || []);
+  /** Programação semanal que cobre a data (a semanal vale no lugar da mensal nos dias dela). */
+  const semanalDa = (data) => arquivosDe('semanal').filter((a) => a.de <= data && a.ate >= data).sort((a, b) => String(b.importadoEm).localeCompare(String(a.importadoEm)))[0] || null;
+  const COR_SEMANAL = '#1f6feb';
+  const COR_RETIRADO = '#8a96a0';
   const localDe = (s) => {
-    if (!locMensal.size && malha) locMensal.set('__sedes', X.telasPorSede(malha, todosServicos())); // sede → tela, para nomes repetidos
+    if (!locMensal.size && malha) locMensal.set('__sedes', X.telasPorSede(malha, [...todosServicos(), ...arquivosDe('semanal').flatMap((a) => a.servicos || [])])); // sede/trecho → tela, para nomes repetidos
     if (!locMensal.has(s.id)) locMensal.set(s.id, malha ? X.localizar(malha, s, locMensal.get('__sedes')) : null);
     return locMensal.get(s.id);
   };
   const ocultosDo = (dia) => new Set(ocultos[dia.id] || []);
   const naRota = (dia, loc) => !!loc && dia.programados.some((t) => M.separar(t).id === loc.id);
 
-  /** Serviços aprovados do planejamento mensal na data do dia (todos, com o local na malha quando houver). */
+  /**
+   * Serviços do dia (com o local na malha quando houver). Sem semanal na data: os aprovados da mensal.
+   * Com semanal: vale a semanal, comparada com a mensal (novo, alterado e retirado ficam marcados).
+   */
   function servicosDoDia(dia) {
     if (!dia || !dia.data) return [];
     const fora = ocultosDo(dia);
-    return X.doDia(todosServicos(), dia.data).map((s) => ({ s, loc: localDe(s), oculto: fora.has(s.id) }));
+    const doMes = X.doDia(todosServicos(), dia.data);
+    const sem = semanalDa(dia.data);
+    const lista = sem ? X.comparar(doMes, X.doDia(sem.servicos, dia.data)).map((x) => ({ ...x, semanal: x.mudanca !== 'retirado' }))
+      : doMes.map((s) => ({ s, mudanca: null, antes: null, semanal: false }));
+    return lista.map((x) => ({ ...x, loc: localDe(x.s), oculto: fora.has(x.s.id) }));
   }
 
   /** Serviços do dia como pontos de atenção (só os que têm EH/RH): os da rota ou, com todos, todos os do dia. */
-  function pontosMensais(dia, { todos = false } = {}) {
-    return servicosDoDia(dia).filter((x) => x.loc && !x.oculto && (todos || naRota(dia, x.loc))).map(({ s, loc }) => ({
+  function pontosMensais(dia, { todos = false, retirados = true } = {}) {
+    return servicosDoDia(dia).filter((x) => x.loc && !x.oculto && (todos || naRota(dia, x.loc)) && (retirados || x.mudanca !== 'retirado')).map(({ s, loc, mudanca, antes, semanal }) => ({
       id: `mensal:${s.id}`,
       trecho: loc.trecho,
       gravidade: 'Interdição',
+      cor: mudanca === 'retirado' ? COR_RETIRADO : null,
+      pisca: !!mudanca,
+      mudanca, antes, semanal,
       tipo: X.tipoCurto(s),
       local: `${loc.nome}${s.linha ? ` · L ${s.linha}` : ''}`,
       horario: X.horario(s),
-      descricao: `${s.tarefa}${s.kmIni !== null ? ` (km ${s.kmIni}${s.kmFim !== null && s.kmFim !== s.kmIni ? ` a ${s.kmFim}` : ''})` : ''} · Planejamento mensal`,
+      descricao: `${mudanca === 'retirado' ? 'RETIRADO: ' : ''}${s.tarefa}${s.kmIni !== null ? ` (km ${s.kmIni}${s.kmFim !== null && s.kmFim !== s.kmIni ? ` a ${s.kmFim}` : ''})` : ''} · ${semanal ? 'Programação semanal' : 'Planejamento mensal'}${mudanca === 'novo' ? ' (novo)' : ''}${antes ? ` · ${antes}` : ''}`,
       mensal: s
     }));
   }
@@ -592,6 +608,8 @@
     }
     if (!dia.data) return h('section', { class: 'cartao' }, cab(), h('p', { class: 'vazio', text: 'Informe a data do dia (em "1º dia…", acima) para trazer os serviços aprovados do planejamento mensal.' }));
     const lista = servicosDoDia(dia);
+    const semSel = semanalDa(dia.data);
+    const mudancas = lista.filter((x) => x.mudanca).length;
     const noEsquema = lista.filter((x) => x.loc);
     const semLocal = lista.filter((x) => !x.loc);
     const naRotaN = noEsquema.filter((x) => naRota(dia, x.loc)).length;
@@ -606,17 +624,20 @@
         'aria-pressed': filtroMensal === id ? 'true' : 'false',
         onclick: () => { filtroMensal = id; U.pref.set('rota:mensal:filtro', id); renderConteudo(); }
       }, rot)));
-    const item = ({ s, loc, oculto }) => h('div', {
-      class: `ponto-item mensal-item${oculto ? ' oculto' : ''}`,
-      style: { '--cor-ponto': oculto ? 'var(--texto2)' : GRAVIDADES['Interdição'] },
+    const ROT_MUD = { novo: 'Novo na semanal', alterado: 'Alterado na semanal', retirado: 'Retirado na semanal' };
+    const item = (x) => { const { s, loc, oculto, mudanca, antes, semanal } = x; return h('div', {
+      class: `ponto-item mensal-item${oculto ? ' oculto' : ''}${semanal ? ' semanal' : ''}${mudanca ? ` mudou mudou-${mudanca}` : ''}`,
+      style: { '--cor-ponto': oculto || mudanca === 'retirado' ? COR_RETIRADO : semanal ? COR_SEMANAL : GRAVIDADES['Interdição'] },
       role: 'button', tabindex: '0',
-      onclick: () => abrirServico(dia, s)
+      onclick: () => abrirServico(dia, s, x)
     },
     h('span', { class: 'ponto-tag', text: X.tipoCurto(s) }),
     h('div', { class: 'ponto-texto' },
+      mudanca || semanal ? h('span', { class: 'mensal-origem', text: mudanca ? ROT_MUD[mudanca] : `Semanal${/CONDICION/i.test(s.status) ? ' · condicionado' : ''}` }) : null,
       h('strong', { text: [loc ? loc.nome : s.local, s.linha ? `L ${s.linha}` : '', X.horario(s)].filter(Boolean).join(' · ') }),
-      h('span', { text: s.tarefa }),
-      h('span', { class: 'sub', text: [s.sede && `Sede ${s.sede}`, s.kmIni !== null ? `km ${s.kmIni}${s.kmFim !== null && s.kmFim !== s.kmIni ? ` a ${s.kmFim}` : ''}` : '', s.recurso, oculto ? 'fora deste dia' : ''].filter(Boolean).join(' · ') })));
+      h('span', { class: mudanca === 'retirado' ? 'riscado' : null, text: s.tarefa }),
+      antes && mudanca !== 'retirado' ? h('span', { class: 'mensal-antes', text: antes }) : null,
+      h('span', { class: 'sub', text: [s.sede && `Sede ${s.sede}`, s.kmIni !== null ? `km ${s.kmIni}${s.kmFim !== null && s.kmFim !== s.kmIni ? ` a ${s.kmFim}` : ''}` : '', s.recurso, oculto ? 'fora deste dia' : ''].filter(Boolean).join(' · ') }))); };
     // Filtro pelo local do serviço (EH, RH, pátio…): refaz só as listas, sem perder o foco do campo.
     const norm = (x) => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, '');
     const passa = (x) => { const q = norm(filtroLocalMensal); return !q || norm(x.s.local).includes(q) || (x.loc && norm(x.loc.nome).includes(q)); };
@@ -634,7 +655,9 @@
       oninput: (e) => { filtroLocalMensal = e.target.value; desenharListas(); } });
     const aberto = U.pref.get('rota:mensal:aberto', true);
     return h('details', { class: 'cartao detalhes mensal-cartao', open: aberto ? true : null, ontoggle: (e) => U.pref.set('rota:mensal:aberto', e.target.open) },
-      h('summary', null, h('strong', { text: 'Planejamento mensal' }), h('span', { class: 'sub', text: ` · ${U.fmtData(dia.data)} · ${lista.length} aprovado(s) · ${naRotaN} na rota` })),
+      h('summary', null, h('strong', { text: semSel ? 'Planejamento (semanal)' : 'Planejamento mensal' }),
+        h('span', { class: 'sub', text: ` · ${U.fmtData(dia.data)} · ${lista.filter((x) => x.mudanca !== 'retirado').length} programado(s) · ${naRotaN} na rota${mudancas ? ` · ${mudancas} mudança(s) da mensal` : ''}` })),
+      semSel ? h('p', { class: 'mensal-aviso-semanal', text: `Vale a programação semanal (${U.fmtData(semSel.de)} a ${U.fmtData(semSel.ate)}). Em azul, os serviços da semanal; o alerta pisca onde mudou em relação à mensal (novo, alterado ou retirado).` }) : null,
       h('div', { class: 'pilha', style: { marginTop: '10px' } },
         h('p', { class: 'sub', text: dia.programados.length
           ? 'Os serviços aprovados da data que estão na rota entram como pontos de atenção (no esquema e no PDF). Toque num serviço para ver os detalhes ou tirá-lo deste dia.'
@@ -651,7 +674,7 @@
       titulo: `${grupo.length} pontos · ${(grupo[0].ponto.local || '').replace(/ · L /, ' · L')}`,
       conteudo: h('div', { class: 'lista-pontos' }, grupo.map((g) => h('div', {
         class: 'ponto-item', style: { '--cor-ponto': g.cor }, role: 'button', tabindex: '0',
-        onclick: () => { m.fechar(); if (g.ponto.mensal) abrirServico(dia, g.ponto.mensal); else editarPonto(dia, g.ponto); }
+        onclick: () => { m.fechar(); if (g.ponto.mensal) abrirServico(dia, g.ponto.mensal, g.ponto); else editarPonto(dia, g.ponto); }
       },
       h('span', { class: 'ponto-tag', text: g.texto }),
       h('div', { class: 'ponto-texto' },
@@ -661,13 +684,15 @@
     });
   }
 
-  function abrirServico(dia, s) {
+  function abrirServico(dia, s, info = {}) {
     const loc = localDe(s);
+    const ROT = { novo: 'Novo na semanal (não estava na mensal)', alterado: 'Alterado na semanal', retirado: 'Retirado: não vale mais nesta data' };
     const fora = ocultosDo(dia).has(s.id);
     const linha = (rot, v) => (v === null || v === undefined || v === '' ? null : h('div', { class: 'linha-detalhe' }, h('span', { class: 'sub', text: rot }), h('strong', { text: String(v) })));
     ui.modal({
       titulo: X.tipoCurto(s),
       conteudo: h('div', { class: 'pilha' },
+        info.semanal || info.mudanca ? h('p', { class: `mensal-faixa${info.mudanca === 'retirado' ? ' retirado' : ''}`, text: [info.semanal ? 'Programação semanal' : 'Planejamento mensal', info.mudanca ? ROT[info.mudanca] : '', info.antes || ''].filter(Boolean).join(' · ') }) : null,
         h('p', { text: s.tarefa }),
         s.descricao && s.descricao !== s.tarefa ? h('p', { class: 'sub', text: s.descricao }) : null,
         h('div', { class: 'detalhes-servico' },
@@ -681,7 +706,9 @@
           linha('AMV', s.amv),
           linha('Interdição', [s.interdicao, s.detalhe].filter(Boolean).join(' ')),
           linha('Recurso', s.recurso),
-          linha('Status', s.status))),
+          linha('Trem de serviço', s.trem && s.trem !== '0' ? s.trem : ''),
+          linha('Status', s.status),
+          linha('Observações', s.obs))),
       acoes: [
         { texto: fora ? 'Voltar para este dia' : 'Tirar deste dia', classe: 'btn-secundario', onClick: async (fechar) => {
           const set = ocultosDo(dia);
@@ -706,18 +733,21 @@
       if (await importarMensal(f) && fecharModal) fecharModal();
     });
     fecharModal = ui.modal({
-      titulo: 'Planejamento mensal',
+      titulo: 'Planejamento mensal e semanal',
       conteudo: h('div', { class: 'pilha' },
-        h('p', { class: 'sub', text: 'Arquivo do planejamento do mês (.xlsm), aba "Tarefas Mensal". Entram só os serviços com status aprovado (APROVADO, ALTERADO/APROVADO, INCLUÍDO/APROVADO). Fica guardado neste aparelho; carregar o mesmo mês de novo substitui o anterior.' }),
-        arquivos.length ? h('div', { class: 'lista-pontos' }, arquivos.slice().sort((a, b) => a.mes.localeCompare(b.mes)).map((a) => {
-          const noEsq = malha ? a.servicos.filter((s) => localDe(s)).length : 0;
-          return h('div', { class: 'ponto-item mensal-arquivo' },
-            h('span', { class: 'ponto-tag', text: nomeMes(a.mes) }),
+        h('p', { class: 'sub', text: 'Mensal: arquivo do planejamento do mês (.xlsm), aba "Tarefas Mensal" — entram os serviços aprovados (APROVADO, ALTERADO/APROVADO, INCLUÍDO/APROVADO). Semanal: arquivo da semanal (.xlsm), aba "Aprovada Semanal VP" — entram os aprovados e condicionados; nos dias da semanal, ela vale no lugar da mensal e as mudanças ficam marcadas. Fica guardado neste aparelho; carregar o mesmo mês (ou semana) de novo substitui o anterior.' }),
+        arquivos.length ? h('div', { class: 'lista-pontos' }, arquivos.slice().sort((a, b) => String(a.de || a.mes).localeCompare(String(b.de || b.mes))).map((a) => {
+          const sem = a.tipo === 'semanal';
+          const nome = sem ? `Semana ${U.fmtData(a.de).slice(0, 5)} a ${U.fmtData(a.ate).slice(0, 5)}` : nomeMes(a.mes);
+          const validos = sem ? a.servicos.filter((x) => x.vale) : a.servicos;
+          const noEsq = malha ? validos.filter((x) => localDe(x)).length : 0;
+          return h('div', { class: `ponto-item mensal-arquivo${sem ? ' semanal' : ''}`, style: sem ? { '--cor-ponto': COR_SEMANAL } : null },
+            h('span', { class: 'ponto-tag', text: nome }),
             h('div', { class: 'ponto-texto' },
               h('strong', { text: a.nome }),
-              h('span', { class: 'sub', text: `${a.servicos.length.toLocaleString('pt-BR')} aprovado(s) de ${Number(a.total || 0).toLocaleString('pt-BR')} · ${noEsq.toLocaleString('pt-BR')} com EH/RH · carregado em ${U.fmtDataHora(a.importadoEm)}` })),
-            h('button', { class: 'btn btn-fantasma btn-pequeno', 'aria-label': `Remover ${nomeMes(a.mes)}`, onclick: async () => {
-              if (!(await ui.confirmar('Remover planejamento', `Remover o planejamento de ${nomeMes(a.mes)} deste aparelho?`, { ok: 'Remover', perigo: true }))) return;
+              h('span', { class: 'sub', text: `${validos.length.toLocaleString('pt-BR')} ${sem ? 'aprovado(s)/condicionado(s)' : 'aprovado(s)'} de ${Number(a.total || 0).toLocaleString('pt-BR')} · ${noEsq.toLocaleString('pt-BR')} com EH/RH · carregado em ${U.fmtDataHora(a.importadoEm)}` })),
+            h('button', { class: 'btn btn-fantasma btn-pequeno', 'aria-label': `Remover ${nome}`, onclick: async () => {
+              if (!(await ui.confirmar('Remover planejamento', `Remover ${sem ? 'a programação da' : 'o planejamento de'} ${nome} deste aparelho?`, { ok: 'Remover', perigo: true }))) return;
               mensal = { arquivos: arquivos.filter((x) => x.mes !== a.mes) };
               await store.set(CHAVE_MENSAL, mensal);
               locMensal = new Map();
@@ -725,7 +755,7 @@
               if (dados) renderConteudo();
             } }, ui.icone('lixo')));
         })) : null,
-        ui.campo(arquivos.length ? 'Carregar outro mês (ou atualizar)' : 'Arquivo do planejamento mensal', input)),
+        ui.campo(arquivos.length ? 'Carregar outro arquivo (mensal ou semanal)' : 'Arquivo do planejamento (mensal ou semanal)', input)),
       acoes: [{ texto: 'Fechar', classe: 'btn-primario', onClick: (f) => f() }]
     }).fechar;
   }
@@ -736,6 +766,23 @@
       const XLSX = await carregarXLSX();
       const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: false });
       const chave = (n) => String(n).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+      // Programação semanal: aba "Aprovada Semanal VP…"
+      const abaSem = wb.SheetNames.find((n) => /APROVADA\s*SEMANAL/.test(chave(n)));
+      if (abaSem) {
+        const lidoS = X.lerSemanal(XLSX.utils.sheet_to_json(wb.Sheets[abaSem], { header: 1, raw: true, defval: '' }));
+        if (!lidoS.servicos.length) throw new Error('Nenhum serviço na aba da semanal.');
+        const datas = lidoS.servicos.map((x) => x.dataIni).sort();
+        const de = datas[0]; const ate = datas[datas.length - 1];
+        const arquivosS = ((mensal && mensal.arquivos) || []).filter((a) => !(a.tipo === 'semanal' && a.de === de));
+        arquivosS.push({ tipo: 'semanal', mes: `S:${de}`, de, ate, nome: f.name, importadoEm: U.agora(), total: lidoS.total, servicos: lidoS.servicos });
+        mensal = { arquivos: arquivosS };
+        await store.set(CHAVE_MENSAL, mensal);
+        locMensal = new Map();
+        const validos = lidoS.servicos.filter((x) => x.vale).length;
+        ui.toast(`Semanal carregada (${U.fmtData(de)} a ${U.fmtData(ate)}): ${validos.toLocaleString('pt-BR')} serviços aprovados ou condicionados.`, 'ok', 6000);
+        if (dados) renderConteudo();
+        return true;
+      }
       // a aba "Tarefas Mensal" primeiro; a "Tarefas M+3" tem o mesmo cabeçalho mas é outra programação
       const abas = wb.SheetNames.filter((n) => !/M\s*\+\s*\d/.test(chave(n))).sort((a, b) => Number(/MENSAL/.test(chave(b))) - Number(/MENSAL/.test(chave(a))));
       let lido = null; let erro = null;
@@ -747,8 +794,8 @@
       const cont = {};
       lido.servicos.forEach((s) => { const m = s.dataIni.slice(0, 7); cont[m] = (cont[m] || 0) + 1; });
       const mes = Object.entries(cont).sort((a, b) => b[1] - a[1])[0][0];
-      const arquivos = ((mensal && mensal.arquivos) || []).filter((a) => a.mes !== mes);
-      arquivos.push({ mes, nome: f.name, importadoEm: U.agora(), total: lido.total, servicos: lido.servicos });
+      const arquivos = ((mensal && mensal.arquivos) || []).filter((a) => a.tipo === 'semanal' || a.mes !== mes);
+      arquivos.push({ tipo: 'mensal', mes, nome: f.name, importadoEm: U.agora(), total: lido.total, servicos: lido.servicos });
       mensal = { arquivos };
       await store.set(CHAVE_MENSAL, mensal);
       locMensal = new Map();
@@ -1039,7 +1086,7 @@
     }
 
     dias.forEach((d) => {
-      const pontos = [...pontosDo(d), ...pontosMensais(d)];
+      const pontos = [...pontosDo(d), ...pontosMensais(d, { retirados: false })];
       const trechos = execucao ? [...d.programados, ...d.executados] : d.programados;
       const camadas = execucao
         ? [{ trechos: new Set(d.programados), cor: d.cor, estilo: 'tracejado' }, { trechos: new Set(d.executados), cor: COR_EXEC, estilo: 'cheio' }]

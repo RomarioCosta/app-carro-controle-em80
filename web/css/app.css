@@ -979,3 +979,22 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .esq-ponto-qtd-txt { font-size: 7px; font-weight: 700; fill: #fff; pointer-events: none; }
 .esq-ponto:hover .esq-ponto-icone { filter: brightness(1.15); }
 .esq-ponto-linha { font-size: 7px; font-weight: 700; fill: var(--texto2); pointer-events: none; }
+
+/* Programação semanal: alerta piscando onde mudou; cartões em azul */
+@keyframes esq-pisca { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
+.esq-ponto-pisca .esq-ponto-icone, .esq-ponto-pisca .esq-ponto-exc { animation: esq-pisca 1.1s ease-in-out infinite; }
+.rota-pdf .esq-ponto-pisca .esq-ponto-icone, .rota-pdf .esq-ponto-pisca .esq-ponto-exc { animation: none; }
+@media (prefers-reduced-motion: reduce) { .esq-ponto-pisca .esq-ponto-icone, .esq-ponto-pisca .esq-ponto-exc { animation-duration: 2.4s; } }
+.mensal-item.semanal { background: color-mix(in srgb, #1f6feb 9%, var(--sup, #fff)); border-color: color-mix(in srgb, #1f6feb 45%, transparent); }
+.mensal-item.semanal .ponto-tag, .mensal-arquivo.semanal .ponto-tag { background: #1f6feb; }
+.mensal-item.mudou-retirado { background: var(--sup, #fff); }
+.mensal-item.mudou-retirado .ponto-tag { background: #8a96a0; }
+.mensal-origem { font-size: 0.72em; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; color: #1f6feb; }
+.mensal-item.mudou-retirado .mensal-origem { color: #6b7780; }
+.mensal-item.mudou .mensal-origem::before { content: '● '; animation: esq-pisca 1.1s ease-in-out infinite; }
+.mensal-antes { font-size: 0.82em; color: #9a5b00; }
+.riscado { text-decoration: line-through; opacity: 0.75; }
+.mensal-aviso-semanal { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, #1f6feb 12%, transparent); color: var(--texto); font-size: 0.9em; }
+.mensal-faixa { margin: 0; padding: 6px 10px; border-radius: 8px; background: #1f6feb; color: #fff; font-weight: 600; font-size: 0.9em; }
+.mensal-faixa.retirado { background: #8a96a0; }
+.modal p { overflow-wrap: anywhere; }
