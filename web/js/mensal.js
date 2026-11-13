@@ -280,50 +280,40 @@
   const chaveLocal = (x) => semAcento(x).toUpperCase().replace(/\(.*?\)/g, '').replace(/[^A-Z0-9/]/g, '').replace(/(^|[^0-9])0+(\d)/g, '$1$2');
   const chaveTarefa = (x) => semAcento(x).toUpperCase().replace(/[^A-Z0-9]/g, '');
 
+  const min = (h) => { const m = String(h || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+
   /**
-   * Compara a mensal com a semanal num dia coberto pela semanal. Vale a semanal:
-   * - serviço da semanal que está na mensal (mesmo local e serviço) com o mesmo horário e linha → sem mudança;
-   * - com horário ou linha diferentes → "alterado" (guarda o "antes", da mensal);
-   * - que não está na mensal → "novo";
-   * - serviço da mensal que não está na semanal (ou está reprovado/retirado nela) → "retirado".
+   * De-para da mensal com a semanal num dia coberto pela semanal. Interessa ao carro o que muda a interdição na via,
+   * então a comparação é por LOCAL (EH/RH/pátio) e LINHA, não pelo nome do serviço:
+   * - local/linha com serviço na semanal e também na mensal, dentro do horário que a mensal previa → sem mudança
+   *   (mesmo que o nome do serviço tenha mudado);
+   * - horário da semanal fora da janela que a mensal previa naquele local → "alterado" (mostra a janela da mensal);
+   * - local ou linha sem nenhum serviço na mensal → "novo" (nova interdição);
+   * - local/linha da mensal sem nenhum serviço confirmado na semanal (ou reprovado/retirado) → "retirado".
+   * chaveDe(s) opcional dá o local (ex.: o EH/RH da malha); sem ela, o texto do LOCAL normalizado.
    * → [{ s, mudanca: null | 'novo' | 'alterado' | 'retirado', antes }]
    */
-  function comparar(mensalDia, semanalDia) {
-    const chave = (s) => `${chaveLocal(s.local)}|${chaveTarefa(s.tarefa)}`;
-    const restantes = new Map();
-    mensalDia.forEach((m) => { const k = chave(m); if (!restantes.has(k)) restantes.set(k, []); restantes.get(k).push(m); });
+  function comparar(mensalDia, semanalDia, chaveDe) {
+    const local = (x) => (chaveDe && chaveDe(x)) || chaveLocal(x.local);
+    const linhas = (x) => { const l = linhasDe(x.linha); return l.length ? l : ['*']; }; // sem linha (pátio, AMV…): vale o local todo
+    const mesmaLinha = (a, b) => a.includes('*') || b.includes('*') || a.some((l) => b.includes(l));
+    const porLocal = new Map();
+    mensalDia.forEach((m) => { const k = local(m); if (!porLocal.has(k)) porLocal.set(k, []); porLocal.get(k).push({ m, l: linhas(m), coberto: false }); });
     const out = [];
-    const semPar = [];
-    semanalDia.forEach((s) => {
-      const k = chave(s);
-      const cand = restantes.get(k) || [];
-      // o mais parecido: mesmo horário e linha primeiro
-      const i = Math.max(0, cand.findIndex((m) => m.horaIni === s.horaIni && chaveLocal(m.linha) === chaveLocal(s.linha)));
-      const m = cand.length ? cand.splice(i, 1)[0] : null;
-      if (!s.vale) { if (m) out.push({ s: m, mudanca: 'retirado', antes: `${s.status || 'Reprovado'} na semanal (reprovado ou retirado)` }); return; }
-      if (!m) return semPar.push(s);
-      out.push(par(s, m));
+    semanalDia.filter((x) => x.vale).forEach((s) => {
+      const ls = linhas(s);
+      const doLocal = (porLocal.get(local(s)) || []).filter((x) => mesmaLinha(x.l, ls));
+      if (!doLocal.length) return out.push({ s, mudanca: 'novo', antes: null });
+      doLocal.forEach((x) => { x.coberto = true; });
+      // janela de horário que a mensal previa no local/linha
+      const ini = Math.min(...doLocal.map((x) => min(x.m.horaIni)).filter((v) => v !== null));
+      const fim = Math.max(...doLocal.map((x) => min(x.m.horaFim)).filter((v) => v !== null));
+      const si = min(s.horaIni); const sf = min(s.horaFim);
+      const fora = isFinite(ini) && isFinite(fim) && si !== null && sf !== null && (si < ini || sf > fim);
+      const janela = isFinite(ini) && isFinite(fim) ? `${doLocal.find((x) => min(x.m.horaIni) === ini).m.horaIni} às ${doLocal.find((x) => min(x.m.horaFim) === fim).m.horaFim}` : '';
+      out.push({ s, mudanca: fora ? 'alterado' : null, antes: fora ? `Na mensal: ${janela}` : null, mensal: doLocal[0].m });
     });
-    // 2ª passada: no mesmo local, um serviço da semanal sem par e um da mensal sem par com o mesmo horário e linha
-    // (ou com um nome contido no outro: "SUBSTITUIÇÃO DE TRILHO - 68" × "... - COM ALÍVIO") → o serviço foi alterado.
-    semPar.forEach((s) => {
-      const tl = chaveLocal(s.local); const ts = chaveTarefa(s.tarefa);
-      let achado = null;
-      restantes.forEach((lista, k) => {
-        if (achado || k.split('|')[0] !== tl) return;
-        const i = lista.findIndex((m) => { const tm = chaveTarefa(m.tarefa); return (m.horaIni === s.horaIni && chaveLocal(m.linha) === chaveLocal(s.linha)) || (tm && ts && (tm.includes(ts) || ts.includes(tm))); });
-        if (i >= 0) achado = lista.splice(i, 1)[0];
-      });
-      out.push(achado ? par(s, achado) : { s, mudanca: 'novo', antes: null });
-    });
-    function par(s, m) {
-      const mudou = [];
-      if (chaveTarefa(m.tarefa) !== chaveTarefa(s.tarefa)) mudou.push(`serviço ${m.tarefa}`);
-      if (m.horaIni !== s.horaIni || m.horaFim !== s.horaFim) mudou.push(`horário ${horario(m) || '—'}`);
-      if (chaveLocal(m.linha) !== chaveLocal(s.linha)) mudou.push(`linha ${m.linha || '—'}`);
-      return { s, mudanca: mudou.length ? 'alterado' : null, antes: mudou.length ? `Na mensal: ${mudou.join(' · ')}` : null, mensal: m };
-    }
-    restantes.forEach((lista) => lista.forEach((m) => out.push({ s: m, mudanca: 'retirado', antes: 'Não está na semanal' })));
+    porLocal.forEach((lista) => lista.filter((x) => !x.coberto).forEach((x) => out.push({ s: x.m, mudanca: 'retirado', antes: 'Não confirmado na semanal' })));
     return out;
   }
 

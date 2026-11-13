@@ -104,10 +104,24 @@ test('semanal: lê aprovados e condicionados e compara com a mensal (novo, alter
   assert.equal(por('49/50', 'ROÇADA').mudanca, null); // igual
   const alt = por('49/50', 'SUBSTITUIÇÃO DE TRILHO - 68');
   assert.equal(alt.mudanca, 'alterado');
-  assert.match(alt.antes, /horário 08:30 às 15:00/);
+  assert.match(alt.antes, /08:30 às 15:00/);
   assert.equal(por('50/51', 'SOCARIA').mudanca, 'novo');
   assert.equal(por('51/52', 'DESCARGA').mudanca, 'retirado'); // reprovado na semanal
-  assert.match(por('51/52', 'DESCARGA').antes, /REPROVADO na semanal/);
+  assert.match(por('51/52', 'DESCARGA').antes, /Não confirmado/);
   assert.equal(por('60/61', 'ROÇADA').mudanca, 'retirado'); // não está na semanal
   assert.equal(c.length, 5);
+});
+
+test('de-para por local e linha: nome diferente no mesmo local e dentro do horário não é mudança', () => {
+  const d = '2026-11-16';
+  const sv = (local, linha, hi, hf, tarefa, extra = {}) => ({ id: `${local}${tarefa}${hi}`, dataIni: d, dataFim: d, local, linha, horaIni: hi, horaFim: hf, tarefa, ...extra });
+  const men = [sv('49/50', '1', '08:00', '16:00', 'SUBSTITUIÇÃO DE TRILHO - 68 - COM ALÍVIO'), sv('RH-50', '2', '09:00', '15:00', 'ROÇADA')];
+  const sem = [
+    sv('49/50', '1', '09:00', '15:00', 'INFRA-ROÇADA', { vale: true }), // outro nome, dentro da janela → sem mudança
+    sv('49/50', '2', '09:00', '15:00', 'FECHAMENTO DE FERROVIA', { vale: true }), // linha sem serviço na mensal → nova
+    sv('RH-50', '2', '07:00', '15:00', 'ROÇADA - SUPER', { vale: true }) // começa antes → horário
+  ];
+  const c = X.comparar(men, sem);
+  assert.deepEqual(j(c.map((x) => [x.s.tarefa, x.mudanca])), [['INFRA-ROÇADA', null], ['FECHAMENTO DE FERROVIA', 'novo'], ['ROÇADA - SUPER', 'alterado']]);
+  assert.equal(c[2].antes, 'Na mensal: 09:00 às 15:00');
 });

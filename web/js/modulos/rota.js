@@ -42,6 +42,7 @@
   let locMensal = new Map(); // id do serviço → trecho na malha (ou null)
   let filtroMensal = U.pref.get('rota:mensal:filtro', 'rota'); // rota | todos
   let filtroLocalMensal = ''; // filtro da lista do mensal pelo local do serviço
+  let filtroTipoLocal = U.pref.get('rota:mensal:tipoLocal', 'todos'); // todos | EH | RH
 
   /* ---------------- Dados ---------------- */
 
@@ -576,7 +577,7 @@
     const fora = ocultosDo(dia);
     const doMes = X.doDia(todosServicos(), dia.data);
     const sem = semanalDa(dia.data);
-    const lista = sem ? X.comparar(doMes, X.doDia(sem.servicos, dia.data)).map((x) => ({ ...x, semanal: x.mudanca !== 'retirado' }))
+    const lista = sem ? X.comparar(doMes, X.doDia(sem.servicos, dia.data), (x) => { const l = localDe(x); return l ? l.id : null; }).map((x) => ({ ...x, semanal: x.mudanca !== 'retirado' }))
       : doMes.map((s) => ({ s, mudanca: null, antes: null, semanal: false }));
     return lista.map((x) => ({ ...x, loc: localDe(x.s), oculto: fora.has(x.s.id) }));
   }
@@ -588,7 +589,7 @@
       trecho: loc.trecho,
       gravidade: 'Interdição',
       cor: mudanca === 'retirado' ? COR_RETIRADO : null,
-      pisca: !!mudanca,
+      pisca: mudanca === 'novo' || mudanca === 'alterado', // só o que impacta: nova interdição ou horário mudado
       mudanca, antes, semanal,
       tipo: X.tipoCurto(s),
       local: `${loc.nome}${s.linha ? ` · L ${s.linha}` : ''}`,
@@ -609,7 +610,7 @@
     if (!dia.data) return h('section', { class: 'cartao' }, cab(), h('p', { class: 'vazio', text: 'Informe a data do dia (em "1º dia…", acima) para trazer os serviços aprovados do planejamento mensal.' }));
     const lista = servicosDoDia(dia);
     const semSel = semanalDa(dia.data);
-    const mudancas = lista.filter((x) => x.mudanca).length;
+    const mudancas = lista.filter((x) => x.mudanca === 'novo' || x.mudanca === 'alterado').length;
     const noEsquema = lista.filter((x) => x.loc);
     const semLocal = lista.filter((x) => !x.loc);
     const naRotaN = noEsquema.filter((x) => naRota(dia, x.loc)).length;
@@ -624,7 +625,7 @@
         'aria-pressed': filtroMensal === id ? 'true' : 'false',
         onclick: () => { filtroMensal = id; U.pref.set('rota:mensal:filtro', id); renderConteudo(); }
       }, rot)));
-    const ROT_MUD = { novo: 'Novo na semanal', alterado: 'Alterado na semanal', retirado: 'Retirado na semanal' };
+    const ROT_MUD = { novo: 'Nova interdição na semanal', alterado: 'Horário mudou na semanal', retirado: 'Não confirmado na semanal' };
     const item = (x) => { const { s, loc, oculto, mudanca, antes, semanal } = x; return h('div', {
       class: `ponto-item mensal-item${oculto ? ' oculto' : ''}${semanal ? ' semanal' : ''}${mudanca ? ` mudou mudou-${mudanca}` : ''}`,
       style: { '--cor-ponto': oculto || mudanca === 'retirado' ? COR_RETIRADO : semanal ? COR_SEMANAL : GRAVIDADES['Interdição'] },
@@ -640,7 +641,12 @@
       h('span', { class: 'sub', text: [s.sede && `Sede ${s.sede}`, s.kmIni !== null ? `km ${s.kmIni}${s.kmFim !== null && s.kmFim !== s.kmIni ? ` a ${s.kmFim}` : ''}` : '', s.recurso, oculto ? 'fora deste dia' : ''].filter(Boolean).join(' · ') }))); };
     // Filtro pelo local do serviço (EH, RH, pátio…): refaz só as listas, sem perder o foco do campo.
     const norm = (x) => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, '');
-    const passa = (x) => { const q = norm(filtroLocalMensal); return !q || norm(x.s.local).includes(q) || (x.loc && norm(x.loc.nome).includes(q)); };
+    const ehRH = (x) => !!x.loc && /^RH/i.test(x.loc.nome || '');
+    const passa = (x) => {
+      const q = norm(filtroLocalMensal);
+      if (q && !(norm(x.s.local).includes(q) || (x.loc && norm(x.loc.nome).includes(q)))) return false;
+      return filtroTipoLocal === 'todos' || !x.loc || (filtroTipoLocal === 'RH' ? ehRH(x) : !ehRH(x));
+    };
     const listaEl = h('div'); const semEl = h('div');
     const desenharListas = () => {
       const m1 = mostrar.filter(passa); const m2 = semLocal.filter(passa);
@@ -651,18 +657,29 @@
         h('div', { class: 'lista-pontos' }, m2.map(item))) : h('span'));
     };
     desenharListas();
+    const tipoLocal = h('div', { class: 'seg', role: 'group', 'aria-label': 'Atividades em EH ou RH' },
+      [['todos', 'EH e RH'], ['EH', 'Só EH'], ['RH', 'Só RH (pátios)']].map(([id, rot]) => h('button', {
+        class: `seg-opcao${filtroTipoLocal === id ? ' ativo' : ''}`,
+        'aria-pressed': filtroTipoLocal === id ? 'true' : 'false',
+        onclick: (e) => {
+          filtroTipoLocal = id; U.pref.set('rota:mensal:tipoLocal', id);
+          [...e.currentTarget.parentNode.children].forEach((b) => { const on = b === e.currentTarget; b.classList.toggle('ativo', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+          desenharListas();
+        }
+      }, rot)));
     const busca = h('input', { type: 'search', value: filtroLocalMensal, placeholder: 'Ex.: 14/15, RH-50, VCS', 'aria-label': 'Filtrar pelo local do serviço',
       oninput: (e) => { filtroLocalMensal = e.target.value; desenharListas(); } });
     const aberto = U.pref.get('rota:mensal:aberto', true);
     return h('details', { class: 'cartao detalhes mensal-cartao', open: aberto ? true : null, ontoggle: (e) => U.pref.set('rota:mensal:aberto', e.target.open) },
       h('summary', null, h('strong', { text: semSel ? 'Planejamento (semanal)' : 'Planejamento mensal' }),
         h('span', { class: 'sub', text: ` · ${U.fmtData(dia.data)} · ${lista.filter((x) => x.mudanca !== 'retirado').length} programado(s) · ${naRotaN} na rota${mudancas ? ` · ${mudancas} mudança(s) da mensal` : ''}` })),
-      semSel ? h('p', { class: 'mensal-aviso-semanal', text: `Vale a programação semanal (${U.fmtData(semSel.de)} a ${U.fmtData(semSel.ate)}). Em azul, os serviços da semanal; o alerta pisca onde mudou em relação à mensal (novo, alterado ou retirado).` }) : null,
+      semSel ? h('p', { class: 'mensal-aviso-semanal', text: `Vale a programação semanal (${U.fmtData(semSel.de)} a ${U.fmtData(semSel.ate)}). Em azul, os serviços da semanal. O alerta pisca só onde a semanal impacta: interdição nova (local ou linha sem serviço na mensal) ou horário fora do que a mensal previa. O que a mensal previa e a semanal não confirmou fica em cinza.` }) : null,
       h('div', { class: 'pilha', style: { marginTop: '10px' } },
         h('p', { class: 'sub', text: dia.programados.length
           ? 'Os serviços aprovados da data que estão na rota entram como pontos de atenção (no esquema e no PDF). Toque num serviço para ver os detalhes ou tirá-lo deste dia.'
           : 'Ainda sem rota neste dia: o esquema mostra todos os serviços aprovados da data. Depois de desenhar a rota, ficam só os que estão nela.' }),
         dia.programados.length ? filtro : null,
+        tipoLocal,
         ui.campo('Filtrar pelo local do serviço', busca),
         listaEl,
         semEl));
@@ -686,7 +703,7 @@
 
   function abrirServico(dia, s, info = {}) {
     const loc = localDe(s);
-    const ROT = { novo: 'Novo na semanal (não estava na mensal)', alterado: 'Alterado na semanal', retirado: 'Retirado: não vale mais nesta data' };
+    const ROT = { novo: 'Nova interdição: o local/linha não tinha serviço na mensal', alterado: 'Horário fora do que a mensal previa', retirado: 'Previsto na mensal e não confirmado na semanal' };
     const fora = ocultosDo(dia).has(s.id);
     const linha = (rot, v) => (v === null || v === undefined || v === '' ? null : h('div', { class: 'linha-detalhe' }, h('span', { class: 'sub', text: rot }), h('strong', { text: String(v) })));
     ui.modal({
