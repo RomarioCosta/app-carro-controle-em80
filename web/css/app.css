@@ -991,7 +991,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mensal-item.mudou-retirado .ponto-tag { background: #8a96a0; }
 .mensal-origem { font-size: 0.72em; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; color: #1f6feb; }
 .mensal-item.mudou-retirado .mensal-origem { color: #6b7780; }
-.mensal-item.mudou .mensal-origem::before { content: '● '; animation: esq-pisca 1.1s ease-in-out infinite; }
+.mensal-item.mudou-novo .mensal-origem::before, .mensal-item.mudou-alterado .mensal-origem::before { content: '● '; animation: esq-pisca 1.1s ease-in-out infinite; }
 .mensal-antes { font-size: 0.82em; color: #9a5b00; }
 .riscado { text-decoration: line-through; opacity: 0.75; }
 .mensal-aviso-semanal { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, #1f6feb 12%, transparent); color: var(--texto); font-size: 0.9em; }
