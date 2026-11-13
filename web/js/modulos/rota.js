@@ -631,7 +631,7 @@
   /** "+N" no esquema: os outros pontos de atenção do mesmo local, para abrir um deles. */
   function abrirGrupoPontos(dia, grupo) {
     const m = ui.modal({
-      titulo: `${grupo.length} pontos neste local`,
+      titulo: `${grupo.length} pontos · ${(grupo[0].ponto.local || '').replace(/ · L /, ' · L')}`,
       conteudo: h('div', { class: 'lista-pontos' }, grupo.map((g) => h('div', {
         class: 'ponto-item', style: { '--cor-ponto': g.cor }, role: 'button', tabindex: '0',
         onclick: () => { m.fechar(); if (g.ponto.mensal) abrirServico(dia, g.ponto.mensal); else editarPonto(dia, g.ponto); }
