@@ -476,7 +476,7 @@
 
     desenharEsquema();
     return [
-      cartaoDia(dia),
+      cartaoDia(dia, () => { desenharEsquema(); ui.trocar(mensalEl, cartaoMensal(dia)); }),
       h('section', { class: 'cartao' },
         h('div', { class: 'cartao-cab' },
           h('h2', { text: titulo(dia) }),
@@ -513,11 +513,19 @@
 
   const titulo = (dia) => `Rota para o ${dia.ordem}º dia de inspeção${dia.titulo ? ` (${dia.titulo})` : ''}`;
 
-  function cartaoDia(dia) {
-    const salvarCampo = (campo) => async (e) => { dia[campo] = e.target.value; await salvarDia(dia, { render: false }); renderDias(); };
+  function cartaoDia(dia, aoMudarData) {
+    const salvarCampo = (campo) => async (e) => {
+      dia[campo] = e.target.value;
+      await salvarDia(dia, { render: false });
+      renderDias();
+      resumo.textContent = textoResumo();
+      if (campo === 'data' && aoMudarData) aoMudarData(); // os serviços do planejamento mensal são os da nova data
+    };
+    const textoResumo = () => ` · ${dia.data ? U.fmtData(dia.data) : 'sem data'} · ${dia.sentido || ''} ${dia.titulo ? `· ${dia.titulo}` : ''}`;
+    const resumo = h('span', { class: 'sub', text: textoResumo() });
     return h('details', { class: 'cartao detalhes', open: !dia.programados.length || null },
       h('summary', null, h('strong', { text: `${dia.ordem}º dia` }),
-        h('span', { class: 'sub', text: ` · ${dia.data ? U.fmtData(dia.data) : 'sem data'} · ${dia.sentido || ''} ${dia.titulo ? `· ${dia.titulo}` : ''}` })),
+        resumo),
       h('div', { class: 'pilha', style: { marginTop: '10px' } },
         h('div', { class: 'grade-3' },
           ui.campo('Data', h('input', { type: 'date', value: dia.data || '', onchange: salvarCampo('data') })),
