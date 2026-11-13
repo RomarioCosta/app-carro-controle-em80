@@ -85,6 +85,7 @@
         telaMontada = true;
       }
       if (qual === 'tela') App.telaCarro.aoMostrar();
+      else if (qual === 'analise' && App.analise.aoMostrar) App.analise.aoMostrar();
       if (qual === 'montagem') {
         // a montagem usa a geometria importada na Análise e o leitor de .zip de lá
         if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; }

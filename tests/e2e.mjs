@@ -855,6 +855,14 @@ async function main() {
       // Tela do carro: o trecho em LOCOM aparece (marcado) e "ir para o km" encontra o ponto
       await arqTeste.getByRole('button', { name: 'Rodar na Tela do carro' }).click();
       await page.locator('.tc-rodape', { hasText: 'TESTE.csv' }).waitFor();
+      // na Análise do arquivo: o mesmo seletor dos arquivos da Montagem, sem sair da aba
+      await page.getByRole('tab', { name: 'Análise do arquivo' }).click();
+      const selAn = page.getByLabel('Montagem: escolher o arquivo a analisar');
+      await selAn.locator('option', { hasText: 'TESTE.csv' }).waitFor({ state: 'attached' });
+      await selAn.selectOption({ label: await selAn.locator('option', { hasText: 'TESTE.csv' }).textContent() });
+      await page.locator('.cartao', { hasText: 'Arquivo' }).getByText('TESTE.csv', { exact: true }).first().waitFor();
+      assert.equal(await page.locator('.seg-abas .ativo').first().textContent(), 'Análise do arquivo');
+      await page.getByRole('tab', { name: 'Tela do carro' }).click();
       // a Tela ainda se redesenha logo depois de abrir: repete até o km aparecer na leitura
       await aguardar(async () => {
         const irKm = page.getByLabel('Ir para o km');

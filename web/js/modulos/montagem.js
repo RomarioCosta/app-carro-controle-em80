@@ -251,15 +251,15 @@
    * Roda o arquivo na Tela do carro (Offboard), com o recorte, as compensações e as regras dele.
    * alvo = { i } (ponto do arquivo, exato mesmo com o km compensado) ou { km } (km do arquivo).
    */
-  async function abrirNaTela(a, alvo = null) {
+  async function abrirNaTela(a, alvo = null, { aba = 'tela' } = {}) {
     const texto = await lerCsv(a.id).catch(() => null);
     if (!texto) { semCsv(); return false; }
-    window.dispatchEvent(new CustomEvent('em80:checklist-aba', { detail: 'tela' }));
-    ui.toast(`Abrindo ${a.nome} na Tela do carro…`, 'info', 2500);
+    if (aba) window.dispatchEvent(new CustomEvent('em80:checklist-aba', { detail: aba }));
+    ui.toast(`Abrindo ${a.nome}${aba === 'tela' ? ' na Tela do carro' : ''}…`, 'info', 2500);
     await new Promise((r) => setTimeout(r, 30));
     App.analise.abrirTexto(texto, a.nome, { recorte: a.recorte, compensar: a.compensar || [], regras: a.regras || regras(), linhas: a.linhas || null });
     atual = a.id;
-    if (App.telaCarro.aoMostrar) App.telaCarro.aoMostrar();
+    if (aba === 'tela' && App.telaCarro.aoMostrar) App.telaCarro.aoMostrar();
     if (alvo && Number.isInteger(alvo.i)) App.telaCarro.irParaPonto(alvo.i);
     else if (alvo && alvo.km !== undefined && alvo.km !== null) App.telaCarro.irParaKm(String(Math.round(alvo.km) / 1000).replace('.', ','));
     return true;
@@ -958,6 +958,7 @@
     lista: listaParaTela,
     atual: () => atual,
     ciclo,
-    async abrir(id) { await carregar(); if (!planta && App.analise.planta) planta = await App.analise.planta(); const a = arquivos.find((x) => x.id === id); return a ? abrirNaTela(a) : false; }
+    /** Abre um arquivo da Montagem na Análise. aba: 'tela' (Tela do carro, padrão) ou null (fica na aba atual). */
+    async abrir(id, { aba = 'tela' } = {}) { await carregar(); if (!planta && App.analise.planta) planta = await App.analise.planta(); const a = arquivos.find((x) => x.id === id); return a ? abrirNaTela(a, null, { aba }) : false; }
   };
 })(window.App);
