@@ -417,7 +417,7 @@
         pontos: pontosParaEsquema([...pontosDo(dia), ...pontosMensais(dia, { todos: filtroMensal === 'todos' || !dia.programados.length })]),
         inicioIntervalo,
         aoTocar: (t, u, l) => tocar(t, u, l),
-        aoTocarPonto: (p) => (p.ponto.mensal ? abrirServico(dia, p.ponto.mensal) : editarPonto(dia, p.ponto))
+        aoTocarPonto: (p, grupo) => (grupo && grupo.length > 1 ? abrirGrupoPontos(dia, grupo) : p.ponto.mensal ? abrirServico(dia, p.ponto.mensal) : editarPonto(dia, p.ponto))
       });
       ui.trocar(caixaEsquema, svg);
       const km = M.extensao(malha, dia.programados) / 1000;
@@ -626,6 +626,22 @@
       semLocal.length ? h('details', { class: 'detalhes mensal-sem-local' },
         h('summary', { text: `Serviços sem EH/RH (${semLocal.length}) — pátios e terminais` }),
         h('div', { class: 'lista-pontos' }, semLocal.map(item))) : null);
+  }
+
+  /** "+N" no esquema: os outros pontos de atenção do mesmo local, para abrir um deles. */
+  function abrirGrupoPontos(dia, grupo) {
+    const m = ui.modal({
+      titulo: `${grupo.length} pontos neste local`,
+      conteudo: h('div', { class: 'lista-pontos' }, grupo.map((g) => h('div', {
+        class: 'ponto-item', style: { '--cor-ponto': g.cor }, role: 'button', tabindex: '0',
+        onclick: () => { m.fechar(); if (g.ponto.mensal) abrirServico(dia, g.ponto.mensal); else editarPonto(dia, g.ponto); }
+      },
+      h('span', { class: 'ponto-tag', text: g.texto }),
+      h('div', { class: 'ponto-texto' },
+        h('strong', { text: [g.ponto.local, g.ponto.horario].filter(Boolean).join(' · ') }),
+        h('span', { text: g.ponto.descricao || '' }))))),
+      acoes: [{ texto: 'Fechar', classe: 'btn-primario', onClick: (f) => f() }]
+    });
   }
 
   function abrirServico(dia, s) {
