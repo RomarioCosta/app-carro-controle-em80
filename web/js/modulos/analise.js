@@ -43,10 +43,32 @@
         null),
       secoes.arquivo, secoes.planta, secoes.parametros, secoes.kpis, secoes.offset, secoes.graficos, secoes.elementos, secoes.ranking);
     renderArquivo();
-    carregarPlanta().then(carregarUltimo);
+    carregarPlanta().then(carregarUltimo).then(atualizarMontagem);
   }
 
   /* ---------------- Arquivo ---------------- */
+
+  /** Arquivos carregados na Montagem (ciclo atual): escolher e passar de um para o outro, como na Tela do carro. */
+  let montagemLista = [];
+  async function atualizarMontagem() {
+    try { montagemLista = App.montagem && App.montagem.lista ? await App.montagem.lista() : []; } catch (e) { montagemLista = []; }
+    renderArquivo();
+  }
+  const idMontagem = () => {
+    const id = App.montagem && App.montagem.atual ? App.montagem.atual() : null;
+    const a = montagemLista.find((x) => x.id === id);
+    return a && a.nome === nomeArquivo ? id : '';
+  };
+  const vizinhoMontagem = (passo) => {
+    const k = montagemLista.findIndex((x) => x.id === idMontagem());
+    const j = k + passo;
+    return k >= 0 && j >= 0 && j < montagemLista.length ? montagemLista[j] : (k < 0 && passo > 0 ? montagemLista[0] : null);
+  };
+  async function abrirDaMontagem(id) {
+    if (!id) return;
+    const ok = await App.montagem.abrir(id, { aba: null }); // fica na Análise
+    if (ok) renderArquivo();
+  }
 
   let versaoArquivo = 0; // muda a cada arquivo aberto: o carregamento do último arquivo não passa por cima
   async function carregarUltimo() {
@@ -361,9 +383,21 @@
     });
     const meta = arquivo && arquivo.meta;
     const posArq = arquivoCompleto ? (arquivoCompleto.posArq || arquivoCompleto.pos) : null;
+    const atualId = idMontagem();
+    const anterior = vizinhoMontagem(-1); const proximo = vizinhoMontagem(1);
+    const daMontagem = montagemLista.length ? h('div', { class: 'tc-linha tc-linha-arquivo' },
+      h('label', { class: 'tc-campo tc-campo-arquivo' }, h('span', { text: `Arquivos da Montagem${App.montagem.ciclo() ? ` (ciclo ${App.montagem.ciclo()})` : ''}` }),
+        h('select', { 'aria-label': 'Montagem: escolher o arquivo a analisar', onchange: (e) => abrirDaMontagem(e.target.value) },
+          h('option', { value: '', selected: !atualId || null, text: atualId ? '—' : (nomeArquivo ? `Arquivo avulso: ${nomeArquivo}` : 'Escolha um arquivo da Montagem') }),
+          montagemLista.map((a) => h('option', { value: a.id, selected: a.id === atualId || null, text: a.rotulo })))),
+      h('div', { class: 'tc-botoes' },
+        h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: !anterior || null, title: anterior ? anterior.nome : '', onclick: () => abrirDaMontagem(anterior.id) }, ui.icone('esquerda'), 'Anterior'),
+        h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: !proximo || null, title: proximo ? proximo.nome : '', onclick: () => abrirDaMontagem(proximo.id) }, 'Próximo', ui.icone('direita')))) : null;
     ui.trocar(secoes.arquivo, h('section', { class: 'cartao' },
       h('h2', { text: 'Arquivo' }),
-      ui.campo('Arquivo CSV gerado pelo carro controle', input),
+      daMontagem,
+      daMontagem ? h('details', { class: 'detalhes' }, h('summary', { text: 'Abrir outro arquivo (fora da Montagem)' }), ui.campo('Arquivo CSV gerado pelo carro controle', input))
+        : ui.campo('Arquivo CSV gerado pelo carro controle', input),
       arquivo ? h('div', { class: 'pilha-p' },
         h('p', null, h('strong', { text: nomeArquivo })),
         h('p', { class: 'sub', text: [
@@ -876,6 +910,7 @@
       h('summary', null, h('strong', { text: 'Simulação de offset' }),
         h('span', { class: 'sub', text: off.valor ? ` · ${fmt(off.valor, 1)} mm em ${NOMES_BITOLA[off.bitola]}${off.aplicar ? ' (aplicado)' : ''} · perda ${fmt(antes.pct)}% → ${fmt(depois.pct)}%` : ' · escolha uma bitola e um valor' })),
       h('div', { class: 'pilha', style: { marginTop: '12px' } },
+        h('p', { class: 'sub', text: 'O offset aplicado vale para todos os arquivos: ao trocar de arquivo (aqui ou na Tela do carro) ele continua aplicado, até você desmarcar "Aplicar".' }),
         h('div', { class: 'grade-3' },
           ui.campo('Bitola', h('select', { value: off.bitola, onchange: (e) => mudar({ bitola: e.target.value }) },
             Object.entries(NOMES_BITOLA).map(([k, n]) => h('option', { value: k, text: n })))),
@@ -1124,6 +1159,7 @@
 
   App.analise = {
     montar,
+    aoMostrar: () => { if (raiz) atualizarMontagem(); },
     /** Estado atual (arquivo carregado e análise), usado pela Tela do carro. */
     estado: () => ({ arquivo, arquivoTela: arquivo ? arquivoTela : null, resultado, nomeArquivo, opcoes }),
     textoDoArquivo,
