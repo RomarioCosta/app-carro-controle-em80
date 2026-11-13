@@ -969,3 +969,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .detalhes-servico { display: grid; grid-template-columns: 1fr; gap: 6px; }
 .linha-detalhe { display: flex; gap: 10px; justify-content: space-between; border-bottom: 1px solid var(--borda, #e3e7ea); padding: 4px 0; }
 .linha-detalhe strong { text-align: right; }
+
+/* Ponto de atenção no esquema: ícone de alerta (o detalhe abre ao tocar) */
+.esq-ponto { cursor: pointer; }
+.esq-ponto-toque { fill: transparent; }
+.esq-ponto-icone { stroke: #fff; stroke-width: 1; stroke-linejoin: round; }
+.esq-ponto-exc { font-size: 9px; font-weight: 800; fill: #fff; pointer-events: none; }
+.esq-ponto-qtd { fill: #1b2329; stroke: #fff; stroke-width: 1; }
+.esq-ponto-qtd-txt { font-size: 7px; font-weight: 700; fill: #fff; pointer-events: none; }
+.esq-ponto:hover .esq-ponto-icone { filter: brightness(1.15); }

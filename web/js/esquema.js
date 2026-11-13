@@ -343,22 +343,23 @@
       if (!grupos.has(chave)) grupos.set(chave, { pos, t, lista: [] });
       grupos.get(chave).lista.push(p);
     });
+    // Cada local vira um ícone (triângulo de alerta) logo acima da linha, com a quantidade quando há mais de um;
+    // tocar abre o ponto (ou a lista do local). Assim o esquema fica limpo, sem textos sobrepostos.
     grupos.forEach(({ pos, t, lista }) => {
       const { x: ux, w, fila: f } = pos;
-      const fm = (t.f0 + t.f1) / 2;
-      const y = yLinha(f, faixaEm(t.pts, fm)) - 13;
-      const mostrar = lista.length > 2 ? [lista[0], { ...lista[1], texto: `+${lista.length - 1}`, titulo: `Mais ${lista.length - 1} ponto(s) neste local (toque para ver):\n${lista.slice(1).map((p) => p.titulo || p.texto).join('\n')}` }] : lista;
-      const total = Math.min(Math.max(56, w * 0.9), Math.max(56, w * (t.f1 - t.f0)));
-      const larg = total / mostrar.length;
-      const x0 = ux + w * fm - total / 2;
-      mostrar.forEach((p, n) => {
-        const g = s('g', { class: 'esq-ponto', transform: `translate(${(x0 + n * larg).toFixed(1)},${y.toFixed(1)})` },
-          s('rect', { width: Math.max(8, larg - 1).toFixed(1), height: 11, fill: p.cor, class: 'esq-ponto-caixa' }),
-          s('text', { x: (larg - 1) / 2, y: 8.3, class: 'esq-ponto-txt', 'text-anchor': 'middle' }, String(p.texto || '').slice(0, Math.max(3, Math.floor(larg / 4.4)))),
-          s('title', {}, p.titulo || p.texto || ''));
-        if (op.aoTocarPonto) g.addEventListener('click', (e) => { e.stopPropagation(); if (n === 0) op.aoTocarPonto(lista[0]); else op.aoTocarPonto(lista[1], lista.slice(1)); });
-        gPontos.appendChild(g);
-      });
+      const fm = pos.u.tipo === 'RH' ? Math.min(t.f1, 0.8) : (t.f0 + t.f1) / 2; // na RH, ao lado da casinha (sem cobrir o km)
+      const cx = ux + w * fm; const cy = yLinha(f, faixaEm(t.pts, fm)) - 9;
+      const cor = (lista.find((p) => p.prioridade) || lista[0]).cor;
+      const g = s('g', { class: 'esq-ponto', transform: `translate(${cx.toFixed(1)},${cy.toFixed(1)})`, role: 'button', 'aria-label': `${lista.length} ponto(s) de atenção` },
+        s('circle', { r: 10, class: 'esq-ponto-toque' }),
+        s('path', { d: 'M0,-7 L7.2,5.5 L-7.2,5.5 Z', fill: cor, class: 'esq-ponto-icone' }),
+        s('text', { x: 0, y: 4, class: 'esq-ponto-exc', 'text-anchor': 'middle' }, '!'),
+        lista.length > 1 ? s('g', { transform: 'translate(7,-6)' },
+          s('circle', { r: 5.5, class: 'esq-ponto-qtd' }),
+          s('text', { x: 0, y: 2.6, class: 'esq-ponto-qtd-txt', 'text-anchor': 'middle' }, lista.length > 9 ? '9+' : String(lista.length))) : null,
+        s('title', {}, lista.map((p) => p.titulo || p.texto).join('\n')));
+      if (op.aoTocarPonto) g.addEventListener('click', (e) => { e.stopPropagation(); op.aoTocarPonto(lista[0], lista); });
+      gPontos.appendChild(g);
     });
 
     svg.append(gBase, gRota, gTxt, gAlvo, gPontos);
