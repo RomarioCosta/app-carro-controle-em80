@@ -978,3 +978,4 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .esq-ponto-qtd { fill: #1b2329; stroke: #fff; stroke-width: 1; }
 .esq-ponto-qtd-txt { font-size: 7px; font-weight: 700; fill: #fff; pointer-events: none; }
 .esq-ponto:hover .esq-ponto-icone { filter: brightness(1.15); }
+.esq-ponto-linha { font-size: 7px; font-weight: 700; fill: var(--texto2); pointer-events: none; }
