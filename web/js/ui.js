@@ -46,9 +46,22 @@
     return el;
   }
 
+  /**
+   * Troca o conteúdo do elemento sem a tela pular: enquanto o conteúdo é refeito, a altura fica travada e a
+   * rolagem volta ao ponto em que estava (antes, ao redesenhar um cartão, a página subia sozinha).
+   */
   function trocar(el, ...filhos) {
+    const grande = el.isConnected && el.getElementsByTagName('*').length > 40;
+    const y = grande ? window.scrollY : 0;
+    const min = grande ? el.style.minHeight : '';
+    if (grande) el.style.minHeight = `${el.offsetHeight}px`;
     limpar(el);
     anexar(el, filhos);
+    if (grande) {
+      if (Math.abs(window.scrollY - y) > 1) window.scrollTo(window.scrollX, y);
+      el.style.minHeight = min;
+      if (Math.abs(window.scrollY - y) > 1) window.scrollTo(window.scrollX, y);
+    }
     return el;
   }
 
