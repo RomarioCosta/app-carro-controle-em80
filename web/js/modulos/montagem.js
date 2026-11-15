@@ -278,7 +278,8 @@
     const larg = (a, b) => Math.max(1.2, x(b) - x(a));
     const el = svg('svg', { viewBox: `0 0 ${L} ${A}`, preserveAspectRatio: 'none', class: 'mt-faixa', role: 'img', 'aria-label': 'Cobertura do trecho' });
     const dentro = (s) => s.fim > ini && s.ini < fim;
-    linha.sedes.filter(dentro).forEach((s) => el.appendChild(svg('rect', { x: x(Math.max(ini, s.ini)), y: 2, width: larg(Math.max(ini, s.ini), Math.min(fim, s.fim)), height: 10, class: 'mt-nec' })));
+    // cinza só onde a linha existe: na linha 02 dos ramais os trechos singelos (só linha 01) ficam vazios
+    linha.sedes.filter(dentro).forEach((s) => (s.faixa || [[s.ini, s.fim]]).forEach(([a, b]) => { if (b > ini && a < fim) el.appendChild(svg('rect', { x: x(Math.max(ini, a)), y: 2, width: larg(Math.max(ini, a), Math.min(fim, b)), height: 10, class: 'mt-nec' })); }));
     linha.sedes.filter(dentro).forEach((s) => s.cobertos.forEach(([a, b]) => { if (b > ini && a < fim) el.appendChild(svg('rect', { x: x(Math.max(a, ini)), y: 2, width: larg(Math.max(a, ini), Math.min(b, fim)), height: 10, class: 'mt-cob' })); }));
     // buraco em vermelho só nas sedes que já têm arquivo; nas outras o trecho todo é "falta medir"
     linha.buracos.filter((b) => b.fim > ini && b.ini < fim && linha.sedes.some((s) => s.sede === b.sede && s.coberto > 0))
@@ -318,7 +319,8 @@
       const p = ini + fr * (fim - ini);
       const sede = linha.sedes.find((s) => p >= s.ini && p <= s.fim);
       let situacao = 'fora do que precisa medir';
-      if (sede) {
+      if (sede && sede.faixa && !dentroDe(p, sede.faixa.map(([a, b]) => [a - 5, b + 5]))) situacao = `linha singela (sem linha ${linha.linha} aqui)`;
+      else if (sede) {
         if (linha.sobreposicoes.some((o) => p >= o.ini && p <= o.fim)) situacao = 'medido 2×';
         else if (dentroDe(p, sede.cobertos || [])) situacao = 'medido';
         else if (sede.coberto > 0 && linha.buracos.some((b) => p >= b.ini && p <= b.fim)) situacao = 'buraco';
@@ -460,7 +462,9 @@
       const buracos = s.coberto > 0 ? s.buracos : [];
       linhasTabela.push(h('tr', { tabindex: 0, class: aberto ? 'mt-aberta' : '', onclick: () => { if (aberto) abertos.delete(chave); else abertos.add(chave); render(); } },
         h('td', null, h('strong', { text: C().normSede(s.sede) })),
-        h('td', { text: `${km(s.ini)} – ${km(s.fim)}` }),
+        h('td', s.faixa && s.faixa.length > 1
+          ? { text: `${km(s.ini)} – ${km(s.fim)} · ${s.faixa.length} trechos`, title: `Só onde a linha ${l.linha} existe (entre eles é singela): ${s.faixa.map(([a, b]) => `${km(a)} – ${km(b)}`).join(', ')}` }
+          : { text: `${km(s.ini)} – ${km(s.fim)}` }),
         h('td', { class: 'mt-barra-cel' }, h('div', { class: 'mt-mini' }, faixa({ ...l, sedes: [s] }, s.ini, s.fim, { divisas: false })), h('span', { text: pctTxt(s.pct) })),
         h('td', { class: 'num', text: s.coberto ? kmTxt(Math.max(0, s.necessario - s.coberto)) : kmTxt(s.necessario) }),
         h('td', { class: 'num', text: buracos.length ? String(buracos.length) : '—' }),

@@ -115,6 +115,31 @@
     return out;
   };
 
+  /**
+   * Linha que existe de fato no km. Nos ramais (FA, BH…) a linha 02 só existe em alguns trechos (ex.: EH 09I/09V);
+   * no trecho seguinte (09V/10I) a linha é singela, só a 01. Se o arquivo diz linha 02 (ou 03…) num km onde a
+   * geometria não tem essa linha, mas tem a 01, o trecho conta na linha 01. Retorna (linha, km) → linha.
+   */
+  const cacheGeo = new WeakMap();
+  C.linhaNoKm = (planta, ramal, margem = 0) => {
+    if (!planta || !ramal || !planta.ramais || !planta.ramais[ramal]) return (l) => l;
+    let porRamal = cacheGeo.get(planta);
+    if (!porRamal) { porRamal = {}; cacheGeo.set(planta, porRamal); }
+    if (!porRamal[ramal]) {
+      const ivs = {};
+      planta.ramais[ramal].map(String).forEach((l) => { ivs[l] = C.uniao(C.necessario(planta, ramal, l).map((t) => [t.ini, t.fim]), 0.5); });
+      porRamal[ramal] = ivs;
+    }
+    const ivs = porRamal[ramal];
+    const tem = (iv, y) => {
+      let lo = 0; let hi = iv.length - 1;
+      while (lo <= hi) { const m = (lo + hi) >> 1; if (iv[m][1] + margem < y) lo = m + 1; else if (iv[m][0] - margem > y) hi = m - 1; else return true; }
+      return false;
+    };
+    if (!ivs['1']) return (l) => l;
+    return (l, y) => (l !== '1' && ivs[l] && !tem(ivs[l], y) && tem(ivs['1'], y) ? '1' : l);
+  };
+
   /* ---------------- O que cada arquivo cobre ---------------- */
 
   /**
@@ -339,6 +364,7 @@
         return null;
       };
       // RH (pátio) de cada linha: AMV ficam nos pátios; vale o limite da tangente, como na Tela do carro
+      const real = C.linhaNoKm(planta, ramal);
       const rhPorLinha = {};
       const rhsDe = (l) => { if (!rhPorLinha[l]) rhPorLinha[l] = C.necessario(planta, ramal, l).filter((t) => t.tipo === 'RH'); return rhPorLinha[l]; };
       C.PARAMETROS_GEOMETRIA.forEach((id) => {
@@ -352,8 +378,8 @@
           const val = v[k];
           if (Number.isNaN(val)) continue;
           const y = x + aj[k];
-          const l = linhas[linha[k]];
-          if (B().ehDeslocamento(l)) { fechar(); continue; } // deslocamento: sem alerta
+          if (B().ehDeslocamento(linhas[linha[k]])) { fechar(); continue; } // deslocamento: sem alerta
+          const l = real(linhas[linha[k]], y);
           let el = elemento(elsDe(l), y);
           if (!el) {
             const rh = elemento(rhsDe(l), y);
@@ -400,6 +426,7 @@
       const prox = els[Math.min(lo, els.length - 1)];
       return { eh: prox ? `RH (antes do ${prox.nomeEh || `EH ${prox.eh}`})` : '', sede: prox ? prox.sede || '' : '' };
     };
+    const real = C.linhaNoKm(planta, r.ramal);
     let atual = null;
     const fechar = () => {
       if (atual && atual.fim - atual.ini > 0.5) {
@@ -411,9 +438,9 @@
     for (let k = 0; k < pos.length; k++) {
       const p = pos[k];
       if (cortes.length && B().noCorte(p, cortes)) { fechar(); continue; }
-      const l = linhas[linha[k]];
-      if (B().ehDeslocamento(l)) { fechar(); continue; } // LOCOM: fora
+      if (B().ehDeslocamento(linhas[linha[k]])) { fechar(); continue; } // LOCOM: fora
       const g = p + aj[k];
+      const l = real(linhas[linha[k]], g);
       if (atual && atual.linha === l && Math.abs(g - atual.ult) <= folga) {
         atual.ini = Math.min(atual.ini, g); atual.fim = Math.max(atual.fim, g); atual.ult = g; atual.arqFim = p; atual.yFim = g;
       } else {
@@ -426,8 +453,9 @@
   };
 
   /** Intervalos cobertos por um arquivo resumido, por linha, já no km da geometria. recorte = cortes do arquivo (B.cortesDe), no km do arquivo. */
-  C.coberturaDoArquivo = (r, recorte = null, folga = 3) => {
+  C.coberturaDoArquivo = (r, recorte = null, folga = 3, planta = null) => {
     const cortes = B().cortesDe(recorte);
+    const real = C.linhaNoKm(planta, r.ramal); // linha 02 em trecho singela → linha 01
     const { pos, aj, linha, linhas } = r.amostras;
     const porLinha = {};
     let atual = null;
@@ -436,8 +464,8 @@
       const p = pos[k];
       if (cortes.length && B().noCorte(p, cortes)) { fechar(); continue; }
       const g = p + aj[k];
-      const l = linhas[linha[k]];
-      if (B().ehDeslocamento(l)) { fechar(); continue; } // carro em deslocamento: não conta como medido
+      if (B().ehDeslocamento(linhas[linha[k]])) { fechar(); continue; } // carro em deslocamento: não conta como medido
+      const l = real(linhas[linha[k]], g);
       if (atual && atual.l === l && Math.abs(g - atual.ult) <= folga) {
         atual.i = Math.min(atual.i, g); atual.f = Math.max(atual.f, g); atual.ult = g;
       } else { fechar(); atual = { l, i: g, f: g, ult: g }; }
@@ -456,7 +484,7 @@
    */
   C.montar = (planta, ramal, arquivos, { toleranciaBuraco = 5, incluirRH = true, rhMax = 1000 } = {}) => {
     const linhas = (planta.ramais[ramal] || []).map(String);
-    const cob = arquivos.filter((a) => a.resumo.ramal === ramal).map((a) => ({ a, porLinha: C.coberturaDoArquivo(a.resumo, a.recorte) }));
+    const cob = arquivos.filter((a) => a.resumo.ramal === ramal).map((a) => ({ a, porLinha: C.coberturaDoArquivo(a.resumo, a.recorte, 3, planta) }));
     return linhas.map((linha) => {
       const nec = C.necessario(planta, ramal, linha, { incluirRH, rhMax });
       const necU = C.uniao(nec.map((t) => [t.ini, t.fim]), 0.5);
@@ -486,6 +514,7 @@
         return {
           sede: s.sede, ini: s.ini, fim: s.fim, necessario: necS, coberto: cobS, pct: necS ? (cobS / necS) * 100 : 0,
           buracos: buracos.filter((b) => b.sede === s.sede), arquivos: arqs,
+          faixa, // trechos que precisam ser medidos (na linha 02 só onde ela existe: entre eles é singela)
           cobertos: C.interseccao(faixa, cobertos),
           sobreposicoes: sobreposicoes.filter((o) => o.sede === s.sede),
           rh: s.trechos.filter((t) => t.tipo === 'RH' && t.patio).map((t) => ({ ini: t.ini, fim: t.fim, nome: t.nome }))
@@ -517,7 +546,7 @@
     const r = a.resumo;
     const avisos = [];
     if (!r.ramal) return { id: a.id, nome: a.nome, trechos: [], avisos };
-    const porLinha = C.coberturaDoArquivo(r, a.recorte);
+    const porLinha = C.coberturaDoArquivo(r, a.recorte, 3, planta);
     const trechos = [];
     Object.entries(porLinha).forEach(([linha, iv]) => {
       const sedes = C.sedes(C.necessario(planta, r.ramal, linha));

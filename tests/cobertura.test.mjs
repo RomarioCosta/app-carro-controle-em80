@@ -269,3 +269,15 @@ test('cortes do arquivo (vários) na cobertura, nos alertas e nos km lançados',
   // formato antigo continua valendo
   assert.equal(Math.round(C.extensao(C.coberturaDoArquivo(a.resumo, { de: 1000, ate: 2000 })['1'])), 1000);
 });
+
+test('ramal com linha 02 só em alguns trechos: no trecho singelo o arquivo da linha 02 conta na linha 01', () => {
+  // linha 01 em todo o ramal; linha 02 só no 2º elemento (1.100–2.100), como o EH 09I/09V do ramal de fábrica
+  const pl = { elementos: [...elementos, { ...elementos[1], linha: '2' }], ramais: { LT: ['1', '2'] } };
+  const [l1, l2] = C.montar(pl, 'LT', [{ id: 'a', nome: 'a', resumo: resumo('a', 0, 3200, '2'), recorte: null }]);
+  assert.equal(Math.round(l2.necessario), 1000); // a linha 02 não tem o comprimento da linha 01
+  assert.equal(Math.round(l2.pct), 100);
+  assert.ok(Math.abs(l1.coberto - 2200) < 5); // 0–1.000 e 2.200–3.200 (singela) contam na linha 01
+  assert.deepEqual(j(l2.sedes[0].faixa), [[1100, 2100]]);
+  const lanc = C.kmLancados(resumo('a', 0, 3200, '2'), null, pl);
+  assert.deepEqual(j(lanc.map((t) => t.linha)), ['1', '2', '1']);
+});
