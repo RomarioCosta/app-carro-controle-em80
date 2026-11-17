@@ -1017,12 +1017,18 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mensal-faixa.retirado { background: #8a96a0; }
 .modal p { overflow-wrap: anywhere; }
 
-/* Arquivos do carro (busca automática) */
-.ca-suave { color: var(--texto2); font-size: .88rem; }
-.ca-novos { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: 10px; }
+/* Buscar do carro */
 .ca-config > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
 .ca-config > .pilha { padding-top: 8px; }
 .ca-config textarea { width: 100%; font-family: ui-monospace, monospace; }
+.bc-tabela td:first-child, .bc-tabela th:first-child { width: 32px; }
+.bc-tabela input[type=checkbox] { width: 18px; height: 18px; }
+.bc-sit { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .82rem; font-weight: 600; background: var(--sup2); color: var(--texto2); }
+.bc-sit-novo { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.bc-sit-pronto { background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); }
+.bc-sit-montagem { color: var(--texto2); }
+.bc-sit-teste, .bc-sit-carro { color: var(--texto3); }
+.bc-teste td, .bc-montagem td { opacity: .7; }
 
 </style>
 </head>
@@ -1245,7 +1251,7 @@ window.App = window.App || {};
     versao: '2026.11.17',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-4e83408c17', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-dbf93c2296', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -8852,12 +8858,14 @@ window.App = window.App || {};
   <script>
 /* js/modulos/carro-auto.js */
 /*
- * Painel da automação "Buscar arquivos do carro" (script do Windows em automacao/buscar-carro).
- * O script busca os CSV do carro pelo cabo e grava em Documentos\Carro Controle:
- *   Novos\*.csv       arquivos ainda não carregados no app
- *   estado.json       resultado da última busca (o script escreve)
- *   configuracao.json configurações (o app escreve; o script lê a cada busca)
- * Aqui o app lê o estado, carrega os novos na Montagem e grava a configuração.
+ * Tela "Buscar do carro": conversa com o script do Windows (automacao/buscar-carro) pela pasta
+ * Documentos\Carro Controle:
+ *   pedido.json        o app pede uma busca agora (período, sedes, só novos/todos) e abre carrocontrole://buscar
+ *   estado.json        o script grava o resultado da última busca (pedidoId diz qual pedido terminou)
+ *   catalogo.json      o script lista todos os CSV do carro (nome, sede, data) a cada busca
+ *   configuracao.json  busca automática (intervalo, horário, avisos…), lida pelo script
+ *   Todos\, Novos\     arquivos copiados (Novos = ainda não trazidos para a Montagem)
+ * Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD… (ex.: RLT_CP_20261117).
  * Só funciona onde o navegador dá acesso a pastas (Chrome/Edge no computador).
  */
 'use strict';
@@ -8865,7 +8873,7 @@ window.App = window.App || {};
 (function (App) {
   const { h } = App.ui;
   const ui = App.ui;
-  const U = App.util;
+  const U = App.U;
   const store = App.store;
   const CHAVE = 'carroAuto:pasta';
   const suportado = () => typeof window.showDirectoryPicker === 'function';
@@ -8875,38 +8883,55 @@ window.App = window.App || {};
     avisos: 'sempre', avisarSemCabo: true, segundosAviso: 30, modoWifi: 'desconectar', atualizarAuto: true
   };
   const INTERVALOS = [[30, '30 min'], [60, '1 hora'], [120, '2 horas'], [180, '3 horas'], [240, '4 horas'], [360, '6 horas'], [480, '8 horas']];
+  const MAX_LINHAS = 400;
 
+  let raiz = null;
   let pasta = null; // FileSystemDirectoryHandle
   let permitido = false;
   let estado = null;
-  let config = null; // configuracao.json (null = ainda não existe)
-  let novos = [];
+  let config = null;
+  let catalogo = null;
+  let emTodos = new Set();
+  let emNovos = new Set();
+  let naMontagem = new Set();
+  let marcados = new Set();
+  let buscando = null; // { id, inicio }
+  let trazendo = false;
   let erro = '';
-  let ocupado = false;
-  let carregarNaMontagem = null; // (File[]) => Promise<string[]> nomes processados
-  let el = null;
+  let timer = null;
+
+  const hoje = () => new Date().toISOString().slice(0, 10);
+  const diasAtras = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  const filtro = U.pref.get('carroAuto:filtro', null) || { de: diasAtras(7), ate: hoje(), sedes: '', modo: 'novos' };
+  const salvarFiltro = () => U.pref.set('carroAuto:filtro', filtro);
+  const sedesDoFiltro = () => filtro.sedes.split(/[,;\s]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
+
+  /** RLT_CP_20261117… → { ramal, sede, data: '2026-11-17' } */
+  function infoNome(nome) {
+    const m = /^([A-Za-z0-9]+)_([A-Za-z0-9]+)_(\d{4})(\d{2})(\d{2})/.exec(nome);
+    return m ? { ramal: m[1].toUpperCase(), sede: m[2].toUpperCase(), data: `${m[3]}-${m[4]}-${m[5]}` } : { ramal: '', sede: '', data: '' };
+  }
 
   /* ---------- arquivos ---------- */
 
   const semBom = (t) => t.replace(/^﻿/, '');
   async function lerJson(nome) {
-    try {
-      const f = await (await pasta.getFileHandle(nome)).getFile();
-      return JSON.parse(semBom(await f.text()));
-    } catch (e) {
-      return null;
-    }
+    try { return JSON.parse(semBom(await (await (await pasta.getFileHandle(nome)).getFile()).text())); } catch (e) { return null; }
   }
   async function gravarJson(nome, obj) {
-    const fh = await pasta.getFileHandle(nome, { create: true });
-    const w = await fh.createWritable();
+    const w = await (await pasta.getFileHandle(nome, { create: true })).createWritable();
     await w.write(JSON.stringify(obj, null, 2));
     await w.close();
   }
-  async function pastaNovos(criar = false) {
-    try { return await pasta.getDirectoryHandle('Novos', { create: criar }); } catch (e) { return null; }
+  async function subpasta(nome) {
+    try { return await pasta.getDirectoryHandle(nome); } catch (e) { return null; }
   }
-
+  async function nomesEm(nome) {
+    const s = new Set();
+    const d = await subpasta(nome);
+    if (d) for await (const [n, hd] of d.entries()) if (hd.kind === 'file') s.add(n);
+    return s;
+  }
   async function temPermissao(pedir) {
     if (!pasta) return false;
     if (typeof pasta.queryPermission !== 'function') return true;
@@ -8921,16 +8946,14 @@ window.App = window.App || {};
     if (!permitido) return;
     estado = await lerJson('estado.json');
     config = await lerJson('configuracao.json');
-    novos = [];
-    const dir = await pastaNovos();
-    if (dir) {
-      for await (const [nome, hd] of dir.entries()) if (hd.kind === 'file' && /\.csv$/i.test(nome)) novos.push(nome);
-      novos.sort();
-    }
+    catalogo = await lerJson('catalogo.json');
+    emTodos = await nomesEm('Todos');
+    emNovos = await nomesEm('Novos');
+    naMontagem = new Set(App.montagem && App.montagem.nomes ? await App.montagem.nomes() : []);
   }
 
   async function atualizar() {
-    if (!suportado()) return;
+    if (!suportado() || !raiz) return;
     try {
       if (!pasta) pasta = (await store.get(CHAVE).catch(() => null)) || null;
       if (pasta) await ler();
@@ -8947,7 +8970,7 @@ window.App = window.App || {};
       await store.set(CHAVE, d).catch(() => {});
       await temPermissao(true).catch(() => false);
       await ler();
-      if (permitido && !estado && !config && !(await pastaNovos())) ui.toast('Essa pasta não parece a "Carro Controle" do script (sem estado.json nem Novos). Confira se é Documentos\\Carro Controle.', 'info', 8000);
+      if (permitido && !estado && !catalogo && !(await subpasta('Novos'))) ui.toast('Essa pasta não parece a "Carro Controle" do script. Confira se é Documentos\\Carro Controle.', 'info', 8000);
     } catch (e) {
       if (e.name !== 'AbortError') ui.toast(`Não foi possível abrir a pasta: ${e.message}`, 'erro', 6000);
     }
@@ -8959,21 +8982,94 @@ window.App = window.App || {};
     render();
   }
 
-  async function carregarNovos() {
-    if (!carregarNaMontagem || !novos.length) return;
-    ocupado = true; render();
+  /* ---------- buscar agora ---------- */
+
+  async function buscarAgora() {
+    if (filtro.de && filtro.ate && filtro.de > filtro.ate) { ui.toast('A data inicial é depois da final.', 'erro', 5000); return; }
     try {
-      const dir = await pastaNovos();
-      const files = [];
-      for (const n of novos) files.push(await (await dir.getFileHandle(n)).getFile());
-      const feitos = (await carregarNaMontagem(files)) || [];
-      // tira da pasta Novos o que já está na Montagem (a cópia continua em Todos)
-      for (const n of feitos) await dir.removeEntry(n).catch(() => {});
-      await ler();
+      if (!(await temPermissao(true))) throw new Error('sem permissão na pasta');
+      const id = U.uuid();
+      await gravarJson('pedido.json', { id, de: filtro.de || '', ate: filtro.ate || '', sedes: sedesDoFiltro(), modo: filtro.modo, criadoEm: new Date().toISOString() });
+      buscando = { id, inicio: Date.now() };
+      render();
+      // o Windows abre o script (link registrado pelo próprio script na primeira vez que roda)
+      h('a', { href: 'carrocontrole://buscar' }).click();
+      esperar();
     } catch (e) {
-      ui.toast(`Erro ao carregar os arquivos do carro: ${e.message}`, 'erro', 8000);
+      ui.toast(`Não foi possível pedir a busca: ${e.message}`, 'erro', 6000);
     }
-    ocupado = false; render();
+  }
+
+  function esperar() {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      if (!buscando) return;
+      const e = await lerJson('estado.json').catch(() => null);
+      if (e && e.pedidoId === buscando.id) {
+        buscando = null;
+        await ler();
+        const msg = { ok: `Busca concluída: ${e.novos || 0} arquivo(s) copiado(s).`, semCabo: 'O cabo de rede do carro não está conectado.', semAcesso: 'Não consegui acessar a pasta do carro.', semPasta: 'Nenhuma pasta do carro configurada.' }[e.resultado] || 'Busca concluída.';
+        ui.toast(msg, e.resultado === 'ok' ? 'ok' : 'erro', 6000);
+        marcarProntos();
+        render();
+        return;
+      }
+      if (Date.now() - buscando.inicio > 4 * 60000) {
+        buscando = null;
+        ui.toast('O Windows não respondeu ao pedido de busca. Se for a primeira vez, rode o "Buscar arquivos do carro.bat" uma vez (ele instala o botão) e tente de novo.', 'erro', 12000);
+        render();
+        return;
+      }
+      const b = raiz && raiz.querySelector('[data-bc-buscar]');
+      if (b && b.lastChild) b.lastChild.textContent = `Buscando… ${Math.round((Date.now() - buscando.inicio) / 1000)}s`;
+      esperar();
+    }, 2000);
+  }
+
+  function cancelarEspera() {
+    buscando = null; clearTimeout(timer);
+    pasta && pasta.removeEntry && pasta.removeEntry('pedido.json').catch(() => {});
+    render();
+  }
+
+  /* ---------- lista ---------- */
+
+  function situacao(a) {
+    if (a.teste) return ['teste', 'Teste (desprezado)'];
+    if (naMontagem.has(a.nome)) return ['montagem', 'Na Montagem'];
+    if (emNovos.has(a.nome)) return ['novo', 'Novo · pronto para trazer'];
+    if (emTodos.has(a.nome)) return ['pronto', 'Pronto para trazer'];
+    return ['carro', 'Só no carro (busque para copiar)'];
+  }
+  function listaFiltrada() {
+    const sedes = sedesDoFiltro();
+    const base = (catalogo && catalogo.arquivos) || [];
+    return base.map((a) => ({ ...infoNome(a.nome), ...a, data: a.data || infoNome(a.nome).data }))
+      .filter((a) => (!filtro.de || !a.data || a.data >= filtro.de) && (!filtro.ate || !a.data || a.data <= filtro.ate) && (!sedes.length || sedes.includes(String(a.sede).toUpperCase())))
+      .sort((a, b) => (b.data || '').localeCompare(a.data || '') || a.nome.localeCompare(b.nome));
+  }
+  const podeTrazer = (a) => ['novo', 'pronto'].includes(situacao(a)[0]);
+  function marcarProntos() {
+    marcados = new Set(listaFiltrada().filter((a) => podeTrazer(a)).map((a) => a.nome));
+  }
+
+  async function trazer() {
+    const nomes = [...marcados].filter((n) => emTodos.has(n) && !naMontagem.has(n));
+    if (!nomes.length) return;
+    trazendo = true; render();
+    try {
+      const todos = await subpasta('Todos');
+      const files = [];
+      for (const n of nomes) files.push(await (await todos.getFileHandle(n)).getFile());
+      const feitos = (await App.montagem.adicionarArquivos(files)) || [];
+      const novos = await subpasta('Novos');
+      if (novos) for (const n of feitos) if (emNovos.has(n)) await novos.removeEntry(n).catch(() => {});
+      await ler();
+      feitos.forEach((n) => marcados.delete(n));
+    } catch (e) {
+      ui.toast(`Erro ao trazer os arquivos: ${e.message}`, 'erro', 8000);
+    }
+    trazendo = false; render();
   }
 
   /* ---------- tela ---------- */
@@ -8982,67 +9078,146 @@ window.App = window.App || {};
     const d = iso ? new Date(iso) : null;
     return d && !isNaN(d) ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : '—';
   };
+  const dataBr = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
   const efetiva = () => ({ ...PADRAO, ...((estado && estado.config) || {}), ...(config || {}) });
 
-  function linhaEstado() {
-    if (!estado) return h('p', { class: 'aviso', text: 'Nenhuma busca registrada ainda nesta pasta. Rode o "Buscar arquivos do carro.bat" uma vez.' });
+  function cartaoPasta() {
+    const cab = h('h2', { text: 'Buscar arquivos do carro' });
+    if (!pasta) {
+      return h('section', { class: 'cartao pilha' }, cab,
+        h('p', { class: 'sub', text: 'Ligue o app à pasta onde o script "Buscar arquivos do carro" grava os arquivos (Documentos\\Carro Controle). Depois é só buscar e trazer para a Montagem por aqui.' }),
+        h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-primario', onclick: escolherPasta }, ui.icone('documento'), 'Escolher a pasta Carro Controle')));
+    }
+    if (!permitido) {
+      return h('section', { class: 'cartao pilha' }, cab,
+        h('p', { class: 'sub', text: `O navegador pede para confirmar o acesso à pasta ${pasta.name}.` }),
+        h('div', { class: 'linha-acoes' },
+          h('button', { class: 'btn btn-primario', onclick: permitir }, ui.icone('check'), 'Permitir acesso à pasta'),
+          h('button', { class: 'btn', onclick: escolherPasta, text: 'Escolher outra pasta' })));
+    }
     const c = efetiva();
-    const partes = [];
-    const msg = {
-      ok: estado.novos ? `${estado.novos} arquivo(s) novo(s)` : 'nenhum arquivo novo',
-      semCabo: 'cabo do carro não conectado',
-      semAcesso: `sem acesso a ${(estado.semAcesso || []).join(', ') || 'pasta do carro'}`,
-      semPasta: 'nenhuma pasta do carro configurada',
-      erro: 'erro na busca'
-    }[estado.resultado] || estado.mensagem || estado.resultado || '';
-    partes.push(h('strong', { text: `Última busca: ${dataHora(estado.ultimaBusca)}` }), ` · ${msg}`);
-    if (estado.testes) partes.push(` · ${estado.testes} de teste desprezado(s)`);
-    if (estado.erros) partes.push(` · ${estado.erros} erro(s) ao copiar`);
-    const problema = ['semAcesso', 'erro', 'semPasta'].includes(estado.resultado) || estado.erros;
-    const linhas = [h('p', { class: problema ? 'aviso aviso-erro' : '', 'data-carro-estado': '' }, ...partes)];
-    if (c.ativo && estado.ultimaBusca) {
-      const prox = new Date(new Date(estado.ultimaBusca).getTime() + c.intervaloMin * 60000);
-      const atrasada = Date.now() - prox.getTime() > 45 * 60000;
-      linhas.push(h('p', { class: atrasada ? 'aviso' : 'ca-suave', text: atrasada
-        ? `A busca automática deveria ter rodado às ${dataHora(prox.toISOString())}. O notebook estava desligado ou o agendamento não está ativo (rode "Ativar agendamento.bat").`
-        : `Próxima busca automática por volta de ${dataHora(prox.toISOString())}${c.horaIni && c.horaFim ? ` (só entre ${c.horaIni} e ${c.horaFim})` : ''}.` }));
-    } else if (!c.ativo) linhas.push(h('p', { class: 'aviso', text: 'Busca automática pausada.' }));
-    if (estado.versao) linhas.push(h('small', { class: 'ca-suave', text: `Script versão ${estado.versao}` }));
-    return linhas;
+    const linhas = [];
+    if (!estado) linhas.push(h('p', { class: 'aviso', text: 'Nenhuma busca feita ainda. Se o script nunca rodou neste notebook, rode o "Buscar arquivos do carro.bat" uma vez.' }));
+    else {
+      const msg = {
+        ok: estado.novos ? `${estado.novos} arquivo(s) copiado(s)` : 'nenhum arquivo novo',
+        semCabo: 'cabo do carro não conectado',
+        semAcesso: `sem acesso a ${(estado.semAcesso || []).join(', ') || 'pasta do carro'}`,
+        semPasta: 'nenhuma pasta do carro configurada'
+      }[estado.resultado] || estado.mensagem || '';
+      const problema = ['semAcesso', 'semPasta'].includes(estado.resultado) || estado.erros;
+      linhas.push(h('p', { class: problema ? 'aviso aviso-erro' : '', 'data-carro-estado': '' },
+        h('strong', { text: `Última busca: ${dataHora(estado.ultimaBusca)}` }), ` · ${msg}`,
+        estado.testes ? ` · ${estado.testes} de teste desprezado(s)` : '', estado.erros ? ` · ${estado.erros} erro(s) ao copiar` : ''));
+      if (c.ativo && estado.ultimaBusca) {
+        const prox = new Date(new Date(estado.ultimaBusca).getTime() + c.intervaloMin * 60000);
+        linhas.push(h('p', { class: 'sub', text: `Busca automática: a cada ${(INTERVALOS.find(([v]) => v === Number(c.intervaloMin)) || [0, `${c.intervaloMin} min`])[1]}, próxima por volta de ${dataHora(prox.toISOString())}${c.horaIni && c.horaFim ? ` (entre ${c.horaIni} e ${c.horaFim})` : ''}.` }));
+      } else if (!c.ativo) linhas.push(h('p', { class: 'sub', text: 'Busca automática desligada.' }));
+    }
+    return h('section', { class: 'cartao pilha' },
+      h('div', { class: 'tela-cab' }, cab, h('button', { class: 'btn-icone', title: 'Ler de novo a pasta', 'aria-label': 'Atualizar', onclick: () => atualizar() }, ui.icone('sync'))),
+      erro ? h('p', { class: 'aviso aviso-erro', text: erro }) : null,
+      ...linhas,
+      h('small', { class: 'sub' }, `Pasta: ${pasta.name}${estado && estado.versao ? ` · script ${estado.versao}` : ''} · `, h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherPasta(); }, text: 'trocar' })));
   }
 
-  function formulario() {
+  function cartaoBusca() {
+    const de = h('input', { type: 'date', value: filtro.de, name: 'carroDe' });
+    const ate = h('input', { type: 'date', value: filtro.ate, name: 'carroAte' });
+    const sedes = [...new Set(((catalogo && catalogo.arquivos) || []).map((a) => String(a.sede || infoNome(a.nome).sede).toUpperCase()).filter(Boolean))].sort();
+    const lista = h('datalist', { id: 'carro-sedes' }, sedes.map((s) => h('option', { value: s })));
+    const sede = h('input', { type: 'text', value: filtro.sedes, list: 'carro-sedes', placeholder: 'todas', name: 'carroSede', autocomplete: 'off' });
+    const aplicar = () => {
+      filtro.de = de.value; filtro.ate = ate.value; filtro.sedes = sede.value; salvarFiltro();
+      marcarProntos(); renderLista();
+    };
+    [de, ate].forEach((x) => x.addEventListener('change', aplicar));
+    sede.addEventListener('input', U.debounce ? U.debounce(aplicar, 250) : aplicar);
+    const atalho = (rot, d0, d1) => h('button', { type: 'button', class: 'btn btn-fantasma', onclick: () => { de.value = d0; ate.value = d1; aplicar(); }, text: rot });
+    const modo = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'O que buscar' },
+      [['novos', 'Só os novos'], ['todos', 'Todos do período (copia de novo)']].map(([v, t]) => h('button', {
+        type: 'button', role: 'radio', class: `seg-opcao${filtro.modo === v ? ' ativo' : ''}`, 'aria-checked': filtro.modo === v ? 'true' : 'false',
+        onclick: () => { filtro.modo = v; salvarFiltro(); render(); }, text: t
+      })));
+    const ocupado = !!buscando;
+    const seg = buscando ? Math.round((Date.now() - buscando.inicio) / 1000) : 0;
+    return h('section', { class: 'cartao pilha' },
+      h('h2', { text: 'Buscar agora' }),
+      h('div', { class: 'grade-3' }, ui.campo('De', de), ui.campo('Até', ate), ui.campo('Sede', sede, { ajuda: 'ex.: CP · várias separadas por vírgula · vazio = todas' })), lista,
+      h('div', { class: 'linha-acoes' }, atalho('Hoje', hoje(), hoje()), atalho('Ontem', diasAtras(1), diasAtras(1)), atalho('7 dias', diasAtras(7), hoje()), atalho('30 dias', diasAtras(30), hoje())),
+      modo,
+      h('div', { class: 'linha-acoes' },
+        h('button', { class: 'btn btn-primario', 'data-bc-buscar': '', disabled: ocupado || null, onclick: buscarAgora }, ui.icone('sync'), document.createTextNode(ocupado ? `Buscando… ${seg}s` : 'Buscar agora')),
+        ocupado ? h('button', { class: 'btn', onclick: cancelarEspera, text: 'Parar de esperar' }) : null),
+      ocupado ? h('p', { class: 'aviso', text: 'O Windows está buscando no carro: o Wi-Fi do notebook cai por alguns segundos e volta sozinho. Se o navegador perguntar "Abrir Buscar arquivos do carro?", marque "Sempre permitir" e confirme.' }) : null);
+  }
+
+  let listaEl = null;
+  function renderLista() {
+    if (!listaEl) return;
+    const todos = listaFiltrada();
+    const linhas = todos.slice(0, MAX_LINHAS);
+    const sel = [...marcados].filter((n) => todos.some((a) => a.nome === n && podeTrazer(a)));
+    const contagem = {};
+    todos.forEach((a) => { const k = situacao(a)[0]; contagem[k] = (contagem[k] || 0) + 1; });
+    const corpo = !catalogo
+      ? [h('p', { class: 'sub', text: 'Faça uma busca para listar os arquivos do carro.' })]
+      : !todos.length
+        ? [h('p', { class: 'sub', text: 'Nenhum arquivo do carro nesse período/sede.' })]
+        : [
+          h('p', { class: 'sub', 'data-carro-resumo': '' }, `${todos.length} arquivo(s) no carro nesse filtro`,
+            contagem.novo ? ` · ${contagem.novo} novo(s)` : '', contagem.pronto ? ` · ${contagem.pronto} pronto(s)` : '',
+            contagem.montagem ? ` · ${contagem.montagem} já na Montagem` : '', contagem.carro ? ` · ${contagem.carro} só no carro` : '',
+            catalogo.geradoEm ? ` · lista de ${dataHora(catalogo.geradoEm)}` : ''),
+          h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela bc-tabela' },
+            h('thead', {}, h('tr', {},
+              h('th', {}, h('input', { type: 'checkbox', 'aria-label': 'Marcar todos', checked: sel.length && sel.length === todos.filter(podeTrazer).length || null,
+                onchange: (e) => { marcados = e.target.checked ? new Set(todos.filter(podeTrazer).map((a) => a.nome)) : new Set(); renderLista(); } })),
+              h('th', { text: 'Arquivo' }), h('th', { text: 'Sede' }), h('th', { text: 'Data' }), h('th', { text: 'Situação' }))),
+            h('tbody', {}, linhas.map((a) => {
+              const [k, t] = situacao(a);
+              const pode = podeTrazer(a);
+              return h('tr', { class: `bc-${k}` },
+                h('td', {}, h('input', { type: 'checkbox', 'aria-label': `Marcar ${a.nome}`, disabled: !pode || null, checked: (pode && marcados.has(a.nome)) || null,
+                  onchange: (e) => { if (e.target.checked) marcados.add(a.nome); else marcados.delete(a.nome); renderLista(); } })),
+                h('td', { text: a.nome }), h('td', { text: a.sede || '—' }), h('td', { text: dataBr(a.data) }), h('td', {}, h('span', { class: `bc-sit bc-sit-${k}`, text: t })));
+            })))),
+          todos.length > MAX_LINHAS ? h('p', { class: 'sub', text: `Mostrando ${MAX_LINHAS} de ${todos.length}: estreite o período ou a sede.` }) : null,
+          contagem.carro ? h('p', { class: 'sub', text: 'Os que estão "só no carro" ainda não foram copiados: use Buscar agora com "Todos do período".' }) : null
+        ];
+    ui.trocar(listaEl,
+      h('div', { class: 'tela-cab' }, h('h2', { text: 'Arquivos do carro' }),
+        h('button', { class: 'btn btn-primario', disabled: !sel.length || trazendo || null, onclick: trazer }, ui.icone('upload'), trazendo ? 'Trazendo…' : `Trazer para a Montagem (${sel.length})`)),
+      ...corpo);
+  }
+
+  function cartaoAutomatico() {
     const c = efetiva();
     const campos = {};
     const chk = (k, rot) => h('label', { class: 'check' }, (campos[k] = h('input', { type: 'checkbox', checked: c[k] || null })), ' ', rot);
     campos.intervaloMin = h('select', {}, INTERVALOS.map(([v, t]) => h('option', { value: v, selected: Number(c.intervaloMin) === v || null, text: t })));
     campos.horaIni = h('input', { type: 'time', value: c.horaIni || '' });
     campos.horaFim = h('input', { type: 'time', value: c.horaFim || '' });
+    campos.avisos = h('select', {}, [['sempre', 'Sempre (inclusive "não existe arquivo novo")'], ['novos', 'Só quando vier arquivo novo ou der problema'], ['nunca', 'Nunca']]
+      .map(([v, t]) => h('option', { value: v, selected: c.avisos === v || null, text: t })));
     campos.origens = h('textarea', { rows: 2, placeholder: '\\\\em3\\C\\DADOS', value: (c.origens || []).join('\n') });
     campos.ignorar = h('input', { type: 'text', value: (c.ignorar || []).join(', '), placeholder: 'teste' });
     campos.dias = h('input', { type: 'number', min: 0, max: 365, value: c.dias });
-    campos.avisos = h('select', {}, [['sempre', 'Sempre (inclusive "não existe arquivo novo")'], ['novos', 'Só quando vier arquivo novo ou der problema'], ['nunca', 'Nunca']]
-      .map(([v, t]) => h('option', { value: v, selected: c.avisos === v || null, text: t })));
     campos.segundosAviso = h('input', { type: 'number', min: 5, max: 600, value: c.segundosAviso });
     campos.modoWifi = h('select', {}, [['desconectar', 'Desconectar (sem administrador)'], ['desativar', 'Desativar o adaptador (administrador)']]
       .map(([v, t]) => h('option', { value: v, selected: c.modoWifi === v || null, text: t })));
     async function salvar() {
-      const num = (x, d) => (Number.isFinite(Number(x)) ? Number(x) : d);
+      const num = (x, d) => (x !== '' && Number.isFinite(Number(x)) ? Number(x) : d);
       const nova = {
-        ativo: campos.ativo.checked,
-        intervaloMin: num(campos.intervaloMin.value, 120),
+        ativo: campos.ativo.checked, intervaloMin: num(campos.intervaloMin.value, 120),
         horaIni: campos.horaIni.value, horaFim: campos.horaFim.value,
         origens: campos.origens.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
         ignorar: campos.ignorar.value.split(/[,;]/).map((s) => s.trim()).filter(Boolean),
-        dias: Math.max(0, num(campos.dias.value, 10)),
-        avisos: campos.avisos.value,
-        avisarSemCabo: campos.avisarSemCabo.checked,
-        segundosAviso: Math.max(5, num(campos.segundosAviso.value, 30)),
-        modoWifi: campos.modoWifi.value,
-        atualizarAuto: campos.atualizarAuto.checked,
+        dias: Math.max(0, num(campos.dias.value, 10)), avisos: campos.avisos.value, avisarSemCabo: campos.avisarSemCabo.checked,
+        segundosAviso: Math.max(5, num(campos.segundosAviso.value, 30)), modoWifi: campos.modoWifi.value, atualizarAuto: campos.atualizarAuto.checked,
         salvoEm: new Date().toISOString()
       };
-      if ((nova.horaIni && !nova.horaFim) || (!nova.horaIni && nova.horaFim)) { ui.toast('Preencha as duas horas do horário, ou deixe as duas vazias.', 'erro', 5000); return; }
+      if (!!nova.horaIni !== !!nova.horaFim) { ui.toast('Preencha as duas horas do horário, ou deixe as duas vazias.', 'erro', 5000); return; }
       try {
         if (!(await temPermissao(true))) throw new Error('sem permissão na pasta');
         await gravarJson('configuracao.json', nova);
@@ -9053,70 +9228,47 @@ window.App = window.App || {};
         ui.toast(`Não foi possível salvar: ${e.message}`, 'erro', 6000);
       }
     }
-    return h('details', { class: 'ca-config' },
-      h('summary', { text: 'Configurar a busca automática' }),
-      h('div', { class: 'pilha' },
-        chk('ativo', 'Busca automática ligada'),
-        h('div', { class: 'grade-3' },
-          ui.campo('Buscar a cada', campos.intervaloMin),
-          ui.campo('Só a partir de', campos.horaIni, { ajuda: 'vazio = o dia todo' }),
-          ui.campo('Até', campos.horaFim)),
-        ui.campo('Pastas dos computadores do carro (uma por linha)', campos.origens, { ajuda: 'Vazio = usa o que está no configuracao.ps1 do script.' }),
-        h('div', { class: 'grade-3' },
-          ui.campo('Desprezar arquivos com no nome', campos.ignorar, { ajuda: 'separe por vírgula' }),
-          ui.campo('Só arquivos dos últimos (dias)', campos.dias, { ajuda: '0 = todos' }),
-          ui.campo('Janela de aviso fecha em (s)', campos.segundosAviso)),
-        h('div', { class: 'grade-2' },
-          ui.campo('Mostrar aviso no fim da busca', campos.avisos),
-          ui.campo('Wi-Fi durante a cópia', campos.modoWifi)),
-        chk('avisarSemCabo', 'Avisar quando o cabo do carro não estiver conectado'),
-        chk('atualizarAuto', 'Atualizar o script sozinho pelo GitHub'),
-        h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-primario', onclick: salvar }, ui.icone('check'), 'Salvar configuração'))));
-  }
-
-  function conteudo() {
-    const cab = h('div', { class: 'tela-cab' }, h('h2', { text: 'Arquivos do carro (busca automática)' }),
-      pasta && permitido ? h('button', { class: 'btn-icone', title: 'Ler de novo a pasta', 'aria-label': 'Atualizar arquivos do carro', onclick: () => atualizar() }, ui.icone('sync')) : null);
-    if (!pasta) {
-      return [cab,
-        h('p', { class: 'ca-suave', text: 'Ligue o app à pasta onde o script "Buscar arquivos do carro" grava os arquivos (Documentos\\Carro Controle). Daqui você vê a última busca, carrega os novos na Montagem e configura a busca.' }),
-        h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-primario', onclick: escolherPasta }, ui.icone('documento'), 'Escolher a pasta Carro Controle'))];
-    }
-    if (!permitido) {
-      return [cab,
-        h('p', { class: 'ca-suave', text: `O navegador pede para confirmar o acesso à pasta ${pasta.name}.` }),
-        h('div', { class: 'linha-acoes' },
-          h('button', { class: 'btn btn-primario', onclick: permitir }, ui.icone('check'), 'Permitir acesso à pasta'),
-          h('button', { class: 'btn', onclick: escolherPasta, text: 'Escolher outra pasta' }))];
-    }
-    return [cab,
-      erro ? h('p', { class: 'aviso aviso-erro', text: erro }) : null,
-      ...linhaEstado(),
-      h('div', { class: 'ca-novos' },
-        h('span', { 'data-carro-novos': '', text: novos.length ? `${novos.length} arquivo(s) aguardando para carregar` : 'Nenhum arquivo aguardando na pasta Novos.' }),
-        novos.length ? h('button', { class: 'btn btn-primario', disabled: ocupado || !carregarNaMontagem || null, title: novos.join('\n'), onclick: carregarNovos },
-          ui.icone('upload'), ocupado ? 'Carregando…' : 'Carregar na Montagem') : null),
-      formulario(),
-      h('small', { class: 'ca-suave' }, `Pasta: ${pasta.name} · `, h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherPasta(); }, text: 'trocar' }))];
+    return h('section', { class: 'cartao pilha' },
+      h('h2', { text: 'Busca automática' }),
+      chk('ativo', 'Buscar sozinho de tempos em tempos'),
+      h('div', { class: 'grade-3' },
+        ui.campo('Buscar a cada', campos.intervaloMin),
+        ui.campo('Só a partir de', campos.horaIni, { ajuda: 'vazio = o dia todo' }),
+        ui.campo('Até', campos.horaFim)),
+      ui.campo('Aviso no fim da busca automática', campos.avisos),
+      h('details', { class: 'ca-config' }, h('summary', { text: 'Mais opções' }),
+        h('div', { class: 'pilha' },
+          ui.campo('Pastas dos computadores do carro (uma por linha)', campos.origens, { ajuda: 'Vazio = usa o que está no configuracao.ps1 do script.' }),
+          h('div', { class: 'grade-3' },
+            ui.campo('Desprezar arquivos com no nome', campos.ignorar, { ajuda: 'separe por vírgula' }),
+            ui.campo('Busca automática: últimos (dias)', campos.dias, { ajuda: '0 = todos' }),
+            ui.campo('Janela de aviso fecha em (s)', campos.segundosAviso)),
+          ui.campo('Wi-Fi durante a cópia', campos.modoWifi),
+          chk('avisarSemCabo', 'Avisar quando o cabo do carro não estiver conectado'),
+          chk('atualizarAuto', 'Atualizar o script sozinho pelo GitHub'))),
+      h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-primario', onclick: salvar }, ui.icone('check'), 'Salvar configuração')));
   }
 
   function render() {
-    if (!el) return;
-    const aberto = el.querySelector('.ca-config') && el.querySelector('.ca-config').open;
-    ui.trocar(el, ...conteudo());
-    if (aberto && el.querySelector('.ca-config')) el.querySelector('.ca-config').open = true;
+    if (!raiz) return;
+    if (!suportado()) {
+      ui.trocar(raiz, h('section', { class: 'cartao pilha' }, h('h2', { text: 'Buscar arquivos do carro' }),
+        h('p', { class: 'sub', text: 'Esta tela funciona no app do notebook (Chrome ou Edge), onde o script do Windows busca os arquivos do carro.' })));
+      return;
+    }
+    const aberto = raiz.querySelector('.ca-config') && raiz.querySelector('.ca-config').open;
+    if (!pasta || !permitido) { listaEl = null; ui.trocar(raiz, cartaoPasta()); return; }
+    listaEl = h('section', { class: 'cartao pilha bc-lista' });
+    ui.trocar(raiz, cartaoPasta(), cartaoBusca(), listaEl, cartaoAutomatico());
+    renderLista();
+    if (aberto && raiz.querySelector('.ca-config')) raiz.querySelector('.ca-config').open = true;
   }
 
-  App.carroAuto = {
+  App.buscaCarro = {
     suportado,
-    /** Cartão (sempre o mesmo elemento) para a Montagem; null onde o navegador não acessa pastas. */
-    cartao({ carregar } = {}) {
-      if (!suportado()) return null;
-      if (carregar) carregarNaMontagem = carregar;
-      if (!el) { el = h('section', { class: 'cartao pilha ca-cartao' }); render(); atualizar(); }
-      return el;
-    },
-    atualizar
+    montar(el) { raiz = el; render(); atualizar().then(() => { marcarProntos(); renderLista(); }); },
+    aoMostrar() { atualizar().then(() => { if (!marcados.size) marcarProntos(); renderLista(); }); },
+    infoNome
   };
 })(window.App);
 
@@ -10056,8 +10208,6 @@ window.App = window.App || {};
     if (!raiz) return;
     const lista = doCiclo();
     const partes = [cabecalho()];
-    // arquivos trazidos do carro pelo script do Windows (só no computador)
-    if (App.carroAuto) partes.push(App.carroAuto.cartao({ carregar: (files) => adicionar(files) }));
     if (planta) {
       const ramal = ramalEscolhido();
       const outros = lista.filter((a) => a.resumo.ramal && a.resumo.ramal !== ramal);
@@ -10088,8 +10238,12 @@ window.App = window.App || {};
 
   App.montagem = {
     async montar(el) { raiz = el; await carregar(); render(); atualizarResumos(); },
-    async aoMostrar() { if (!raiz) return; planta = App.analise && App.analise.planta ? await App.analise.planta() : planta; render(); atualizarResumos(); if (App.carroAuto) App.carroAuto.atualizar(); },
+    async aoMostrar() { if (!raiz) return; planta = App.analise && App.analise.planta ? await App.analise.planta() : planta; render(); atualizarResumos(); },
     lista: listaParaTela,
+    /** Nomes de todos os arquivos da Montagem. */
+    async nomes() { await carregar(); return arquivos.map((a) => a.nome); },
+    /** Adiciona arquivos (File[]) como pelo botão; devolve os nomes que ficaram na Montagem. */
+    async adicionarArquivos(files) { await carregar(); if (!planta && App.analise && App.analise.planta) planta = await App.analise.planta(); return adicionar(files); },
     atual: () => atual,
     ciclo,
     /** Abre um arquivo da Montagem na Análise. aba: 'tela' (Tela do carro, padrão) ou null (fica na aba atual). */
@@ -10165,6 +10319,8 @@ window.App = window.App || {};
     const parteAnalise = h('div', { class: 'tela tela-larga', hidden: true });
     const parteTela = h('div', { class: 'tela tela-larga', hidden: true });
     const parteMontagem = h('div', { class: 'tela tela-larga pilha', hidden: true });
+    const parteBuscar = h('div', { class: 'tela tela-larga pilha', hidden: true });
+    let buscarMontada = false;
     let analiseMontada = false;
     let telaMontada = false;
     let montagemMontada = false;
@@ -10177,6 +10333,7 @@ window.App = window.App || {};
       parteAnalise.hidden = qual !== 'analise';
       parteTela.hidden = qual !== 'tela';
       parteMontagem.hidden = qual !== 'montagem';
+      parteBuscar.hidden = qual !== 'buscar';
       // A Tela do carro usa o arquivo da Análise: monta a análise (escondida) se ainda não montou.
       if ((qual === 'analise' || qual === 'tela') && !analiseMontada) {
         App.analise.montar(parteAnalise);
@@ -10193,22 +10350,30 @@ window.App = window.App || {};
         if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; }
         if (!montagemMontada) { App.montagem.montar(parteMontagem); montagemMontada = true; } else App.montagem.aoMostrar();
       }
+      if (qual === 'buscar') {
+        // traz os arquivos para a Montagem: monta a análise e a montagem (escondidas) se ainda não montou
+        if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; }
+        if (!montagemMontada) { App.montagem.montar(parteMontagem); montagemMontada = true; }
+        if (!buscarMontada) { App.buscaCarro.montar(parteBuscar); buscarMontada = true; } else App.buscaCarro.aoMostrar();
+      }
       abas.querySelectorAll('button').forEach((b) => {
         const ativo = b.dataset.aba === qual;
         b.classList.toggle('ativo', ativo);
         b.setAttribute('aria-selected', ativo ? 'true' : 'false');
       });
     };
-    [['checklist', 'Checklist'], ['analise', 'Análise do arquivo'], ['tela', 'Tela do carro'], ['montagem', 'Montagem']].forEach(([id, rotulo]) => {
+    // "Buscar do carro" só no computador (o navegador precisa acessar a pasta do script do Windows)
+    const comBuscar = App.buscaCarro && App.buscaCarro.suportado();
+    [['checklist', 'Checklist'], ['analise', 'Análise do arquivo'], ['tela', 'Tela do carro'], ['montagem', 'Montagem'], ...(comBuscar ? [['buscar', 'Buscar do carro']] : [])].forEach(([id, rotulo]) => {
       abas.appendChild(h('button', { type: 'button', role: 'tab', class: 'seg-opcao', dataset: { aba: id }, onclick: () => mostrar(id) }, rotulo));
     });
 
-    raiz.append(abas, parteChecklist, parteAnalise, parteTela, parteMontagem);
+    raiz.append(abas, parteChecklist, parteAnalise, parteTela, parteMontagem, parteBuscar);
     // outra tela pede para mostrar uma aba (ex.: Montagem roda um arquivo na Tela do carro)
     window.addEventListener('em80:checklist-aba', (e) => mostrar(e.detail));
     renderForm();
     const salva = U.pref.get('checklist:aba', 'checklist');
-    mostrar(['analise', 'tela', 'montagem'].includes(salva) ? salva : 'checklist');
+    mostrar(['analise', 'tela', 'montagem', ...(comBuscar ? ['buscar'] : [])].includes(salva) ? salva : 'checklist');
   }
 
   function renderForm() {

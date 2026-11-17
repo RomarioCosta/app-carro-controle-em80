@@ -953,35 +953,69 @@ async function main() {
       assert.equal(await seletor.locator('option').count(), 3);
       await seletor.selectOption({ label: await seletor.locator('option', { hasText: 'TESTE.csv' }).textContent() });
       await page.locator('.tc-rodape', { hasText: 'TESTE.csv' }).waitFor();
-      // arquivos do carro trazidos pelo script do Windows: a pasta é simulada com o armazenamento do navegador
-      await page.getByRole('tab', { name: 'Montagem' }).click();
-      const csvCarro = gerarCSV().replace(/;XX1;/g, ';FU;').replace(/01\/09\/2026/g, '03/09/2026');
-      await page.evaluate(async (csv) => {
+      // Buscar do carro: a pasta do script do Windows é simulada com o armazenamento do navegador,
+      // e o "script" (aberto pelo link carrocontrole://) é simulado no clique do link
+      const csvCP = gerarCSV().replace(/;XX1;/g, ';CP;').replace(/01\/09\/2026/g, '03/09/2026');
+      const csvGV = gerarCSV().replace(/;XX1;/g, ';GV;').replace(/01\/09\/2026/g, '04/09/2026');
+      await page.evaluate(async ([cp, gv]) => {
         const raiz = await navigator.storage.getDirectory();
         const d = await raiz.getDirectoryHandle('carro', { create: true });
         const gravar = async (dir, nome, txt) => { const w = await (await dir.getFileHandle(nome, { create: true })).createWritable(); await w.write(txt); await w.close(); };
-        await gravar(d, 'estado.json', '\uFEFF' + JSON.stringify({ versao: 'T1', ultimaBusca: new Date().toISOString(), resultado: 'ok', novos: 1, testes: 2, config: { intervaloMin: 120, origens: ['\\\\pc\\C\\DADOS'] } }));
-        await gravar(await d.getDirectoryHandle('Novos', { create: true }), 'CARRO.csv', csv);
+        const ler = async (dir, nome) => (await (await dir.getFileHandle(nome)).getFile()).text();
+        const todos = await d.getDirectoryHandle('Todos', { create: true });
+        const novos = await d.getDirectoryHandle('Novos', { create: true });
+        await gravar(todos, 'RLT_CP_20261117.csv', cp);
+        await gravar(novos, 'RLT_CP_20261117.csv', cp);
+        await gravar(d, 'estado.json', '﻿' + JSON.stringify({ versao: 'T1', ultimaBusca: new Date().toISOString(), resultado: 'ok', novos: 1, testes: 1, config: { intervaloMin: 120, origens: ['\\\\pc\\C\\DADOS'] } }));
+        await gravar(d, 'catalogo.json', JSON.stringify({ geradoEm: new Date().toISOString(), arquivos: [
+          { nome: 'RLT_CP_20261117.csv', sede: 'CP', data: '2026-11-17' },
+          { nome: 'RLT_CP_20261116_teste.csv', sede: 'CP', data: '2026-11-16', teste: true },
+          { nome: 'RLT_GV_20261110.csv', sede: 'GV', data: '2026-11-10' }] }));
         window.showDirectoryPicker = async () => d;
-      }, csvCarro);
-      const carro = page.locator('.ca-cartao');
-      await carro.getByRole('button', { name: 'Escolher a pasta Carro Controle' }).click();
-      await carro.getByText('1 arquivo(s) aguardando para carregar').waitFor();
-      assert.ok((await carro.locator('[data-carro-estado]').textContent()).includes('1 arquivo(s) novo(s) · 2 de teste desprezado(s)'));
-      await carro.locator('.ca-config > summary').click();
-      assert.equal(await carro.getByLabel('Pastas dos computadores do carro (uma por linha)').inputValue(), '\\\\pc\\C\\DADOS');
-      await carro.screenshot({ path: `${SAIDA}16e-montagem-carro.png` });
-      await carro.getByRole('button', { name: 'Carregar na Montagem' }).click();
-      await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
-      await carro.getByText('Nenhum arquivo aguardando na pasta Novos.').waitFor();
-      await page.locator('.mt-arquivo > summary', { hasText: 'CARRO.csv' }).waitFor();
-      await carro.getByLabel('Buscar a cada').selectOption('60');
-      await carro.getByRole('button', { name: 'Salvar configuração' }).click();
+        const clicar = HTMLAnchorElement.prototype.click;
+        HTMLAnchorElement.prototype.click = function () {
+          if (!this.href.startsWith('carrocontrole:')) return clicar.call(this);
+          setTimeout(async () => { // o "script": lê o pedido, copia o GV e grava o estado
+            const ped = JSON.parse(await ler(d, 'pedido.json'));
+            window.__pedido = ped;
+            await gravar(todos, 'RLT_GV_20261110.csv', gv);
+            await gravar(novos, 'RLT_GV_20261110.csv', gv);
+            await d.removeEntry('pedido.json');
+            await gravar(d, 'estado.json', JSON.stringify({ versao: 'T1', ultimaBusca: new Date().toISOString(), resultado: 'ok', novos: 1, testes: 0, pedidoId: ped.id, config: { intervaloMin: 120, origens: ['\\\\pc\\C\\DADOS'] } }));
+          }, 600);
+        };
+      }, [csvCP, csvGV]);
+      await page.getByRole('tab', { name: 'Buscar do carro' }).click();
+      await page.getByRole('button', { name: 'Escolher a pasta Carro Controle' }).click();
+      assert.ok((await page.locator('[data-carro-estado]').textContent()).includes('1 arquivo(s) copiado(s) · 1 de teste desprezado(s)'));
+      const de = page.locator('input[name=carroDe]');
+      await de.fill('2026-11-01'); await de.dispatchEvent('change');
+      const ate = page.locator('input[name=carroAte]');
+      await ate.fill('2026-11-30'); await ate.dispatchEvent('change');
+      const resumoBc = page.locator('[data-carro-resumo]');
+      await page.waitForFunction(() => (document.querySelector('[data-carro-resumo]') || {}).textContent?.startsWith('3 arquivo(s) no carro nesse filtro · 1 novo(s) · 1 só no carro'));
+      await page.locator('input[name=carroSede]').fill('cp');
+      await page.waitForFunction(() => document.querySelector('[data-carro-resumo]').textContent.startsWith('2 arquivo(s)'));
+      await page.locator('input[name=carroSede]').fill('');
+      await page.waitForFunction(() => document.querySelector('[data-carro-resumo]').textContent.startsWith('3 arquivo(s)'));
+      await page.locator('.bc-lista').screenshot({ path: `${SAIDA}16e-buscar-carro.png` });
+      await page.getByRole('button', { name: 'Buscar agora' }).click();
+      await page.getByText('Busca concluída: 1 arquivo(s) copiado(s).').waitFor();
+      const ped = await page.evaluate(() => window.__pedido);
+      assert.deepEqual([ped.de, ped.ate, ped.sedes, ped.modo], ['2026-11-01', '2026-11-30', [], 'novos']);
+      await page.getByRole('button', { name: 'Trazer para a Montagem (2)' }).click();
+      await page.getByText('2 arquivo(s) adicionado(s).').waitFor();
+      await page.waitForFunction(() => document.querySelector('[data-carro-resumo]').textContent.includes('2 já na Montagem'));
+      assert.equal(await page.locator('.bc-sit-novo').count(), 0);
+      assert.equal(await page.evaluate(async () => { const n = []; for await (const [k] of (await (await (await navigator.storage.getDirectory()).getDirectoryHandle('carro')).getDirectoryHandle('Novos')).entries()) n.push(k); return n.length; }), 0);
+      await page.getByLabel('Buscar a cada').selectOption('60');
+      await page.getByRole('button', { name: 'Salvar configuração' }).click();
       await page.getByText('Configuração salva. Vale a partir da próxima busca.').waitFor();
       const cfg = await page.evaluate(async () => JSON.parse(await (await (await (await (await navigator.storage.getDirectory()).getDirectoryHandle('carro')).getFileHandle('configuracao.json')).getFile()).text()));
       assert.equal(cfg.intervaloMin, 60);
       assert.deepEqual(cfg.origens, ['\\\\pc\\C\\DADOS']);
-      assert.deepEqual(cfg.ignorar, ['teste']);
+      await page.getByRole('tab', { name: 'Montagem' }).click();
+      await page.locator('.mt-arquivo > summary', { hasText: 'RLT_GV_20261110.csv' }).waitFor();
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 

@@ -931,8 +931,6 @@
     if (!raiz) return;
     const lista = doCiclo();
     const partes = [cabecalho()];
-    // arquivos trazidos do carro pelo script do Windows (só no computador)
-    if (App.carroAuto) partes.push(App.carroAuto.cartao({ carregar: (files) => adicionar(files) }));
     if (planta) {
       const ramal = ramalEscolhido();
       const outros = lista.filter((a) => a.resumo.ramal && a.resumo.ramal !== ramal);
@@ -963,8 +961,12 @@
 
   App.montagem = {
     async montar(el) { raiz = el; await carregar(); render(); atualizarResumos(); },
-    async aoMostrar() { if (!raiz) return; planta = App.analise && App.analise.planta ? await App.analise.planta() : planta; render(); atualizarResumos(); if (App.carroAuto) App.carroAuto.atualizar(); },
+    async aoMostrar() { if (!raiz) return; planta = App.analise && App.analise.planta ? await App.analise.planta() : planta; render(); atualizarResumos(); },
     lista: listaParaTela,
+    /** Nomes de todos os arquivos da Montagem. */
+    async nomes() { await carregar(); return arquivos.map((a) => a.nome); },
+    /** Adiciona arquivos (File[]) como pelo botão; devolve os nomes que ficaram na Montagem. */
+    async adicionarArquivos(files) { await carregar(); if (!planta && App.analise && App.analise.planta) planta = await App.analise.planta(); return adicionar(files); },
     atual: () => atual,
     ciclo,
     /** Abre um arquivo da Montagem na Análise. aba: 'tela' (Tela do carro, padrão) ou null (fica na aba atual). */

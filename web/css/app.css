@@ -999,9 +999,15 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mensal-faixa.retirado { background: #8a96a0; }
 .modal p { overflow-wrap: anywhere; }
 
-/* Arquivos do carro (busca automática) */
-.ca-suave { color: var(--texto2); font-size: .88rem; }
-.ca-novos { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: 10px; }
+/* Buscar do carro */
 .ca-config > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
 .ca-config > .pilha { padding-top: 8px; }
 .ca-config textarea { width: 100%; font-family: ui-monospace, monospace; }
+.bc-tabela td:first-child, .bc-tabela th:first-child { width: 32px; }
+.bc-tabela input[type=checkbox] { width: 18px; height: 18px; }
+.bc-sit { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .82rem; font-weight: 600; background: var(--sup2); color: var(--texto2); }
+.bc-sit-novo { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.bc-sit-pronto { background: color-mix(in srgb, var(--ok) 10%, transparent); color: var(--ok); }
+.bc-sit-montagem { color: var(--texto2); }
+.bc-sit-teste, .bc-sit-carro { color: var(--texto3); }
+.bc-teste td, .bc-montagem td { opacity: .7; }
