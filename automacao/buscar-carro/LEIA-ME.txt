@@ -1,0 +1,26 @@
+BUSCAR ARQUIVOS DO CARRO CONTROLE EM80
+======================================
+
+Copia os CSV novos dos computadores do carro (pelo cabo de rede) para
+Documentos\Carro Controle\Novos, desligando o Wi-Fi so durante a copia.
+
+INSTALAR (uma vez)
+1. Baixe o zip "Buscar arquivos do carro" e extraia numa pasta fixa.
+2. Confira o configuracao.ps1 (caminho da pasta do carro entre aspas simples).
+   Se nao existir, copie o configuracao.exemplo.ps1 com o nome configuracao.ps1.
+3. Duplo clique em "Agendar a cada 2 horas.bat" (opcional).
+
+USAR
+- Na hora: duplo clique em "Buscar arquivos do carro.bat".
+- Agendado: roda sozinho a cada 2 horas e mostra um aviso no fim.
+- No app: Montagem > Adicionar arquivos > pasta Novos (Ctrl+A).
+  Depois de carregar, apague os arquivos da pasta Novos.
+
+ATUALIZACAO
+Toda busca (com internet) baixa a versao nova do GitHub automaticamente.
+O configuracao.ps1 nunca e substituido. Para desligar: $AtualizarAuto = $false.
+
+PASTAS
+Documentos\Carro Controle\Novos   arquivos ainda nao carregados no app
+Documentos\Carro Controle\Todos   copia de tudo que veio do carro
+Documentos\Carro Controle\log.txt registro de cada busca
