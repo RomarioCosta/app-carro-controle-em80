@@ -998,3 +998,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .mensal-faixa { margin: 0; padding: 6px 10px; border-radius: 8px; background: #1f6feb; color: #fff; font-weight: 600; font-size: 0.9em; }
 .mensal-faixa.retirado { background: #8a96a0; }
 .modal p { overflow-wrap: anywhere; }
+
+/* Arquivos do carro (busca automática) */
+.ca-suave { color: var(--texto2); font-size: .88rem; }
+.ca-novos { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: 10px; }
+.ca-config > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.ca-config > .pilha { padding-top: 8px; }
+.ca-config textarea { width: 100%; font-family: ui-monospace, monospace; }

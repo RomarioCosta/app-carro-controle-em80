@@ -953,6 +953,35 @@ async function main() {
       assert.equal(await seletor.locator('option').count(), 3);
       await seletor.selectOption({ label: await seletor.locator('option', { hasText: 'TESTE.csv' }).textContent() });
       await page.locator('.tc-rodape', { hasText: 'TESTE.csv' }).waitFor();
+      // arquivos do carro trazidos pelo script do Windows: a pasta é simulada com o armazenamento do navegador
+      await page.getByRole('tab', { name: 'Montagem' }).click();
+      const csvCarro = gerarCSV().replace(/;XX1;/g, ';FU;').replace(/01\/09\/2026/g, '03/09/2026');
+      await page.evaluate(async (csv) => {
+        const raiz = await navigator.storage.getDirectory();
+        const d = await raiz.getDirectoryHandle('carro', { create: true });
+        const gravar = async (dir, nome, txt) => { const w = await (await dir.getFileHandle(nome, { create: true })).createWritable(); await w.write(txt); await w.close(); };
+        await gravar(d, 'estado.json', '\uFEFF' + JSON.stringify({ versao: 'T1', ultimaBusca: new Date().toISOString(), resultado: 'ok', novos: 1, testes: 2, config: { intervaloMin: 120, origens: ['\\\\pc\\C\\DADOS'] } }));
+        await gravar(await d.getDirectoryHandle('Novos', { create: true }), 'CARRO.csv', csv);
+        window.showDirectoryPicker = async () => d;
+      }, csvCarro);
+      const carro = page.locator('.ca-cartao');
+      await carro.getByRole('button', { name: 'Escolher a pasta Carro Controle' }).click();
+      await carro.getByText('1 arquivo(s) aguardando para carregar').waitFor();
+      assert.ok((await carro.locator('[data-carro-estado]').textContent()).includes('1 arquivo(s) novo(s) · 2 de teste desprezado(s)'));
+      await carro.locator('.ca-config > summary').click();
+      assert.equal(await carro.getByLabel('Pastas dos computadores do carro (uma por linha)').inputValue(), '\\\\pc\\C\\DADOS');
+      await carro.screenshot({ path: `${SAIDA}16e-montagem-carro.png` });
+      await carro.getByRole('button', { name: 'Carregar na Montagem' }).click();
+      await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
+      await carro.getByText('Nenhum arquivo aguardando na pasta Novos.').waitFor();
+      await page.locator('.mt-arquivo > summary', { hasText: 'CARRO.csv' }).waitFor();
+      await carro.getByLabel('Buscar a cada').selectOption('60');
+      await carro.getByRole('button', { name: 'Salvar configuração' }).click();
+      await page.getByText('Configuração salva. Vale a partir da próxima busca.').waitFor();
+      const cfg = await page.evaluate(async () => JSON.parse(await (await (await (await (await navigator.storage.getDirectory()).getDirectoryHandle('carro')).getFileHandle('configuracao.json')).getFile()).text()));
+      assert.equal(cfg.intervaloMin, 60);
+      assert.deepEqual(cfg.origens, ['\\\\pc\\C\\DADOS']);
+      assert.deepEqual(cfg.ignorar, ['teste']);
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 
