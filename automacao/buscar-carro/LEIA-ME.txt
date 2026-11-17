@@ -17,11 +17,16 @@ USAR
 - No app: Montagem > Adicionar arquivos > pasta Novos (Ctrl+A).
   Depois de carregar, apague os arquivos da pasta Novos.
 
-CONFIGURAR PELO APP (Chrome/Edge no notebook)
-Montagem > "Arquivos do carro" > Escolher a pasta Carro Controle (Documentos\Carro Controle).
-La voce ve a ultima busca, carrega os arquivos novos na Montagem (eles saem da
-pasta Novos sozinhos) e configura: intervalo, horario, pastas do carro, textos
-desprezados, avisos e Wi-Fi. O app grava configuracao.json; o script le a cada busca.
+APP: ABA "BUSCAR DO CARRO" (Checklist > Buscar do carro, Chrome/Edge no notebook)
+1. Escolher a pasta Carro Controle (Documentos\Carro Controle), uma vez.
+2. Escolha o periodo (De / Ate) e a sede (ex.: CP) e clique em "Buscar agora".
+   Na primeira vez o navegador pergunta "Abrir Buscar arquivos do carro?":
+   marque "Sempre permitir". O Wi-Fi cai alguns segundos e volta sozinho.
+3. A lista mostra os arquivos do carro (nome RAMAL_SEDE_AAAAMMDD) com a situacao;
+   marque e clique em "Trazer para a Montagem".
+4. Busca automatica: ligar/desligar, intervalo, horario e avisos, na mesma aba.
+O botao "Buscar agora" e instalado pelo proprio script na primeira vez que ele
+roda (link carrocontrole://, sem administrador).
 
 ATUALIZACAO
 Toda busca (com internet) baixa a versao nova do GitHub automaticamente.

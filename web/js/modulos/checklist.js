@@ -63,6 +63,8 @@
     const parteAnalise = h('div', { class: 'tela tela-larga', hidden: true });
     const parteTela = h('div', { class: 'tela tela-larga', hidden: true });
     const parteMontagem = h('div', { class: 'tela tela-larga pilha', hidden: true });
+    const parteBuscar = h('div', { class: 'tela tela-larga pilha', hidden: true });
+    let buscarMontada = false;
     let analiseMontada = false;
     let telaMontada = false;
     let montagemMontada = false;
@@ -75,6 +77,7 @@
       parteAnalise.hidden = qual !== 'analise';
       parteTela.hidden = qual !== 'tela';
       parteMontagem.hidden = qual !== 'montagem';
+      parteBuscar.hidden = qual !== 'buscar';
       // A Tela do carro usa o arquivo da Análise: monta a análise (escondida) se ainda não montou.
       if ((qual === 'analise' || qual === 'tela') && !analiseMontada) {
         App.analise.montar(parteAnalise);
@@ -91,22 +94,30 @@
         if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; }
         if (!montagemMontada) { App.montagem.montar(parteMontagem); montagemMontada = true; } else App.montagem.aoMostrar();
       }
+      if (qual === 'buscar') {
+        // traz os arquivos para a Montagem: monta a análise e a montagem (escondidas) se ainda não montou
+        if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; }
+        if (!montagemMontada) { App.montagem.montar(parteMontagem); montagemMontada = true; }
+        if (!buscarMontada) { App.buscaCarro.montar(parteBuscar); buscarMontada = true; } else App.buscaCarro.aoMostrar();
+      }
       abas.querySelectorAll('button').forEach((b) => {
         const ativo = b.dataset.aba === qual;
         b.classList.toggle('ativo', ativo);
         b.setAttribute('aria-selected', ativo ? 'true' : 'false');
       });
     };
-    [['checklist', 'Checklist'], ['analise', 'Análise do arquivo'], ['tela', 'Tela do carro'], ['montagem', 'Montagem']].forEach(([id, rotulo]) => {
+    // "Buscar do carro" só no computador (o navegador precisa acessar a pasta do script do Windows)
+    const comBuscar = App.buscaCarro && App.buscaCarro.suportado();
+    [['checklist', 'Checklist'], ['analise', 'Análise do arquivo'], ['tela', 'Tela do carro'], ['montagem', 'Montagem'], ...(comBuscar ? [['buscar', 'Buscar do carro']] : [])].forEach(([id, rotulo]) => {
       abas.appendChild(h('button', { type: 'button', role: 'tab', class: 'seg-opcao', dataset: { aba: id }, onclick: () => mostrar(id) }, rotulo));
     });
 
-    raiz.append(abas, parteChecklist, parteAnalise, parteTela, parteMontagem);
+    raiz.append(abas, parteChecklist, parteAnalise, parteTela, parteMontagem, parteBuscar);
     // outra tela pede para mostrar uma aba (ex.: Montagem roda um arquivo na Tela do carro)
     window.addEventListener('em80:checklist-aba', (e) => mostrar(e.detail));
     renderForm();
     const salva = U.pref.get('checklist:aba', 'checklist');
-    mostrar(['analise', 'tela', 'montagem'].includes(salva) ? salva : 'checklist');
+    mostrar(['analise', 'tela', 'montagem', ...(comBuscar ? ['buscar'] : [])].includes(salva) ? salva : 'checklist');
   }
 
   function renderForm() {

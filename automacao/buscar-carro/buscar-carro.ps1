@@ -10,9 +10,14 @@
 #  Documentos\Carro Controle\configuracao.json; ou em "configuracao.ps1" (mesma pasta).
 #  O agendamento do Windows roda a cada 15 min; o intervalo de verdade
 #  (ex.: 2 h) e o horario vem da configuracao.
+#  Busca na hora pelo app (aba "Buscar do carro"): o app grava pedido.json
+#  (periodo, sedes) e abre o link carrocontrole://buscar, que chama este
+#  script com -Pedido (o link e registrado aqui, sem administrador).
+#  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
-param([switch]$Agendado, [switch]$SemAtualizar)
-$Versao = '2026-11-17.2'
+param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido)
+$Versao = '2026-11-17.3'
+$Silencioso = $Agendado -or $Pedido   # sem janela de console (agendado ou pedido do app)
 
 # ---------------- PADROES (sobrescritos por configuracao.ps1) ----------------
 $Origens       = @()                                       # pastas dos computadores do carro
@@ -50,7 +55,7 @@ New-Item -ItemType Directory -Force -Path $Todos, $Novos | Out-Null
 
 function Escrever($msg, $cor = 'Gray') {
   $linha = '{0:dd/MM/yyyy HH:mm:ss}  {1}' -f (Get-Date), $msg
-  if (-not $Agendado) { Write-Host $linha -ForegroundColor $cor }
+  if (-not $Silencioso) { Write-Host $linha -ForegroundColor $cor }
   Add-Content -Path $Log -Value $linha -Encoding UTF8
 }
 
@@ -60,7 +65,7 @@ function Avisar($msg, $icone = 64) {
 }
 
 function Fim($cod = 0) {
-  if (-not $Agendado) { Write-Host ''; Read-Host 'Enter para fechar' | Out-Null }
+  if (-not $Silencioso) { Write-Host ''; Read-Host 'Enter para fechar' | Out-Null }
   exit $cod
 }
 
@@ -88,6 +93,8 @@ if (Test-Path -LiteralPath $ConfigJson) {
 $estadoAnt = $null
 if (Test-Path -LiteralPath $EstadoArq) { try { $estadoAnt = [IO.File]::ReadAllText($EstadoArq) | ConvertFrom-Json } catch { } }
 $agenda = if ($estadoAnt -and $estadoAnt.agenda) { [string]$estadoAnt.agenda } else { '' }
+$pedidoId = $null
+$copiadosAgora = New-Object System.Collections.ArrayList
 
 function GravarEstado($resultado, $qNovos = 0, $qTestes = 0, $qErros = 0, $listaSemAcesso = @(), $mensagem = '') {
   try {
@@ -96,6 +103,7 @@ function GravarEstado($resultado, $qNovos = 0, $qTestes = 0, $qErros = 0, $lista
       versao = $Versao; ultimaBusca = (Get-Date).ToString("yyyy-MM-dd'T'HH:mm:ssK"); resultado = $resultado
       novos = $qNovos; testes = $qTestes; erros = $qErros; semAcesso = @($listaSemAcesso); pendentes = $pend
       mensagem = $mensagem; agendado = [bool]$Agendado; agenda = $agenda
+      pedidoId = $script:pedidoId; copiados = @($script:copiadosAgora)
       config = [ordered]@{
         ativo = $Ativo; intervaloMin = $IntervaloMin; horaIni = $HoraIni; horaFim = $HoraFim
         origens = @($Origens); ignorar = @($Ignorar); dias = $Dias; avisos = $Avisos
@@ -134,6 +142,24 @@ function GarantirAgenda {
   } catch { Escrever "Nao foi possivel criar o agendamento: $($_.Exception.Message)" 'Yellow' }
 }
 
+# Link carrocontrole:// (botao "Buscar agora" do app) -> rodar-oculto.vbs -> este script com -Pedido
+function GarantirProtocolo {
+  try {
+    $vbs = Join-Path $Pasta 'rodar-oculto.vbs'
+    $cmd = "wscript.exe `"$vbs`" `"%1`""
+    $k = 'HKCU:\Software\Classes\carrocontrole'
+    $atual = $null
+    try { $atual = (Get-Item -LiteralPath "$k\shell\open\command" -ErrorAction Stop).GetValue('') } catch { }
+    if ($atual -ne $cmd) {
+      New-Item -Path "$k\shell\open\command" -Force | Out-Null
+      Set-Item -LiteralPath $k -Value 'URL:Carro Controle EM80'
+      New-ItemProperty -LiteralPath $k -Name 'URL Protocol' -Value '' -PropertyType String -Force | Out-Null
+      Set-Item -LiteralPath "$k\shell\open\command" -Value $cmd
+      Escrever 'Botao "Buscar agora" do app instalado (link carrocontrole://).' 'Green'
+    }
+  } catch { Escrever "Nao foi possivel instalar o link do app: $($_.Exception.Message)" 'Yellow' }
+}
+
 # ---------- Atualizacao automatica pelo GitHub (com internet, antes de mexer no Wi-Fi) ----------
 function Atualizar {
   $arquivos = @('buscar-carro.ps1', 'rodar-oculto.vbs', 'Buscar arquivos do carro.bat', 'Ativar agendamento.bat', 'Remover agendamento.bat', 'LEIA-ME.txt')
@@ -163,11 +189,22 @@ if ($AtualizarAuto -and -not $SemAtualizar) {
       # roda a versao nova agora
       $args2 = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Pasta 'buscar-carro.ps1'), '-SemAtualizar')
       if ($Agendado) { $args2 += '-Agendado' }
+      if ($Pedido) { $args2 += '-Pedido' }
       & powershell.exe @args2
       exit $LASTEXITCODE
     }
   }
 }
+
+# Pedido do app (aba "Buscar do carro"): periodo, sedes e modo
+$PedidoArq = Join-Path $Destino 'pedido.json'
+$ped = $null
+if ($Pedido -and (Test-Path -LiteralPath $PedidoArq)) {
+  try { $ped = [IO.File]::ReadAllText($PedidoArq) | ConvertFrom-Json; $pedidoId = [string]$ped.id } catch { }
+  Remove-Item -LiteralPath $PedidoArq -Force -ErrorAction SilentlyContinue
+}
+$pedSedes = @()
+if ($ped) { $pedSedes = @($ped.sedes | Where-Object { $_ } | ForEach-Object { ([string]$_).ToUpper() }) }
 
 $Origens = @($Origens | Where-Object { $_ -and "$_".Trim() })
 if ($Origens.Count -eq 0) {
@@ -224,19 +261,30 @@ function EsperarPasta($p, $seg) {
   return $false
 }
 
+# RLT_CP_20261117... -> ramal, sede, data (AAAA-MM-DD); sem esse padrao: data de modificacao
+function InfoNome($f) {
+  $r = @{ ramal = ''; sede = ''; data = $f.LastWriteTime.ToString('yyyy-MM-dd') }
+  if ($f.BaseName -match '^([A-Za-z0-9]+)_([A-Za-z0-9]+)_(\d{4})(\d{2})(\d{2})') {
+    $r.ramal = $Matches[1].ToUpper(); $r.sede = $Matches[2].ToUpper(); $r.data = '{0}-{1}-{2}' -f $Matches[3], $Matches[4], $Matches[5]
+  }
+  return $r
+}
+
 function EhTeste($nome) {
   foreach ($t in $Ignorar) { if ($t -and $nome -like "*$t*") { return $true } }
   return $false
 }
 
-Escrever ("=== Buscar arquivos do Carro Controle (versao $Versao) ===" + $(if ($Agendado) { ' (agendado)' } else { '' })) 'Cyan'
+Escrever ("=== Buscar arquivos do Carro Controle (versao $Versao) ===" + $(if ($Agendado) { ' (agendado)' } elseif ($Pedido) { ' (pedido do app)' } else { '' })) 'Cyan'
+if ($ped) { Escrever ("Pedido do app: {0} a {1}, sede(s) {2}, {3}" -f $ped.de, $ped.ate, $(if ($pedSedes.Count) { $pedSedes -join ', ' } else { 'todas' }), $ped.modo) }
 if ($erroConfig) { Escrever "configuracao.json com erro (usando o padrao): $erroConfig" 'Yellow' }
 GarantirAgenda
+GarantirProtocolo
 
 if ($ExigirCabo -and -not (CaboConectado)) {
   Escrever 'Cabo de rede do carro nao conectado: nada foi feito.' 'Yellow'
   GravarEstado 'semCabo' -mensagem 'Cabo de rede do carro nao conectado.'
-  if ($AvisarSemCabo -and (-not $Agendado -or $Avisos -ne 'nunca')) { Avisar 'Busca de arquivos do carro: cabo de rede nao conectado. Nada foi feito.' 48 }
+  if ($AvisarSemCabo -and -not $Pedido -and (-not $Agendado -or $Avisos -ne 'nunca')) { Avisar 'Busca de arquivos do carro: cabo de rede nao conectado. Nada foi feito.' 48 }
   Fim 0
 }
   Fim 0
@@ -253,6 +301,8 @@ $total = 0
 $testes = 0
 $semAcesso = @()
 $falhas = 0
+$catalogo = New-Object System.Collections.ArrayList
+$acessou = $false
 try {
   DesligarWifi
   foreach ($origem in $Origens) {
@@ -262,28 +312,44 @@ try {
       $semAcesso += $origem
       continue
     }
-    $lista = Get-ChildItem -LiteralPath $origem -Recurse -File -Filter $Filtro -ErrorAction SilentlyContinue
-    if ($Dias -gt 0) { $limite = (Get-Date).AddDays(-$Dias); $lista = $lista | Where-Object { $_.LastWriteTime -ge $limite } }
+    $lista = @(Get-ChildItem -LiteralPath $origem -Recurse -File -Filter $Filtro -ErrorAction SilentlyContinue)
+    $acessou = $true
+    $limite = (Get-Date).AddDays(-$Dias)
     $n = 0
     foreach ($f in $lista) {
+      $info = InfoNome $f
+      $teste = EhTeste $f.Name
+      [void]$catalogo.Add([ordered]@{ nome = $f.Name; sede = $info.sede; ramal = $info.ramal; data = $info.data; tamanho = $f.Length
+        modificado = $f.LastWriteTime.ToString("yyyy-MM-dd'T'HH:mm:ssK"); origem = $origem; teste = $teste })
       $chave = '{0}|{1}|{2:yyyyMMddHHmmss}' -f $f.FullName, $f.Length, $f.LastWriteTime
-      if ($copiados.ContainsKey($chave)) { continue }
-      if (EhTeste $f.Name) {
-        Add-Content -Path $Indice -Value $chave -Encoding UTF8   # nao avisa de novo
-        $copiados[$chave] = $true
+      $ja = $copiados.ContainsKey($chave)
+      if ($ped) {
+        if ($ped.de -and $info.data -lt [string]$ped.de) { continue }
+        if ($ped.ate -and $info.data -gt [string]$ped.ate) { continue }
+        if ($pedSedes.Count -gt 0 -and $pedSedes -notcontains $info.sede) { continue }
+        if ($ja -and $ped.modo -ne 'todos') { continue }
+      } else {
+        if ($Dias -gt 0 -and $f.LastWriteTime -lt $limite) { continue }
+        if ($ja) { continue }
+      }
+      if ($teste) {
+        if (-not $ja) { Add-Content -Path $Indice -Value $chave -Encoding UTF8; $copiados[$chave] = $true }   # nao avisa de novo
         $testes++
         Escrever "  - desprezado (teste): $($f.Name)"
         continue
       }
       try {
         Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $Todos $f.Name) -Force
-        $alvo = Join-Path $Novos $f.Name
-        $k = 2
-        while (Test-Path -LiteralPath $alvo) { $alvo = Join-Path $Novos ('{0} ({1}){2}' -f $f.BaseName, $k, $f.Extension); $k++ }
-        Copy-Item -LiteralPath $f.FullName -Destination $alvo
-        Add-Content -Path $Indice -Value $chave -Encoding UTF8
-        $copiados[$chave] = $true
+        if (-not $ja) {
+          $alvo = Join-Path $Novos $f.Name
+          $k = 2
+          while (Test-Path -LiteralPath $alvo) { $alvo = Join-Path $Novos ('{0} ({1}){2}' -f $f.BaseName, $k, $f.Extension); $k++ }
+          Copy-Item -LiteralPath $f.FullName -Destination $alvo
+          Add-Content -Path $Indice -Value $chave -Encoding UTF8
+          $copiados[$chave] = $true
+        }
         $n++
+        [void]$copiadosAgora.Add($f.Name)
         Escrever "  + $($f.Name)"
       } catch {
         Escrever "  Erro ao copiar $($f.Name): $($_.Exception.Message)" 'Red'
@@ -295,6 +361,14 @@ try {
   }
 } finally {
   LigarWifi $ssid   # sempre reconecta, mesmo se der erro
+}
+
+# Lista de tudo que esta no carro (o app filtra por data e sede)
+if ($acessou) {
+  try {
+    $cat = [ordered]@{ geradoEm = (Get-Date).ToString("yyyy-MM-dd'T'HH:mm:ssK"); origens = @($Origens); arquivos = $catalogo }
+    [IO.File]::WriteAllText((Join-Path $Destino 'catalogo.json'), ($cat | ConvertTo-Json -Depth 4 -Compress), (New-Object Text.UTF8Encoding $false))
+  } catch { Escrever "Nao foi possivel gravar a lista do carro: $($_.Exception.Message)" 'Yellow' }
 }
 
 $hora = Get-Date -Format 'dd/MM HH:mm'
@@ -312,6 +386,6 @@ if ($falhas -gt 0) { $msg += "`n$falhas erro(s) ao copiar; veja o log.txt." }
 $icone = if ($semAcesso.Count -gt 0 -or $falhas -gt 0) { 48 } else { 64 }
 $resultado = if ($semAcesso.Count -gt 0) { 'semAcesso' } else { 'ok' }
 GravarEstado $resultado $total $testes $falhas $semAcesso ($msg -replace "`n", ' ')
-$mostrar = (-not $Agendado) -or $Avisos -eq 'sempre' -or ($Avisos -eq 'novos' -and ($total -gt 0 -or $icone -eq 48))
+$mostrar = (-not $Pedido) -and ((-not $Agendado) -or $Avisos -eq 'sempre' -or ($Avisos -eq 'novos' -and ($total -gt 0 -or $icone -eq 48)))
 if ($mostrar) { Avisar $msg $icone }
 Fim 0
