@@ -37,4 +37,4 @@ npm run test:e2e   # teste completo no navegador (Playwright/Chromium)
 
 ## Automação: buscar arquivos do carro (Windows)
 
-Em [`automacao/buscar-carro`](automacao/buscar-carro): script que desconecta o Wi-Fi, copia os CSV novos dos computadores do carro (cabo de rede), reconecta o Wi-Fi e avisa. Pode rodar a cada 2 horas pelo Agendador do Windows e se atualiza sozinho a partir desta pasta. Veja o `LEIA-ME.txt`.
+Em [`automacao/buscar-carro`](automacao/buscar-carro): script que desconecta o Wi-Fi, copia os CSV novos dos computadores do carro (cabo de rede), reconecta o Wi-Fi e avisa. Roda pelo Agendador do Windows no intervalo configurado no app (Montagem → Arquivos do carro, que também carrega os novos na Montagem) e se atualiza sozinho a partir desta pasta. Veja o `LEIA-ME.txt`.

@@ -8,13 +8,20 @@ INSTALAR (uma vez)
 1. Baixe o zip "Buscar arquivos do carro" e extraia numa pasta fixa.
 2. Confira o configuracao.ps1 (caminho da pasta do carro entre aspas simples).
    Se nao existir, copie o configuracao.exemplo.ps1 com o nome configuracao.ps1.
-3. Duplo clique em "Agendar a cada 2 horas.bat" (opcional).
+3. Rode "Buscar arquivos do carro.bat" uma vez: ele ativa o agendamento do Windows
+   (ou use "Ativar agendamento.bat").
 
 USAR
 - Na hora: duplo clique em "Buscar arquivos do carro.bat".
-- Agendado: roda sozinho a cada 2 horas e mostra um aviso no fim.
+- Agendado: roda sozinho no intervalo configurado (padrao 2 horas) e avisa no fim.
 - No app: Montagem > Adicionar arquivos > pasta Novos (Ctrl+A).
   Depois de carregar, apague os arquivos da pasta Novos.
+
+CONFIGURAR PELO APP (Chrome/Edge no notebook)
+Montagem > "Arquivos do carro" > Escolher a pasta Carro Controle (Documentos\Carro Controle).
+La voce ve a ultima busca, carrega os arquivos novos na Montagem (eles saem da
+pasta Novos sozinhos) e configura: intervalo, horario, pastas do carro, textos
+desprezados, avisos e Wi-Fi. O app grava configuracao.json; o script le a cada busca.
 
 ATUALIZACAO
 Toda busca (com internet) baixa a versao nova do GitHub automaticamente.
@@ -24,3 +31,5 @@ PASTAS
 Documentos\Carro Controle\Novos   arquivos ainda nao carregados no app
 Documentos\Carro Controle\Todos   copia de tudo que veio do carro
 Documentos\Carro Controle\log.txt registro de cada busca
+Documentos\Carro Controle\estado.json        resultado da ultima busca (lido pelo app)
+Documentos\Carro Controle\configuracao.json  configuracao feita no app

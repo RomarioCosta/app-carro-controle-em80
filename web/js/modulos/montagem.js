@@ -116,6 +116,7 @@
     processando = true;
     render();
     let ok = 0; let mantidos = 0;
+    const feitos = []; // nomes já na Montagem ao fim (adicionados ou repetidos mantidos)
     for (let k = 0; k < lista.length; k++) {
       const f = lista[k];
       ui.toast(`Processando ${k + 1}/${lista.length}: ${f.name}…`, 'info', 4000);
@@ -135,7 +136,7 @@
           const sim = await ui.confirmar('Arquivo já carregado',
             `${nome} já está na Montagem${outroNome}, adicionado em ${U.fmtDataHora(anterior.adicionadoEm) || '—'}. Substituir o arquivo existente? Ele é carregado do zero: o corte, as compensações e a correção da linha do arquivo atual são descartados.`,
             { ok: 'Substituir' });
-          if (!sim) { mantidos++; continue; }
+          if (!sim) { mantidos++; feitos.push(f.name); continue; }
         }
         // substituir = carregar do zero; só o "Adicionar de novo" (arquivo de versão antiga) mantém o recorte,
         // a correção da linha e as compensações que ainda existem nele
@@ -149,6 +150,7 @@
         await guardarCsv(item.id, texto);
         if (existente >= 0) arquivos[existente] = item; else arquivos.push(item);
         ok++;
+        feitos.push(f.name);
       } catch (e) {
         ui.toast(`${f.name}: ${e.message}`, 'erro', 8000);
       }
@@ -158,6 +160,7 @@
     if (ok) ui.toast(`${ok} arquivo(s) adicionado(s).${mantidos ? ` ${mantidos} repetido(s) não substituído(s).` : ''}`, 'ok');
     else if (mantidos) ui.toast(`${mantidos} arquivo(s) repetido(s): o existente foi mantido.`, 'info', 5000);
     render();
+    return feitos;
   }
 
   async function remover(a) {
@@ -928,6 +931,8 @@
     if (!raiz) return;
     const lista = doCiclo();
     const partes = [cabecalho()];
+    // arquivos trazidos do carro pelo script do Windows (só no computador)
+    if (App.carroAuto) partes.push(App.carroAuto.cartao({ carregar: (files) => adicionar(files) }));
     if (planta) {
       const ramal = ramalEscolhido();
       const outros = lista.filter((a) => a.resumo.ramal && a.resumo.ramal !== ramal);
@@ -958,7 +963,7 @@
 
   App.montagem = {
     async montar(el) { raiz = el; await carregar(); render(); atualizarResumos(); },
-    async aoMostrar() { if (!raiz) return; planta = App.analise && App.analise.planta ? await App.analise.planta() : planta; render(); atualizarResumos(); },
+    async aoMostrar() { if (!raiz) return; planta = App.analise && App.analise.planta ? await App.analise.planta() : planta; render(); atualizarResumos(); if (App.carroAuto) App.carroAuto.atualizar(); },
     lista: listaParaTela,
     atual: () => atual,
     ciclo,

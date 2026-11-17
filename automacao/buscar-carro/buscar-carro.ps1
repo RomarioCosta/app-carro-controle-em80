@@ -6,10 +6,13 @@
 #  5) avisa numa janela quantos arquivos novos vieram (ou que nao ha).
 #
 #  NAO edite este arquivo: ele se atualiza sozinho pelo GitHub.
-#  Suas configuracoes ficam em "configuracao.ps1" (mesma pasta).
+#  Configuracao: pelo app (Montagem > Arquivos do carro), que grava
+#  Documentos\Carro Controle\configuracao.json; ou em "configuracao.ps1" (mesma pasta).
+#  O agendamento do Windows roda a cada 15 min; o intervalo de verdade
+#  (ex.: 2 h) e o horario vem da configuracao.
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar)
-$Versao = '2026-11-17.1'
+$Versao = '2026-11-17.2'
 
 # ---------------- PADROES (sobrescritos por configuracao.ps1) ----------------
 $Origens       = @()                                       # pastas dos computadores do carro
@@ -24,6 +27,12 @@ $SegundosAviso = 30
 $ModoWifi      = 'desconectar'                             # ou 'desativar' (administrador)
 $NomeAdaptador = 'Wi-Fi'
 $AtualizarAuto = $true                                     # baixa a versao nova do GitHub antes de buscar
+$Ativo         = $true                                     # busca automatica ligada
+$IntervaloMin  = 120                                       # intervalo entre buscas agendadas
+$HoraIni       = ''                                        # 'HH:mm' (vazio = dia todo)
+$HoraFim       = ''
+$Avisos        = 'sempre'                                  # 'sempre' | 'novos' | 'nunca' (buscas agendadas)
+$NomeTarefa    = 'Buscar arquivos do carro EM80'
 $UrlBase       = 'https://raw.githubusercontent.com/RomarioCosta/app-carro-controle-em80/main/automacao/buscar-carro/'
 # ------------------------------------------------------------------------------
 
@@ -55,9 +64,79 @@ function Fim($cod = 0) {
   exit $cod
 }
 
+# ---------- Configuracao do app (configuracao.json) e estado da ultima busca (estado.json) ----------
+$ConfigJson = Join-Path $Destino 'configuracao.json'
+$EstadoArq  = Join-Path $Destino 'estado.json'
+$erroConfig = $null
+if (Test-Path -LiteralPath $ConfigJson) {
+  try {
+    $j = [IO.File]::ReadAllText($ConfigJson) | ConvertFrom-Json
+    if ($null -ne $j.ativo)         { $Ativo = [bool]$j.ativo }
+    if ($j.intervaloMin)            { $IntervaloMin = [int]$j.intervaloMin }
+    if ($null -ne $j.horaIni)       { $HoraIni = [string]$j.horaIni }
+    if ($null -ne $j.horaFim)       { $HoraFim = [string]$j.horaFim }
+    if (@($j.origens | Where-Object { $_ }).Count -gt 0) { $Origens = @($j.origens | Where-Object { $_ }) }
+    if ($null -ne $j.ignorar)       { $Ignorar = @($j.ignorar | Where-Object { $_ }) }
+    if ($null -ne $j.dias)          { $Dias = [int]$j.dias }
+    if ($j.avisos)                  { $Avisos = [string]$j.avisos }
+    if ($null -ne $j.avisarSemCabo) { $AvisarSemCabo = [bool]$j.avisarSemCabo }
+    if ($j.segundosAviso)           { $SegundosAviso = [int]$j.segundosAviso }
+    if ($j.modoWifi)                { $ModoWifi = [string]$j.modoWifi }
+    if ($null -ne $j.atualizarAuto) { $AtualizarAuto = [bool]$j.atualizarAuto }
+  } catch { $erroConfig = $_.Exception.Message }
+}
+$estadoAnt = $null
+if (Test-Path -LiteralPath $EstadoArq) { try { $estadoAnt = [IO.File]::ReadAllText($EstadoArq) | ConvertFrom-Json } catch { } }
+$agenda = if ($estadoAnt -and $estadoAnt.agenda) { [string]$estadoAnt.agenda } else { '' }
+
+function GravarEstado($resultado, $qNovos = 0, $qTestes = 0, $qErros = 0, $listaSemAcesso = @(), $mensagem = '') {
+  try {
+    $pend = @(Get-ChildItem -LiteralPath $Novos -File -ErrorAction SilentlyContinue).Count
+    $obj = [ordered]@{
+      versao = $Versao; ultimaBusca = (Get-Date).ToString("yyyy-MM-dd'T'HH:mm:ssK"); resultado = $resultado
+      novos = $qNovos; testes = $qTestes; erros = $qErros; semAcesso = @($listaSemAcesso); pendentes = $pend
+      mensagem = $mensagem; agendado = [bool]$Agendado; agenda = $agenda
+      config = [ordered]@{
+        ativo = $Ativo; intervaloMin = $IntervaloMin; horaIni = $HoraIni; horaFim = $HoraFim
+        origens = @($Origens); ignorar = @($Ignorar); dias = $Dias; avisos = $Avisos
+        avisarSemCabo = $AvisarSemCabo; segundosAviso = $SegundosAviso; modoWifi = $ModoWifi; atualizarAuto = $AtualizarAuto
+      }
+    }
+    [IO.File]::WriteAllText($EstadoArq, ($obj | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
+  } catch { }
+}
+
+# Busca agendada: respeita ligado/desligado, horario e intervalo (o Windows chama a cada 15 min)
+if ($Agendado) {
+  if (-not $Ativo) { exit 0 }
+  if ($HoraIni -and $HoraFim) {
+    $h = (Get-Date).ToString('HH:mm')
+    $dentro = if ($HoraIni -le $HoraFim) { $h -ge $HoraIni -and $h -le $HoraFim } else { $h -ge $HoraIni -or $h -le $HoraFim }
+    if (-not $dentro) { exit 0 }
+  }
+  if ($estadoAnt -and $estadoAnt.ultimaBusca) {
+    try {
+      $ult = [DateTime]::Parse([string]$estadoAnt.ultimaBusca)
+      if (((Get-Date) - $ult).TotalMinutes -lt ($IntervaloMin - 5)) { exit 0 }
+    } catch { }
+  }
+}
+
+# Agendamento do Windows a cada 15 min (cria ou troca o antigo de 2 h)
+function GarantirAgenda {
+  if (-not $Ativo -or $agenda -eq 'cada15') { return }
+  try {
+    $vbs = Join-Path $Pasta 'rodar-oculto.vbs'
+    $argumentos = "/create /tn `"$NomeTarefa`" /sc MINUTE /mo 15 /f /tr `"wscript.exe \`"$vbs\`"`""
+    $p = Start-Process -FilePath 'schtasks.exe' -ArgumentList $argumentos -WindowStyle Hidden -Wait -PassThru
+    if ($p.ExitCode -eq 0) { $script:agenda = 'cada15'; Escrever 'Agendamento do Windows ativado (verifica a cada 15 min).' 'Green' }
+    else { Escrever "Nao foi possivel criar o agendamento (codigo $($p.ExitCode))." 'Yellow' }
+  } catch { Escrever "Nao foi possivel criar o agendamento: $($_.Exception.Message)" 'Yellow' }
+}
+
 # ---------- Atualizacao automatica pelo GitHub (com internet, antes de mexer no Wi-Fi) ----------
 function Atualizar {
-  $arquivos = @('buscar-carro.ps1', 'rodar-oculto.vbs', 'Buscar arquivos do carro.bat', 'Agendar a cada 2 horas.bat', 'Remover agendamento.bat', 'LEIA-ME.txt')
+  $arquivos = @('buscar-carro.ps1', 'rodar-oculto.vbs', 'Buscar arquivos do carro.bat', 'Ativar agendamento.bat', 'Remover agendamento.bat', 'LEIA-ME.txt')
   $mudou = @()
   try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
   $tmp = Join-Path $env:TEMP 'carro-controle-atualizacao'
@@ -93,7 +172,8 @@ if ($AtualizarAuto -and -not $SemAtualizar) {
 $Origens = @($Origens | Where-Object { $_ -and "$_".Trim() })
 if ($Origens.Count -eq 0) {
   Escrever 'Nenhuma pasta do carro configurada: edite configuracao.ps1 (lembre das aspas simples).' 'Red'
-  Avisar 'Nenhuma pasta do carro configurada. Edite o arquivo configuracao.ps1 na pasta do script.' 48
+  GravarEstado 'semPasta' -mensagem 'Nenhuma pasta do carro configurada.'
+  Avisar 'Nenhuma pasta do carro configurada. Configure no app (Montagem > Arquivos do carro) ou no configuracao.ps1.' 48
   Fim 1
 }
 
@@ -150,10 +230,15 @@ function EhTeste($nome) {
 }
 
 Escrever ("=== Buscar arquivos do Carro Controle (versao $Versao) ===" + $(if ($Agendado) { ' (agendado)' } else { '' })) 'Cyan'
+if ($erroConfig) { Escrever "configuracao.json com erro (usando o padrao): $erroConfig" 'Yellow' }
+GarantirAgenda
 
 if ($ExigirCabo -and -not (CaboConectado)) {
   Escrever 'Cabo de rede do carro nao conectado: nada foi feito.' 'Yellow'
-  if ($AvisarSemCabo) { Avisar 'Busca de arquivos do carro: cabo de rede nao conectado. Nada foi feito.' 48 }
+  GravarEstado 'semCabo' -mensagem 'Cabo de rede do carro nao conectado.'
+  if ($AvisarSemCabo -and (-not $Agendado -or $Avisos -ne 'nunca')) { Avisar 'Busca de arquivos do carro: cabo de rede nao conectado. Nada foi feito.' 48 }
+  Fim 0
+}
   Fim 0
 }
 
@@ -225,5 +310,8 @@ if ($testes -gt 0) { $msg += "`n$testes arquivo(s) de teste desprezado(s)." }
 if ($semAcesso.Count -gt 0) { $msg += "`nSem acesso a: " + ($semAcesso -join ', ') }
 if ($falhas -gt 0) { $msg += "`n$falhas erro(s) ao copiar; veja o log.txt." }
 $icone = if ($semAcesso.Count -gt 0 -or $falhas -gt 0) { 48 } else { 64 }
-Avisar $msg $icone
+$resultado = if ($semAcesso.Count -gt 0) { 'semAcesso' } else { 'ok' }
+GravarEstado $resultado $total $testes $falhas $semAcesso ($msg -replace "`n", ' ')
+$mostrar = (-not $Agendado) -or $Avisos -eq 'sempre' -or ($Avisos -eq 'novos' -and ($total -gt 0 -or $icone -eq 48))
+if ($mostrar) { Avisar $msg $icone }
 Fim 0
