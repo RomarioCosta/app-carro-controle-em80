@@ -376,11 +376,6 @@
         h('button', { class: 'btn-icone', title: 'Ler a pasta de novo', 'aria-label': 'Atualizar', onclick: () => (ehVirtual() ? escolherSimples() : atualizar()) }, ui.icone('sync'))),
       erro ? h('p', { class: 'aviso aviso-erro', text: erro }) : null,
       status,
-      // modo simples: a tela mostra a pasta como estava quando foi aberta
-      ehVirtual() && pasta.lidaEm && Date.now() - pasta.lidaEm.getTime() > 5 * 60000
-        ? h('div', { class: 'ca-novos' }, h('span', { text: `Pasta lida às ${dataHora(pasta.lidaEm.toISOString()).slice(6)}: buscas feitas depois não aparecem até atualizar.` }),
-          h('button', { class: 'btn btn-primario', onclick: escolherSimples }, ui.icone('sync'), 'Atualizar a pasta'))
-        : null,
       h('small', { class: 'sub' }, `${auto} · ${pasta.name}${ehVirtual() && pasta.lidaEm ? ` (lida às ${dataHora(pasta.lidaEm.toISOString()).slice(6)})` : ' (atualiza sozinha)'} · `,
         h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherSimples(); }, text: 'trocar' }),
         ehVirtual() ? ' · ' : null,

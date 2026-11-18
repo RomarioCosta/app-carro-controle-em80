@@ -1264,7 +1264,7 @@ window.App = window.App || {};
     versao: '2026.11.18',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-50e8394961', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-d928566a9a', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -9248,11 +9248,6 @@ window.App = window.App || {};
         h('button', { class: 'btn-icone', title: 'Ler a pasta de novo', 'aria-label': 'Atualizar', onclick: () => (ehVirtual() ? escolherSimples() : atualizar()) }, ui.icone('sync'))),
       erro ? h('p', { class: 'aviso aviso-erro', text: erro }) : null,
       status,
-      // modo simples: a tela mostra a pasta como estava quando foi aberta
-      ehVirtual() && pasta.lidaEm && Date.now() - pasta.lidaEm.getTime() > 5 * 60000
-        ? h('div', { class: 'ca-novos' }, h('span', { text: `Pasta lida às ${dataHora(pasta.lidaEm.toISOString()).slice(6)}: buscas feitas depois não aparecem até atualizar.` }),
-          h('button', { class: 'btn btn-primario', onclick: escolherSimples }, ui.icone('sync'), 'Atualizar a pasta'))
-        : null,
       h('small', { class: 'sub' }, `${auto} · ${pasta.name}${ehVirtual() && pasta.lidaEm ? ` (lida às ${dataHora(pasta.lidaEm.toISOString()).slice(6)})` : ' (atualiza sozinha)'} · `,
         h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherSimples(); }, text: 'trocar' }),
         ehVirtual() ? ' · ' : null,
