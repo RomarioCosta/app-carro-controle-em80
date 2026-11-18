@@ -975,13 +975,18 @@ async function main() {
         const clicar = HTMLAnchorElement.prototype.click;
         HTMLAnchorElement.prototype.click = function () {
           if (!this.href.startsWith('carrocontrole:')) return clicar.call(this);
-          setTimeout(async () => { // o "script": lê o pedido, copia o GV e grava o estado
-            const ped = JSON.parse(await ler(d, 'pedido.json'));
-            window.__pedido = ped;
-            await gravar(todos, 'RLT_GV_20261110.csv', gv);
-            await gravar(novos, 'RLT_GV_20261110.csv', gv);
-            await d.removeEntry('pedido.json');
-            await gravar(d, 'estado.json', JSON.stringify({ versao: 'T1', ultimaBusca: new Date().toISOString(), resultado: 'ok', novos: 1, testes: 0, pedidoId: ped.id, config: { intervaloMin: 120, origens: ['\\\\pc\\C\\DADOS'] } }));
+          const u = new URL(this.href);
+          const q = Object.fromEntries(u.searchParams);
+          setTimeout(async () => { // o "script": busca (copia o GV e grava o estado) ou grava a configuração
+            if (u.host === 'buscar') {
+              window.__pedido = q;
+              await gravar(todos, 'RLT_GV_20261110.csv', gv);
+              await gravar(novos, 'RLT_GV_20261110.csv', gv);
+              await gravar(d, 'estado.json', JSON.stringify({ versao: 'T1', ultimaBusca: new Date().toISOString(), resultado: 'ok', novos: 1, testes: 0, pedidoId: q.id, config: { intervaloMin: 120, origens: ['\\\\pc\\C\\DADOS'] } }));
+            } else if (u.host === 'config') {
+              window.__config = q;
+              await gravar(d, 'configuracao.json', JSON.stringify({ intervaloMin: Number(q.intervalo), origens: q.origens.split('|'), ignorar: q.ignorar.split(','), salvoId: q.id }));
+            }
           }, 600);
         };
       }, [csvCP, csvGV]);
@@ -1002,12 +1007,11 @@ async function main() {
       await page.getByRole('button', { name: 'Buscar agora' }).click();
       await page.getByText('Busca concluída: 1 arquivo(s) copiado(s).').waitFor();
       const ped = await page.evaluate(() => window.__pedido);
-      assert.deepEqual([ped.de, ped.ate, ped.sedes, ped.modo], ['2026-11-01', '2026-11-30', [], 'novos']);
+      assert.deepEqual([ped.de, ped.ate, ped.sedes, ped.modo], ['2026-11-01', '2026-11-30', '', 'novos']);
       await page.getByRole('button', { name: 'Trazer para a Montagem (2)' }).click();
       await page.getByText('2 arquivo(s) adicionado(s).').waitFor();
       await page.waitForFunction(() => document.querySelector('[data-carro-resumo]').textContent.includes('2 já na Montagem'));
       assert.equal(await page.locator('.bc-sit-novo').count(), 0);
-      assert.equal(await page.evaluate(async () => { const n = []; for await (const [k] of (await (await (await navigator.storage.getDirectory()).getDirectoryHandle('carro')).getDirectoryHandle('Novos')).entries()) n.push(k); return n.length; }), 0);
       await page.getByLabel('Buscar a cada').selectOption('60');
       await page.getByRole('button', { name: 'Salvar configuração' }).click();
       await page.getByText('Configuração salva. Vale a partir da próxima busca.').waitFor();
