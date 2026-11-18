@@ -525,7 +525,9 @@
         ];
     ui.trocar(listaEl,
       h('div', { class: 'bc-cab' }, h('h2', { text: 'Arquivos do carro' }),
-        h('button', { class: 'btn btn-primario', disabled: !sel.length || trazendo || null, onclick: trazer }, ui.icone('upload'), trazendo ? 'Trazendo…' : `Trazer para a Montagem (${sel.length})`)),
+        h('div', { class: 'linha-acoes' },
+          !sel.length && todos.some(podeTrazer) ? h('span', { class: 'sub', 'data-bc-dica': '', text: 'Marque na lista os arquivos que quer trazer ☑' }) : null,
+          h('button', { class: 'btn btn-primario', disabled: !sel.length || trazendo || null, onclick: trazer }, ui.icone('upload'), trazendo ? 'Trazendo…' : `Trazer para a Montagem (${sel.length})`))),
       ...corpo);
   }
 
