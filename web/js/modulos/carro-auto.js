@@ -35,6 +35,8 @@
   let estado = null;
   let config = null;
   let catalogo = null;
+  let historico = []; // historico.jsonl: uma busca por linha (mais nova primeiro)
+  let logLinhas = []; // fim do log.txt
   let emTodos = new Set();
   let emNovos = new Set();
   let naMontagem = new Set();
@@ -67,6 +69,9 @@
   /* ---------- arquivos ---------- */
 
   const semBom = (t) => t.replace(/^﻿/, '');
+  async function lerTexto(nome) {
+    try { return semBom(await (await (await pasta.getFileHandle(nome)).getFile()).text()); } catch (e) { return ''; }
+  }
   async function lerJson(nome) {
     try { return JSON.parse(semBom(await (await (await pasta.getFileHandle(nome)).getFile()).text())); } catch (e) { return null; }
   }
@@ -95,6 +100,9 @@
     estado = await lerJson('estado.json');
     config = await lerJson('configuracao.json');
     catalogo = await lerJson('catalogo.json');
+    historico = (await lerTexto('historico.jsonl')).split(/\r?\n/).filter(Boolean)
+      .map((l) => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean).reverse();
+    logLinhas = (await lerTexto('log.txt')).split(/\r?\n/).filter(Boolean).slice(-150);
     emTodos = await nomesEm('Todos');
     emNovos = await nomesEm('Novos');
     naMontagem = new Set(App.montagem && App.montagem.nomes ? await App.montagem.nomes() : []);
@@ -227,7 +235,7 @@
       // o Windows abre o script (link registrado pelo próprio script na primeira vez que roda)
       abrirLink('buscar', { id, de: filtro.de || '', ate: filtro.ate || '', sedes: sedesDoFiltro().join(','), modo: filtro.modo });
       if (!pasta || !permitido) { ui.toast('Busca pedida ao Windows. Para ver o resultado e a lista aqui, ligue a pasta Carro Controle.', 'info', 8000); return; }
-      if (ehVirtual()) { ui.toast('Busca pedida ao Windows. Quando terminar (o Wi-Fi volta), clique em "Abrir a pasta de novo" para ver a lista.', 'info', 10000); return; }
+      if (ehVirtual()) { ui.toast('Busca pedida ao Windows: o resultado aparece numa janela do Windows. Depois atualize a pasta para ver a lista.', 'info', 8000); return; }
       buscando = { id, inicio: Date.now() };
       render();
       esperar();
@@ -499,6 +507,32 @@
       h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-primario', onclick: salvar }, ui.icone('check'), 'Salvar configuração')));
   }
 
+  let histTodos = false;
+  function cartaoHistorico() {
+    if (!pasta || !permitido) return null;
+    const tipos = { automatica: 'Automática', app: 'Pelo app', manual: 'Manual (.bat)' };
+    const res = (x) => ({
+      ok: x.novos ? `${x.novos} arquivo(s) novo(s)` : 'Nenhum arquivo novo',
+      semCabo: 'Cabo não conectado',
+      semAcesso: `Sem acesso a ${arr(x.semAcesso).join(', ') || 'pasta do carro'}`,
+      semPasta: 'Pasta do carro não configurada'
+    }[x.resultado] || x.resultado || '—');
+    const lista = histTodos ? historico : historico.slice(0, 15);
+    return h('section', { class: 'cartao pilha' },
+      h('h2', { text: 'Histórico das buscas' }),
+      !historico.length ? h('p', { class: 'sub', text: 'Nenhuma busca registrada ainda.' }) : h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela bc-hist' },
+        h('thead', {}, h('tr', {}, ['Quando', 'Como', 'Resultado', 'Teste', 'Erros'].map((t) => h('th', { text: t })))),
+        h('tbody', {}, lista.map((x) => {
+          const problema = ['semAcesso', 'semPasta'].includes(x.resultado) || x.erros;
+          return h('tr', { class: problema ? 'bc-hist-erro' : '', title: arr(x.copiados).join('\n') || x.mensagem || '' },
+            h('td', { text: dataHora(x.data) }), h('td', { text: tipos[x.tipo] || x.tipo || '—' }),
+            h('td', { text: res(x) }), h('td', { text: x.testes || '' }), h('td', { text: x.erros || '' }));
+        })))),
+      historico.length > 15 ? h('button', { class: 'btn btn-fantasma', onclick: () => { histTodos = !histTodos; render(); }, text: histTodos ? 'Mostrar menos' : `Mostrar todas (${historico.length})` }) : null,
+      logLinhas.length ? h('details', { class: 'ca-config' }, h('summary', { text: 'Log completo' }),
+        h('pre', { class: 'bc-log', text: logLinhas.slice().reverse().join('\n') })) : null);
+  }
+
   function render() {
     if (!raiz) return;
     if (!suportado()) {
@@ -510,7 +544,7 @@
     try {
       // as quatro partes aparecem sempre; sem a pasta ligada, Buscar agora e Salvar pedem a pasta na hora
       listaEl = h('section', { class: 'cartao pilha bc-lista' });
-      ui.trocar(raiz, cartaoPasta(), cartaoBusca(), listaEl, cartaoAutomatico());
+      ui.trocar(raiz, cartaoPasta(), cartaoBusca(), listaEl, cartaoAutomatico(), cartaoHistorico());
       renderLista();
       if (aberto && raiz.querySelector('.ca-config')) raiz.querySelector('.ca-config').open = true;
     } catch (e) {
