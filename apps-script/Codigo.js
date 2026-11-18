@@ -382,7 +382,7 @@ function executar_(acao, dados) {
  * Tudo fica na pasta "Carro Controle EM80" do Google Drive; o app lê daqui (sem abrir pasta no notebook).
  */
 var CARRO_TEXTOS = { estado: 'estado.json', historico: 'historico.jsonl', catalogo: 'catalogo.json' };
-var CARRO_MAX_BASE64 = 40 * 1024 * 1024;
+var CARRO_MAX_BASE64 = 48 * 1024 * 1024; // o CSV vem compactado (gzip): um de 70 MB chega com ~17 MB
 
 function carroPasta_() {
   var props = PropertiesService.getScriptProperties();
@@ -433,10 +433,13 @@ function acaoCarroEnviar_(dados) {
     var b64 = String(dados.base64 || '');
     if (!b64 || b64.length > CARRO_MAX_BASE64) throw erro_('VALIDACAO', 'Arquivo vazio ou grande demais: ' + nome);
     var arquivos = carroSubpasta_(pasta, 'Arquivos');
-    var antigo = carroArquivoPorNome_(arquivos, nome);
-    if (antigo) antigo.setTrashed(true);
-    arquivos.createFile(Utilities.newBlob(Utilities.base64Decode(b64), 'text/csv', nome));
-    return { nome: nome };
+    [nome, nome + '.gz'].forEach(function (n) {
+      var antigo = carroArquivoPorNome_(arquivos, n);
+      if (antigo) antigo.setTrashed(true);
+    });
+    var gz = String(dados.gzip || '') === '1';
+    arquivos.createFile(Utilities.newBlob(Utilities.base64Decode(b64), gz ? 'application/gzip' : 'text/csv', gz ? nome + '.gz' : nome));
+    return { nome: nome, gzip: gz };
   }
   if (!CARRO_TEXTOS[tipo]) throw erro_('VALIDACAO', 'Tipo desconhecido: ' + tipo);
   var texto = String(dados.conteudo || '');
@@ -460,16 +463,19 @@ function acaoCarroStatus_() {
   var it = carroSubpasta_(pasta, 'Arquivos').getFiles();
   while (it.hasNext()) {
     var f = it.next();
-    arquivos.push({ nome: f.getName(), tamanho: f.getSize(), atualizado: f.getLastUpdated().toISOString() });
+    var n = f.getName();
+    arquivos.push({ nome: n.replace(/\.gz$/i, ''), gzip: /\.gz$/i.test(n), tamanho: f.getSize(), atualizado: f.getLastUpdated().toISOString() });
   }
   return { estado: json(CARRO_TEXTOS.estado), historico: historico, catalogo: json(CARRO_TEXTOS.catalogo), arquivos: arquivos };
 }
 
 function acaoCarroArquivo_(dados) {
   var nome = carroNomeCsv_(dados.nome);
-  var f = carroArquivoPorNome_(carroSubpasta_(carroPasta_(), 'Arquivos'), nome);
+  var arquivos = carroSubpasta_(carroPasta_(), 'Arquivos');
+  var gz = carroArquivoPorNome_(arquivos, nome + '.gz');
+  var f = gz || carroArquivoPorNome_(arquivos, nome);
   if (!f) throw erro_('NAO_ENCONTRADO', 'Arquivo não está no Drive: ' + nome);
-  return { nome: nome, base64: Utilities.base64Encode(f.getBlob().getBytes()) };
+  return { nome: nome, gzip: !!gz, base64: Utilities.base64Encode(f.getBlob().getBytes()) };
 }
 
 /* ------------------------------------------------------------------ */

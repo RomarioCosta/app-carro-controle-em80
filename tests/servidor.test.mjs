@@ -239,7 +239,7 @@ test('rota: dias com trechos, pontos de atenção, edição e exclusão', () => 
   assert.deepEqual(s.post('getRota', {}).dados.ciclos, [{ ciclo: '3', dias: 1 }]);
 });
 
-test('carro: o script manda estado, histórico, lista e CSV para o Drive e o app lê de lá', () => {
+test('carro: o script manda estado, histórico, lista e CSV para o Drive e o app lê de lá', async () => {
   const { ctx, props } = carregarServidor(CODIGO);
   ctx.setup();
   const token = props.get('API_TOKEN');
@@ -264,4 +264,12 @@ test('carro: o script manda estado, histórico, lista e CSV para o Drive e o app
   const arq = chamar('carroArquivo', { nome: 'RLT_CP_20261117.csv' }).dados;
   assert.equal(Buffer.from(arq.base64, 'base64').toString('latin1'), csv + '3;4\n');
   assert.equal(chamar('carroArquivo', { nome: 'NADA.csv' }).ok, false);
+  // compactado (gzip): guarda como .gz, lista com o nome do CSV e devolve marcado como gzip
+  const { gzipSync, gunzipSync } = await import('node:zlib');
+  assert.equal(chamar('carroEnviar', { tipo: 'arquivo', nome: 'RLT_CP_20261117.csv', gzip: '1', base64: gzipSync(Buffer.from(csv, 'latin1')).toString('base64') }).ok, true);
+  const st2 = chamar('carroStatus', {}).dados.arquivos;
+  assert.deepEqual(st2.map((x) => [x.nome, x.gzip]), [['RLT_CP_20261117.csv', true]]);
+  const arq2 = chamar('carroArquivo', { nome: 'RLT_CP_20261117.csv' }).dados;
+  assert.equal(arq2.gzip, true);
+  assert.equal(gunzipSync(Buffer.from(arq2.base64, 'base64')).toString('latin1'), csv);
 });
