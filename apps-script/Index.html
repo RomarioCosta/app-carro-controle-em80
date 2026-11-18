@@ -1264,7 +1264,7 @@ window.App = window.App || {};
     versao: '2026.11.18',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-b21e8737bd', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-f2fd2b1a48', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -9219,8 +9219,10 @@ window.App = window.App || {};
         for (const n of nomes) {
           const r = await App.api.chamar('carroArquivo', { nome: n });
           const bin = atob(r.base64);
-          const bytes = new Uint8Array(bin.length);
+          let bytes = new Uint8Array(bin.length);
           for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          // o script manda o CSV compactado (gzip): descompacta aqui
+          if (r.gzip) bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
           files.push(new File([bytes], n, { type: 'text/csv' }));
         }
       } else {

@@ -1049,7 +1049,10 @@ async function main() {
         await env({ tipo: 'estado', conteudo: JSON.stringify({ versao: 'S2', ultimaBusca: new Date().toISOString(), resultado: 'ok', novos: 1, copiados: ['RLT_FU_20261118.csv'], config: { intervaloMin: 30 } }) });
         await env({ tipo: 'historico', conteudo: JSON.stringify({ data: new Date().toISOString(), tipo: 'automatica', resultado: 'ok', novos: 1 }) + '\n' });
         await env({ tipo: 'catalogo', conteudo: JSON.stringify({ arquivos: [{ nome: 'RLT_FU_20261118.csv', sede: 'FU', data: '2026-11-18' }] }) });
-        await env({ tipo: 'arquivo', nome: 'RLT_FU_20261118.csv', base64: btoa(csv) });
+        // como o script manda: compactado (gzip)
+        const gz = new Uint8Array(await new Response(new Blob([csv]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+        let bin = ''; gz.forEach((b) => { bin += String.fromCharCode(b); });
+        await env({ tipo: 'arquivo', nome: 'RLT_FU_20261118.csv', gzip: '1', base64: btoa(bin) });
       }, [csvFU, srv.estado.token]);
       await page.getByRole('tab', { name: 'Buscar do carro' }).click();
       await page.locator('[data-bc-fonte="servidor"]').waitFor();

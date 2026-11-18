@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
-$Versao = '2026-11-18.12'
+$Versao = '2026-11-18.13'
 
 # carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
 function LerUrl($u) {
@@ -410,7 +410,16 @@ function Sincronizar {
     $arq = Join-Path $Todos $n
     if (-not (Test-Path -LiteralPath $arq)) { continue }   # apagado: nao manda
     try {
-      Api 'carroEnviar' @{ tipo = 'arquivo'; nome = $n; base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($arq)) } | Out-Null
+      # compacta (gzip): um CSV de ~70 MB vira ~13 MB (o servidor aceita ate ~48 MB por envio)
+      $bytes = [IO.File]::ReadAllBytes($arq)
+      $ms = New-Object IO.MemoryStream
+      $gz = New-Object IO.Compression.GZipStream($ms, [IO.Compression.CompressionMode]::Compress)
+      $gz.Write($bytes, 0, $bytes.Length); $gz.Close()
+      $b64 = [Convert]::ToBase64String($ms.ToArray())
+      $bytes = $null; $ms = $null
+      if ($b64.Length -gt 46MB) { Escrever "  Grande demais para o app mesmo compactado: $n" 'Yellow'; $b64 = $null; continue }
+      Api 'carroEnviar' @{ tipo = 'arquivo'; nome = $n; gzip = '1'; base64 = $b64 } | Out-Null
+      $b64 = $null
       $enviados++
     } catch { [void]$resta.Add($n); Escrever "  Nao foi para o app: $n ($($_.Exception.Message))" 'Yellow' }
   }

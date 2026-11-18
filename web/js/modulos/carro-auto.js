@@ -347,8 +347,10 @@
         for (const n of nomes) {
           const r = await App.api.chamar('carroArquivo', { nome: n });
           const bin = atob(r.base64);
-          const bytes = new Uint8Array(bin.length);
+          let bytes = new Uint8Array(bin.length);
           for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          // o script manda o CSV compactado (gzip): descompacta aqui
+          if (r.gzip) bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
           files.push(new File([bytes], n, { type: 'text/csv' }));
         }
       } else {
