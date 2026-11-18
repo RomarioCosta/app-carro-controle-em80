@@ -21,7 +21,10 @@
   const U = App.U;
   const store = App.store;
   const CHAVE = 'carroAuto:pasta';
-  const suportado = () => typeof window.showDirectoryPicker === 'function';
+  const temPasta = () => typeof window.showDirectoryPicker === 'function';
+  const temServidor = () => !!(App.api && App.api.configurado());
+  // com o servidor do app (Google Drive) a aba funciona até no celular; sem ele, só no computador (pasta)
+  const suportado = () => temPasta() || temServidor();
 
   const PADRAO = {
     ativo: true, intervaloMin: 120, horaIni: '', horaFim: '', origens: [], ignorar: ['teste'], dias: 10,
@@ -36,6 +39,7 @@
   let estado = null;
   let config = null;
   let catalogo = null;
+  let servidor = null; // dados que o script mandou para o servidor do app (pasta Carro Controle EM80 no Google Drive)
   let historico = []; // historico.jsonl: uma busca por linha (mais nova primeiro)
   let logLinhas = []; // fim do log.txt
   let emTodos = new Set();
@@ -110,9 +114,31 @@
     naMontagem = new Set(App.montagem && App.montagem.nomes ? await App.montagem.nomes() : []);
   }
 
+  /** Lê o que o script mandou para o servidor (Google Drive). Com dados lá, a tela usa o servidor e não a pasta. */
+  async function lerServidor() {
+    if (!temServidor()) { servidor = null; return false; }
+    const d = await App.api.chamar('carroStatus', {});
+    servidor = d && (d.estado || arr(d.arquivos).length || arr(d.historico).length) ? d : null;
+    if (!servidor) return false;
+    estado = servidor.estado;
+    catalogo = servidor.catalogo;
+    config = null;
+    historico = arr(servidor.historico).slice().reverse();
+    logLinhas = [];
+    emTodos = new Set(arr(servidor.arquivos).map((a) => a.nome));
+    // "Novo": copiado na última busca e ainda fora da Montagem
+    emNovos = new Set(arr(estado && estado.copiados).filter((n) => emTodos.has(n)));
+    naMontagem = new Set(App.montagem && App.montagem.nomes ? await App.montagem.nomes() : []);
+    permitido = true;
+    erro = '';
+    return true;
+  }
+  const doServidor = () => !!servidor;
+
   async function atualizar() {
     if (!suportado() || !raiz) return;
     try {
+      if (await lerServidor().catch(() => false)) { render(); return; }
       if (!pasta) {
         const salvo = await store.get(CHAVE).catch(() => null);
         pasta = salvo && typeof salvo.getDirectoryHandle === 'function' ? salvo : null; // só pasta de verdade (não o modo simples)
@@ -243,8 +269,8 @@
       const id = U.uuid().slice(0, 12);
       // o agendamento do script (a cada minuto) pega o pedido na pasta Downloads
       baixarPedido('carro-controle-pedido.json', 'buscar', { id, de: filtro.de || '', ate: filtro.ate || '', sedes: sedesDoFiltro().join(','), modo: filtro.modo });
-      if (!pasta || !permitido) { ui.toast('Busca pedida: começa em até 1 minuto.', 'info', 6000); return; }
-      if (ehVirtual()) { pedidoSimples = new Date(); render(); return; }
+      if (!doServidor() && (!pasta || !permitido)) { ui.toast('Busca pedida: começa em até 1 minuto.', 'info', 6000); return; }
+      if (!doServidor() && ehVirtual()) { pedidoSimples = new Date(); render(); return; }
       buscando = { id, inicio: Date.now() };
       render();
       esperar();
@@ -257,17 +283,19 @@
     clearTimeout(timer);
     timer = setTimeout(async () => {
       if (!buscando) return;
-      const e = await lerJson('estado.json').catch(() => null);
+      const e = doServidor()
+        ? await App.api.chamar('carroStatus', {}).then((d) => d && d.estado).catch(() => null)
+        : await lerJson('estado.json').catch(() => null);
       if (e && e.pedidoId === buscando.id) {
         buscando = null;
-        await ler();
+        if (doServidor()) await lerServidor().catch(() => {}); else await ler();
         const msg = { ok: `Busca concluída: ${e.novos || 0} arquivo(s) copiado(s).`, semCabo: 'O cabo de rede do carro não está conectado.', semAcesso: 'Não consegui acessar a pasta do carro.', semPasta: 'Nenhuma pasta do carro configurada.' }[e.resultado] || 'Busca concluída.';
         ui.toast(msg, e.resultado === 'ok' ? 'ok' : 'erro', 6000);
         marcarProntos();
         render();
         return;
       }
-      if (Date.now() - buscando.inicio > 4 * 60000) {
+      if (Date.now() - buscando.inicio > (doServidor() ? 8 : 4) * 60000) {
         buscando = null;
         ui.toast('O Windows não pegou o pedido de busca. Confira se o arquivo carro-controle-pedido.json foi baixado na pasta Downloads.', 'erro', 12000);
         render();
@@ -276,7 +304,7 @@
       const b = raiz && raiz.querySelector('[data-bc-buscar]');
       if (b && b.lastChild) b.lastChild.textContent = `Buscando… ${Math.round((Date.now() - buscando.inicio) / 1000)}s`;
       esperar();
-    }, 2000);
+    }, doServidor() ? 10000 : 2000);
   }
 
   function cancelarEspera() {
@@ -313,14 +341,28 @@
     if (!nomes.length) return;
     trazendo = true; render();
     try {
-      const todos = await subpasta('Todos');
-      const novosDir = await subpasta('Novos');
       const files = [];
-      for (const n of nomes) files.push(await (await (emTodos.has(n) ? todos : novosDir).getFileHandle(n)).getFile());
+      if (doServidor()) {
+        // baixa do Google Drive pelo servidor do app
+        for (const n of nomes) {
+          const r = await App.api.chamar('carroArquivo', { nome: n });
+          const bin = atob(r.base64);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          files.push(new File([bytes], n, { type: 'text/csv' }));
+        }
+      } else {
+        const todos = await subpasta('Todos');
+        const novosDir = await subpasta('Novos');
+        for (const n of nomes) files.push(await (await (emTodos.has(n) ? todos : novosDir).getFileHandle(n)).getFile());
+      }
       const feitos = (await App.montagem.adicionarArquivos(files)) || [];
-      const novos = await subpasta('Novos');
-      if (novos) for (const n of feitos) if (emNovos.has(n)) await novos.removeEntry(n).catch(() => {});
-      await ler();
+      if (doServidor()) await lerServidor();
+      else {
+        const novos = await subpasta('Novos');
+        if (novos) for (const n of feitos) if (emNovos.has(n)) await novos.removeEntry(n).catch(() => {});
+        await ler();
+      }
       feitos.forEach((n) => marcados.delete(n));
     } catch (e) {
       ui.toast(`Erro ao trazer os arquivos: ${e.message}`, 'erro', 8000);
@@ -337,18 +379,23 @@
   const dataBr = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
   // configuração: a do arquivo (gravada pelo script) e, se for mais nova, a última salva aqui (ainda não confirmada)
   const configLocal = () => U.pref.get('carroAuto:configLocal', null);
-  const pendente = () => { const l = configLocal(); return !!(l && (!config || !config.salvoEm || new Date(l.salvoEm) > new Date(config.salvoEm) && l.salvoId !== config.salvoId)); };
+  const pendente = () => {
+    const l = configLocal();
+    const atual = config || (estado && estado.config); // pelo servidor, a configuração vem dentro do estado
+    return !!(l && (!atual || !atual.salvoEm || new Date(l.salvoEm) > new Date(atual.salvoEm) && l.salvoId !== atual.salvoId));
+  };
   const efetiva = () => ({ ...PADRAO, ...((estado && estado.config) || {}), ...(config || {}), ...(pendente() ? configLocal() : {}) });
 
   function cartaoPasta() {
     const cab = h('h2', { text: 'Buscar arquivos do carro' });
     const linhaPasso = passo ? h('small', { class: 'sub', 'data-bc-passo': '', text: passo }) : null;
-    if (!pasta || !permitido) {
+    if (!doServidor() && (!pasta || !permitido)) {
       return h('section', { class: 'cartao pilha' }, cab,
-        h('div', { class: 'linha-acoes' },
+        temPasta() ? h('div', { class: 'linha-acoes' },
           h('button', { class: 'btn btn-primario', onclick: escolherSimples }, ui.icone('documento'), 'Abrir a pasta Carro Controle'),
           pasta && !permitido ? h('button', { class: 'btn', onclick: permitir, text: 'Permitir acesso' }) : null,
-          h('button', { class: 'btn btn-fantasma', title: 'Pasta lembrada entre as sessões (se o Chrome deixar)', onclick: escolherPasta, text: 'Acesso permanente' })),
+          h('button', { class: 'btn btn-fantasma', title: 'Pasta lembrada entre as sessões (se o Chrome deixar)', onclick: escolherPasta, text: 'Acesso permanente' })) : null,
+        temServidor() ? h('p', { class: 'sub', text: 'Para atualizar sozinho (sem abrir a pasta), salve a configuração da busca automática uma vez: o script passa a mandar tudo para o Google Drive do app.' }) : null,
         linhaPasso);
     }
     const c = efetiva();
@@ -373,9 +420,10 @@
     }
     return h('section', { class: 'cartao pilha' },
       h('div', { class: 'bc-cab' }, cab,
-        h('button', { class: 'btn-icone', title: 'Ler a pasta de novo', 'aria-label': 'Atualizar', onclick: () => (ehVirtual() ? escolherSimples() : atualizar()) }, ui.icone('sync'))),
+        h('button', { class: 'btn-icone', title: 'Ler a pasta de novo', 'aria-label': 'Atualizar', onclick: () => (!doServidor() && ehVirtual() ? escolherSimples() : atualizar()) }, ui.icone('sync'))),
       erro ? h('p', { class: 'aviso aviso-erro', text: erro }) : null,
       status,
+      doServidor() ? h('small', { class: 'sub', 'data-bc-fonte': 'servidor' }, `${auto} · Google Drive (atualiza sozinho)`) :
       h('small', { class: 'sub' }, `${auto} · ${pasta.name}${ehVirtual() && pasta.lidaEm ? ` (lida às ${dataHora(pasta.lidaEm.toISOString()).slice(6)})` : ' (atualiza sozinha)'} · `,
         h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherSimples(); }, text: 'trocar' }),
         ehVirtual() ? ' · ' : null,
@@ -424,7 +472,7 @@
     const sel = [...marcados].filter((n) => todos.some((a) => a.nome === n && podeTrazer(a)));
     const contagem = {};
     todos.forEach((a) => { const k = situacao(a)[0]; contagem[k] = (contagem[k] || 0) + 1; });
-    const corpo = !pasta || !permitido
+    const corpo = !doServidor() && (!pasta || !permitido)
       ? [h('p', { class: 'sub', text: 'Abra a pasta para ver a lista.' })]
       : !catalogo && !emTodos.size && !emNovos.size
       ? [h('p', { class: 'sub', text: 'Sem lista ainda: faça uma busca com o cabo do carro.' })]
@@ -489,9 +537,11 @@
       baixarPedido('carro-controle-config.json', 'config', {
         id, ativo: nova.ativo, intervalo: nova.intervaloMin, horaIni: nova.horaIni, horaFim: nova.horaFim,
         origens: nova.origens.join('|'), ignorar: nova.ignorar.join(','), dias: nova.dias, avisos: nova.avisos,
-        avisarSemCabo: nova.avisarSemCabo, segundosAviso: nova.segundosAviso, modoWifi: nova.modoWifi, atualizarAuto: nova.atualizarAuto
+        avisarSemCabo: nova.avisarSemCabo, segundosAviso: nova.segundosAviso, modoWifi: nova.modoWifi, atualizarAuto: nova.atualizarAuto,
+        // o script usa o mesmo servidor do app para mandar o resultado e os CSV para o Google Drive
+        apiUrl: App.api.modo() === 'web' ? App.api.config.url() : '', apiToken: App.api.modo() === 'web' ? App.api.config.token() : ''
       });
-      if (!pasta || !permitido || ehVirtual()) { ui.toast('Configuração enviada: vale em até 1 minuto.', 'info', 5000); render(); return; }
+      if (doServidor() || !pasta || !permitido || ehVirtual()) { ui.toast('Configuração enviada: vale em até 1 minuto.', 'info', 5000); render(); return; }
       ui.toast('Enviando a configuração ao Windows…', 'info', 3000);
       const inicio = Date.now();
       while (Date.now() - inicio < 60000) {
@@ -530,7 +580,7 @@
 
   let histTodos = false;
   function cartaoHistorico() {
-    if (!pasta || !permitido) return null;
+    if (!doServidor() && (!pasta || !permitido)) return null;
     const tipos = { automatica: 'Automática', app: 'Pelo app', manual: 'Manual (.bat)' };
     const res = (x) => ({
       ok: x.novos ? `${x.novos} arquivo(s) novo(s)` : 'Nenhum arquivo novo',
@@ -584,7 +634,8 @@
       // com acesso permanente, relê a pasta sozinho a cada minuto (busca automática aparece sem fazer nada)
       setInterval(() => {
         if (!raiz || raiz.hidden || raiz.contains(document.activeElement) || buscando || trazendo) return;
-        if (ehVirtual()) render();
+        if (temServidor()) atualizar();
+        else if (ehVirtual()) render();
         else if (pasta && permitido) atualizar();
       }, 60000);
       render(); atualizar().then(() => { marcarProntos(); renderLista(); }); },
