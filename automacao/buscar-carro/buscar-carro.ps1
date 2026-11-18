@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
-$Versao = '2026-11-18.14'
+$Versao = '2026-11-18.15'
 
 # carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
 function LerUrl($u) {
@@ -454,7 +454,6 @@ if ($cfgBaixada) {
   SalvarConfigUrl $cfgBaixada
   if (-not $UrlDados) { GravarEstadoConfig; Sincronizar; GarantirAgenda; exit 0 }
 }
-if ($SoEnviar) { Sincronizar; exit 0 }
 
 # ---------- Atualizacao automatica pelo GitHub (com internet, antes de mexer no Wi-Fi) ----------
 function Atualizar {
@@ -491,6 +490,9 @@ if ($AtualizarAuto -and -not $SemAtualizar) {
     }
   }
 }
+
+# so reenviar o que ficou pendente para o app (depois de conferir se ha versao nova do script)
+if ($SoEnviar) { Sincronizar; exit 0 }
 
 # Pedido do app (aba "Buscar do carro"): periodo, sedes e modo
 $PedidoArq = Join-Path $Destino 'pedido.json'
