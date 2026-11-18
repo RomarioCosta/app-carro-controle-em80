@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
-$Versao = '2026-11-18.15'
+$Versao = '2026-11-18.16'
 
 # carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
 function LerUrl($u) {
@@ -373,11 +373,49 @@ function GravarEstadoConfig {
 }
 
 # ---------- Envio para o app (servidor do app -> pasta "Carro Controle EM80" no Google Drive) ----------
+# JSON montado a mao: o ConvertTo-Json do Windows PowerShell 5.1 falha com textos grandes (CSV em base64 ~16 MB)
+function TextoJson([string]$t) {
+  $e = $t.Replace('\', '\\').Replace('"', '\"').Replace("`r", '\r').Replace("`n", '\n').Replace("`t", '\t')
+  $e = [regex]::Replace($e, '[\x00-\x1f]', { param($m) '\u{0:x4}' -f [int][char]$m.Value })
+  return '"' + $e + '"'
+}
+
 function Api($acao, $dados) {
-  $corpo = [ordered]@{ acao = $acao; dados = $dados; token = $ApiToken } | ConvertTo-Json -Depth 6 -Compress
-  $r = Invoke-RestMethod -Uri $ApiUrl -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($corpo)) -ContentType 'text/plain; charset=utf-8' -TimeoutSec 180 -UseBasicParsing
+  $partes = @()
+  foreach ($k in $dados.Keys) {
+    $v = [string]$dados[$k]
+    # base64 so tem letras, numeros, + / = : vai direto (rapido); o resto e escapado
+    $jv = if ($k -eq 'base64') { '"' + $v + '"' } else { TextoJson $v }
+    $partes += (TextoJson $k) + ':' + $jv
+  }
+  $corpo = '{"acao":' + (TextoJson $acao) + ',"token":' + (TextoJson $ApiToken) + ',"dados":{' + ($partes -join ',') + '}}'
+  $r = Invoke-RestMethod -Uri $ApiUrl -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($corpo)) -ContentType 'text/plain; charset=utf-8' -TimeoutSec 300 -UseBasicParsing
   if (-not $r -or -not $r.ok) { throw "servidor: $(if ($r) { $r.erro } else { 'sem resposta' })" }
   return $r.dados
+}
+
+# Textos pequenos: estado, historico, log e lista do carro (rapidos; vao antes dos CSV)
+function EnviarTextos {
+  if (Test-Path -LiteralPath $EstadoArq) { Api 'carroEnviar' ([ordered]@{ tipo = 'estado'; conteudo = ([IO.File]::ReadAllText($EstadoArq).TrimStart([char]0xFEFF)) }) | Out-Null }
+  $hist = Join-Path $Destino 'historico.jsonl'
+  if (Test-Path -LiteralPath $hist) {
+    $ult = @([IO.File]::ReadAllLines($hist) | Select-Object -Last 300)
+    Api 'carroEnviar' ([ordered]@{ tipo = 'historico'; conteudo = (($ult -join "`n") + "`n") }) | Out-Null
+  }
+  if (Test-Path -LiteralPath $Log) {
+    $ultLog = @([IO.File]::ReadAllLines($Log) | Select-Object -Last 300)
+    Api 'carroEnviar' ([ordered]@{ tipo = 'log'; conteudo = (($ultLog -join "`n") + "`n") }) | Out-Null
+  }
+  $cat = Join-Path $Destino 'catalogo.json'
+  $marcaCat = Join-Path $Destino 'catalogo-enviado.txt'
+  if (Test-Path -LiteralPath $cat) {
+    $hash = (Get-FileHash -LiteralPath $cat -Algorithm MD5).Hash
+    $antes = if (Test-Path -LiteralPath $marcaCat) { (Get-Content -LiteralPath $marcaCat -Raw).Trim() } else { '' }
+    if ($hash -ne $antes) {
+      Api 'carroEnviar' ([ordered]@{ tipo = 'catalogo'; conteudo = ([IO.File]::ReadAllText($cat).TrimStart([char]0xFEFF)) }) | Out-Null
+      Set-Content -LiteralPath $marcaCat -Value $hash
+    }
+  }
 }
 
 function Sincronizar {
@@ -387,66 +425,58 @@ function Sincronizar {
   }
   try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
   try { Set-Content -LiteralPath $TentativaEnvio -Value (Get-Date).ToString('o') -ErrorAction Stop } catch { }
-  # primeira vez: manda tambem os arquivos que ja estavam copiados (ultimos 30 dias)
+  # primeira vez: manda tambem os arquivos que ja estavam copiados (ultimos 3 dias)
   $marca = Join-Path $Destino 'envio-inicial.txt'
   if (-not (Test-Path -LiteralPath $marca)) {
-    $limite = (Get-Date).AddDays(-30)
+    $limite = (Get-Date).AddDays(-3)
     $iniciais = @(Get-ChildItem -LiteralPath $Todos -File -Filter '*.csv' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $limite } | ForEach-Object { $_.Name })
     if ($iniciais.Count) { Add-Content -LiteralPath $FilaEnvio -Value $iniciais -Encoding UTF8 }
     try { Set-Content -LiteralPath $marca -Value (Get-Date).ToString('o') } catch { }
   }
   # a internet pode demorar a voltar depois de religar o Wi-Fi
   $online = $false
-  for ($i = 0; $i -lt 12; $i++) { try { Api 'carroPing' @{} | Out-Null; $online = $true; break } catch { $ultimoErro = $_.Exception.Message; Start-Sleep -Seconds 5 } }
+  for ($i = 0; $i -lt 12; $i++) { try { Api 'carroPing' ([ordered]@{}) | Out-Null; $online = $true; break } catch { $ultimoErro = $_.Exception.Message; Start-Sleep -Seconds 5 } }
   if (-not $online) {
     Escrever "Sem conexao com o servidor do app ($ultimoErro); manda depois. Se o erro fala em 'Acao desconhecida', falta implantar a nova versao do Apps Script." 'Yellow'
     return
   }
+  # 1) resultado, historico, log e lista: rapido, a tela do app ja atualiza
+  try { EnviarTextos; Escrever 'Resultado da busca enviado ao app (Google Drive).' 'Green' }
+  catch { Escrever "Erro ao mandar o resultado para o app: $($_.Exception.Message)" 'Yellow' }
+  # 2) CSV, do mais novo para o mais velho, compactados; no maximo 10 min por vez (o resto fica para depois)
   $fila = @()
   if (Test-Path -LiteralPath $FilaEnvio) { $fila = @(Get-Content -LiteralPath $FilaEnvio -Encoding UTF8 | Where-Object { $_ } | Select-Object -Unique) }
+  $fila = @($fila | Where-Object { Test-Path -LiteralPath (Join-Path $Todos $_) } | Sort-Object { (Get-Item -LiteralPath (Join-Path $Todos $_)).LastWriteTime } -Descending)
+  if (-not $fila.Count) { try { [IO.File]::WriteAllText($FilaEnvio, '') } catch { }; return }
   $resta = New-Object System.Collections.ArrayList
   $enviados = 0
+  $inicio = Get-Date
   foreach ($n in $fila) {
+    if (((Get-Date) - $inicio).TotalMinutes -ge 10) { [void]$resta.Add($n); continue }
     $arq = Join-Path $Todos $n
-    if (-not (Test-Path -LiteralPath $arq)) { continue }   # apagado: nao manda
     try {
+      $t0 = Get-Date
       # compacta (gzip): um CSV de ~70 MB vira ~13 MB (o servidor aceita ate ~48 MB por envio)
       $bytes = [IO.File]::ReadAllBytes($arq)
       $ms = New-Object IO.MemoryStream
       $gz = New-Object IO.Compression.GZipStream($ms, [IO.Compression.CompressionMode]::Compress)
       $gz.Write($bytes, 0, $bytes.Length); $gz.Close()
-      $b64 = [Convert]::ToBase64String($ms.ToArray())
+      $comp = $ms.ToArray()
+      $b64 = [Convert]::ToBase64String($comp)
       $bytes = $null; $ms = $null
+      $mb = '{0:N1} MB' -f ($comp.Length / 1MB)
+      $comp = $null
       if ($b64.Length -gt 46MB) { Escrever "  Grande demais para o app mesmo compactado: $n" 'Yellow'; $b64 = $null; continue }
-      Api 'carroEnviar' @{ tipo = 'arquivo'; nome = $n; gzip = '1'; base64 = $b64 } | Out-Null
+      Escrever "  Enviando ao app: $n ($mb compactado)..."
+      Api 'carroEnviar' ([ordered]@{ tipo = 'arquivo'; nome = $n; gzip = '1'; base64 = $b64 }) | Out-Null
       $b64 = $null
       $enviados++
+      Escrever ("  Enviado: $n em {0:N0} s" -f ((Get-Date) - $t0).TotalSeconds) 'Green'
     } catch { [void]$resta.Add($n); Escrever "  Nao foi para o app: $n ($($_.Exception.Message))" 'Yellow' }
   }
   try { [IO.File]::WriteAllLines($FilaEnvio, [string[]]$resta, (New-Object Text.UTF8Encoding $false)) } catch { }
-  try {
-    if (Test-Path -LiteralPath $EstadoArq) { Api 'carroEnviar' @{ tipo = 'estado'; conteudo = ([IO.File]::ReadAllText($EstadoArq).TrimStart([char]0xFEFF)) } | Out-Null }
-    $hist = Join-Path $Destino 'historico.jsonl'
-    if (Test-Path -LiteralPath $hist) {
-      $ult = @([IO.File]::ReadAllLines($hist) | Select-Object -Last 300)
-      Api 'carroEnviar' @{ tipo = 'historico'; conteudo = (($ult -join "`n") + "`n") } | Out-Null
-    }
-    if (Test-Path -LiteralPath $Log) {
-      $ultLog = @([IO.File]::ReadAllLines($Log) | Select-Object -Last 300)
-      Api 'carroEnviar' @{ tipo = 'log'; conteudo = (($ultLog -join "`n") + "`n") } | Out-Null
-    }
-    $cat = Join-Path $Destino 'catalogo.json'
-    $marcaCat = Join-Path $Destino 'catalogo-enviado.txt'
-    if (Test-Path -LiteralPath $cat) {
-      $hash = (Get-FileHash -LiteralPath $cat -Algorithm MD5).Hash
-      $antes = if (Test-Path -LiteralPath $marcaCat) { (Get-Content -LiteralPath $marcaCat -Raw).Trim() } else { '' }
-      if ($hash -ne $antes) {
-        Api 'carroEnviar' @{ tipo = 'catalogo'; conteudo = ([IO.File]::ReadAllText($cat).TrimStart([char]0xFEFF)) } | Out-Null
-        Set-Content -LiteralPath $marcaCat -Value $hash
-      }
-    }
-    Escrever ("Enviado ao app (Google Drive): resultado da busca" + $(if ($enviados) { " e $enviados arquivo(s)" } else { '' }) + $(if ($resta.Count) { "; $($resta.Count) ficaram para depois" } else { '' }) + '.') 'Green'
-  } catch { Escrever "Erro ao mandar para o app: $($_.Exception.Message)" 'Yellow' }
+  Escrever ("Arquivos enviados ao app: $enviados" + $(if ($resta.Count) { "; $($resta.Count) ficaram para depois" } else { '' }) + '.') 'Green'
+  try { EnviarTextos } catch { }   # de novo, para o log no app mostrar o resultado dos CSV
 }
 
 # configuracao baixada pelo app: aplica (e, se nao houver pedido de busca junto, termina aqui)
