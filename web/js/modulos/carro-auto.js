@@ -278,7 +278,10 @@
   }
   function listaFiltrada() {
     const sedes = sedesDoFiltro();
-    const base = arr(catalogo && catalogo.arquivos);
+    // lista do carro (catalogo.json) + o que já está nas pastas Todos e Novos (copiados antes de existir a lista)
+    const base = arr(catalogo && catalogo.arquivos).slice();
+    const vistos = new Set(base.map((a) => a.nome));
+    [...emTodos, ...emNovos].filter((n) => /\.csv$/i.test(n) && !vistos.has(n)).forEach((n) => { vistos.add(n); base.push({ nome: n }); });
     return base.map((a) => ({ ...infoNome(a.nome), ...a, data: a.data || infoNome(a.nome).data }))
       .filter((a) => (!filtro.de || !a.data || a.data >= filtro.de) && (!filtro.ate || !a.data || a.data <= filtro.ate) && (!sedes.length || sedes.includes(String(a.sede).toUpperCase())))
       .sort((a, b) => (b.data || '').localeCompare(a.data || '') || a.nome.localeCompare(b.nome));
@@ -289,13 +292,14 @@
   }
 
   async function trazer() {
-    const nomes = [...marcados].filter((n) => emTodos.has(n) && !naMontagem.has(n));
+    const nomes = [...marcados].filter((n) => (emTodos.has(n) || emNovos.has(n)) && !naMontagem.has(n));
     if (!nomes.length) return;
     trazendo = true; render();
     try {
       const todos = await subpasta('Todos');
+      const novosDir = await subpasta('Novos');
       const files = [];
-      for (const n of nomes) files.push(await (await todos.getFileHandle(n)).getFile());
+      for (const n of nomes) files.push(await (await (emTodos.has(n) ? todos : novosDir).getFileHandle(n)).getFile());
       const feitos = (await App.montagem.adicionarArquivos(files)) || [];
       const novos = await subpasta('Novos');
       if (novos) for (const n of feitos) if (emNovos.has(n)) await novos.removeEntry(n).catch(() => {});
@@ -388,20 +392,22 @@
   function renderLista() {
     if (!listaEl) return;
     const todos = listaFiltrada();
+    const semFiltro = (() => { const f = { ...filtro }; filtro.de = ''; filtro.ate = ''; filtro.sedes = ''; const n = listaFiltrada().length; Object.assign(filtro, f); return n; })();
     const linhas = todos.slice(0, MAX_LINHAS);
     const sel = [...marcados].filter((n) => todos.some((a) => a.nome === n && podeTrazer(a)));
     const contagem = {};
     todos.forEach((a) => { const k = situacao(a)[0]; contagem[k] = (contagem[k] || 0) + 1; });
     const corpo = !pasta || !permitido
       ? [h('p', { class: 'sub', text: 'Abra a pasta para ver a lista.' })]
-      : !catalogo
+      : !catalogo && !emTodos.size && !emNovos.size
       ? [h('p', { class: 'sub', text: 'Sem lista ainda: faça uma busca com o cabo do carro.' })]
       : !todos.length
-        ? [h('p', { class: 'sub', text: 'Nenhum arquivo nesse filtro.' })]
+        ? [h('p', { class: 'sub', text: semFiltro ? `Nenhum arquivo nesse filtro (${semFiltro} fora do período/sede).` : 'Nenhum arquivo nesse filtro.' })]
         : [
           h('p', { class: 'sub', 'data-carro-resumo': '' }, `${todos.length} arquivo(s)`,
             contagem.novo ? ` · ${contagem.novo} novo(s)` : '', contagem.pronto ? ` · ${contagem.pronto} pronto(s)` : '',
-            contagem.montagem ? ` · ${contagem.montagem} na Montagem` : '', contagem.carro ? ` · ${contagem.carro} só no carro` : ''),
+            contagem.montagem ? ` · ${contagem.montagem} na Montagem` : '', contagem.carro ? ` · ${contagem.carro} só no carro` : '',
+            semFiltro > todos.length ? ` · ${semFiltro - todos.length} fora do período/sede` : ''),
           h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela bc-tabela' },
             h('thead', {}, h('tr', {},
               h('th', {}, h('input', { type: 'checkbox', 'aria-label': 'Marcar todos', checked: sel.length && sel.length === todos.filter(podeTrazer).length || null,

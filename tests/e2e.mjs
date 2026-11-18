@@ -1002,9 +1002,11 @@ async function main() {
       writeFileSync(join(docs, 'Carro Controle', 'estado.json'), JSON.stringify({ versao: 'S1', ultimaBusca: new Date().toISOString(), resultado: 'semCabo' }));
       writeFileSync(join(docs, 'Carro Controle', 'catalogo.json'), JSON.stringify({ arquivos: [{ nome: 'RLT_FU_20261101.csv', sede: 'FU', data: '2026-11-01' }] }));
       writeFileSync(join(docs, 'Carro Controle', 'Todos', 'RLT_FU_20261101.csv'), 'x');
+      writeFileSync(join(docs, 'Carro Controle', 'Todos', 'ANTIGO.csv'), 'x'); // copiado antes de existir a lista do carro
       const [seletorPasta] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'Abrir a pasta Carro Controle' }).click()]);
       await seletorPasta.setFiles(docs);
       await page.locator('[data-carro-estado]', { hasText: 'cabo do carro não conectado' }).waitFor();
+      await page.locator('.bc-tabela td', { hasText: 'ANTIGO.csv' }).waitFor();
       // volta para a janela de pasta (simulada, com acesso permanente) e segue
       await page.evaluate(() => { window.showDirectoryPicker = window.__picker; return App.buscaCarro.escolherPasta(); });
       assert.ok((await page.locator('[data-carro-estado]').textContent()).includes('1 arquivo(s) copiado(s) · 1 de teste desprezado(s)'));
