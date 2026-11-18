@@ -1032,6 +1032,7 @@ async function main() {
       assert.deepEqual([ped.de, ped.ate, ped.sedes, ped.modo], ['2026-11-01', '2026-11-30', '', 'novos']);
       // nada vem marcado: escolhe os arquivos
       assert.equal(await page.getByRole('button', { name: 'Trazer para a Montagem (0)' }).count(), 1);
+      await page.locator('[data-bc-dica]').waitFor();
       await page.getByLabel('Marcar RLT_CP_20261117.csv').check();
       await page.getByLabel('Marcar RLT_GV_20261110.csv').check();
       await page.getByRole('button', { name: 'Trazer para a Montagem (2)' }).click();

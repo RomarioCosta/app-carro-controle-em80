@@ -1266,7 +1266,7 @@ window.App = window.App || {};
     versao: '2026.11.18',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-ea70d0d2cd', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-0360f0f3b3', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -9399,7 +9399,9 @@ window.App = window.App || {};
         ];
     ui.trocar(listaEl,
       h('div', { class: 'bc-cab' }, h('h2', { text: 'Arquivos do carro' }),
-        h('button', { class: 'btn btn-primario', disabled: !sel.length || trazendo || null, onclick: trazer }, ui.icone('upload'), trazendo ? 'Trazendo…' : `Trazer para a Montagem (${sel.length})`)),
+        h('div', { class: 'linha-acoes' },
+          !sel.length && todos.some(podeTrazer) ? h('span', { class: 'sub', 'data-bc-dica': '', text: 'Marque na lista os arquivos que quer trazer ☑' }) : null,
+          h('button', { class: 'btn btn-primario', disabled: !sel.length || trazendo || null, onclick: trazer }, ui.icone('upload'), trazendo ? 'Trazendo…' : `Trazer para a Montagem (${sel.length})`))),
       ...corpo);
   }
 
