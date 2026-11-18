@@ -172,6 +172,7 @@
       if (!d.virtual) await store.set(CHAVE, d).catch(() => {});
       if (!d.virtual) await temPermissao(true).catch(() => false);
       await ler();
+      marcarProntos();
       marcar(permitido
         ? `Pasta ligada: ${d.name}${d.virtual ? ' (modo simples: depois de uma busca, abra a pasta de novo para atualizar)' : ''}${estado ? ` · última busca encontrada (script ${estado.versao || '?'})` : ' · ainda sem busca registrada'}`
         : `Pasta ${d.name} escolhida, mas o navegador não deu permissão de leitura. Clique em "Permitir acesso à pasta".`);
@@ -269,11 +270,11 @@
   /* ---------- lista ---------- */
 
   function situacao(a) {
-    if (a.teste) return ['teste', 'Teste (desprezado)'];
+    if (a.teste) return ['teste', 'Teste'];
     if (naMontagem.has(a.nome)) return ['montagem', 'Na Montagem'];
-    if (emNovos.has(a.nome)) return ['novo', 'Novo · pronto para trazer'];
-    if (emTodos.has(a.nome)) return ['pronto', 'Pronto para trazer'];
-    return ['carro', 'Só no carro (busque para copiar)'];
+    if (emNovos.has(a.nome)) return ['novo', 'Novo'];
+    if (emTodos.has(a.nome)) return ['pronto', 'Pronto'];
+    return ['carro', 'Só no carro'];
   }
   function listaFiltrada() {
     const sedes = sedesDoFiltro();
@@ -316,53 +317,42 @@
   const efetiva = () => ({ ...PADRAO, ...((estado && estado.config) || {}), ...(config || {}) });
 
   function cartaoPasta() {
-    const el = cartaoPastaBase();
-    el.appendChild(h('small', { class: 'sub', 'data-bc-passo': '', text: passo }));
-    el.appendChild(h('small', { class: 'sub', text: `App ${(App.config && App.config.build) || ''}` }));
-    return el;
-  }
-  function cartaoPastaBase() {
     const cab = h('h2', { text: 'Buscar arquivos do carro' });
-    if (!pasta) {
+    const linhaPasso = passo ? h('small', { class: 'sub', 'data-bc-passo': '', text: passo }) : null;
+    if (!pasta || !permitido) {
       return h('section', { class: 'cartao pilha' }, cab,
-        h('p', { class: 'sub', text: 'Ligue o app à pasta onde o script "Buscar arquivos do carro" grava os arquivos: entre em Documentos, clique uma vez na pasta Carro Controle e em "Selecionar pasta". A própria Documentos o Chrome não deixa escolher (diz que tem arquivos do sistema). Não é a pasta onde estão o .bat e o script. Na janela só aparecem pastas, os arquivos não aparecem: isso é normal.' }),
         h('div', { class: 'linha-acoes' },
-          h('button', { class: falhaPicker ? 'btn' : 'btn btn-primario', onclick: escolherPasta }, ui.icone('documento'), 'Escolher a pasta Carro Controle'),
-          h('button', { class: falhaPicker ? 'btn btn-primario' : 'btn', onclick: escolherSimples }, ui.icone('documento'), 'Abrir a pasta (modo simples)')),
-        falhaPicker ? h('p', { class: 'sub', text: 'No modo simples o Chrome pergunta se pode "enviar" os arquivos da pasta para o site: eles só são lidos aqui no notebook, nada é enviado para a internet.' }) : null);
-    }
-    if (!permitido) {
-      return h('section', { class: 'cartao pilha' }, cab,
-        h('p', { class: 'sub', text: `O navegador pede para confirmar o acesso à pasta ${pasta.name}.` }),
-        h('div', { class: 'linha-acoes' },
-          h('button', { class: 'btn btn-primario', onclick: permitir }, ui.icone('check'), 'Permitir acesso à pasta'),
-          h('button', { class: 'btn', onclick: escolherPasta, text: 'Escolher outra pasta' })));
+          h('button', { class: 'btn btn-primario', onclick: escolherSimples }, ui.icone('documento'), 'Abrir a pasta Carro Controle'),
+          pasta && !permitido ? h('button', { class: 'btn', onclick: permitir, text: 'Permitir acesso' }) : null,
+          h('button', { class: 'btn btn-fantasma', title: 'Pasta lembrada entre as sessões (se o Chrome deixar)', onclick: escolherPasta, text: 'Acesso permanente' })),
+        linhaPasso);
     }
     const c = efetiva();
-    const linhas = [];
-    if (!estado) linhas.push(h('p', { class: 'aviso', text: 'Nenhuma busca feita ainda. Se o script nunca rodou neste notebook, rode o "Buscar arquivos do carro.bat" uma vez.' }));
-    else {
+    let status = h('p', { class: 'sub', text: 'Nenhuma busca ainda.' });
+    if (estado) {
       const msg = {
         ok: estado.novos ? `${estado.novos} arquivo(s) copiado(s)` : 'nenhum arquivo novo',
         semCabo: 'cabo do carro não conectado',
         semAcesso: `sem acesso a ${arr(estado.semAcesso).join(', ') || 'pasta do carro'}`,
-        semPasta: 'nenhuma pasta do carro configurada'
+        semPasta: 'pasta do carro não configurada'
       }[estado.resultado] || estado.mensagem || '';
       const problema = ['semAcesso', 'semPasta'].includes(estado.resultado) || estado.erros;
-      linhas.push(h('p', { class: problema ? 'aviso aviso-erro' : '', 'data-carro-estado': '' },
-        h('strong', { text: `Última busca: ${dataHora(estado.ultimaBusca)}` }), ` · ${msg}`,
-        estado.testes ? ` · ${estado.testes} de teste desprezado(s)` : '', estado.erros ? ` · ${estado.erros} erro(s) ao copiar` : ''));
-      if (c.ativo && estado.ultimaBusca) {
-        const prox = new Date(new Date(estado.ultimaBusca).getTime() + c.intervaloMin * 60000);
-        linhas.push(h('p', { class: 'sub', text: `Busca automática: a cada ${(INTERVALOS.find(([v]) => v === Number(c.intervaloMin)) || [0, `${c.intervaloMin} min`])[1]}, próxima por volta de ${dataHora(prox.toISOString())}${c.horaIni && c.horaFim ? ` (entre ${c.horaIni} e ${c.horaFim})` : ''}.` }));
-      } else if (!c.ativo) linhas.push(h('p', { class: 'sub', text: 'Busca automática desligada.' }));
+      status = h('p', { class: problema ? 'aviso aviso-erro' : '', 'data-carro-estado': '' },
+        h('strong', { text: `Última busca ${dataHora(estado.ultimaBusca)}` }), ` · ${msg}`,
+        estado.testes ? ` · ${estado.testes} de teste desprezado(s)` : '', estado.erros ? ` · ${estado.erros} erro(s)` : '');
+    }
+    let auto = 'Automática desligada';
+    if (c.ativo) {
+      const cada = (INTERVALOS.find(([v]) => v === Number(c.intervaloMin)) || [0, `${c.intervaloMin} min`])[1];
+      const prox = estado && estado.ultimaBusca ? new Date(new Date(estado.ultimaBusca).getTime() + c.intervaloMin * 60000) : null;
+      auto = `Automática a cada ${cada}${prox ? ` · próxima ${dataHora(prox.toISOString())}` : ''}${c.horaIni && c.horaFim ? ` · ${c.horaIni}–${c.horaFim}` : ''}`;
     }
     return h('section', { class: 'cartao pilha' },
-      h('div', { class: 'tela-cab' }, cab, h('button', { class: 'btn-icone', title: 'Ler de novo a pasta', 'aria-label': 'Atualizar', onclick: () => atualizar() }, ui.icone('sync'))),
+      h('div', { class: 'bc-cab' }, cab,
+        h('button', { class: 'btn-icone', title: 'Ler a pasta de novo', 'aria-label': 'Atualizar', onclick: () => (ehVirtual() ? escolherSimples() : atualizar()) }, ui.icone('sync'))),
       erro ? h('p', { class: 'aviso aviso-erro', text: erro }) : null,
-      ...linhas,
-      ehVirtual() ? h('div', { class: 'linha-acoes' }, h('button', { class: 'btn', onclick: escolherSimples }, ui.icone('sync'), 'Abrir a pasta de novo (atualizar)')) : null,
-      h('small', { class: 'sub' }, `Pasta: ${pasta.name}${ehVirtual() ? ' (modo simples)' : ''}${estado && estado.versao ? ` · script ${estado.versao}` : ''} · `, h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherPasta(); }, text: 'trocar' })));
+      status,
+      h('small', { class: 'sub' }, `${auto} · ${pasta.name} · `, h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherSimples(); }, text: 'trocar' })));
   }
 
   function cartaoBusca() {
@@ -370,7 +360,7 @@
     const ate = h('input', { type: 'date', value: filtro.ate, name: 'carroAte' });
     const sedes = [...new Set(arr(catalogo && catalogo.arquivos).map((a) => String(a.sede || infoNome(a.nome).sede).toUpperCase()).filter(Boolean))].sort();
     const lista = h('datalist', { id: 'carro-sedes' }, sedes.map((s) => h('option', { value: s })));
-    const sede = h('input', { type: 'text', value: filtro.sedes, list: 'carro-sedes', placeholder: 'todas', name: 'carroSede', autocomplete: 'off' });
+    const sede = h('input', { type: 'text', value: filtro.sedes, list: 'carro-sedes', placeholder: 'todas (ex.: CP, GV)', name: 'carroSede', autocomplete: 'off' });
     const aplicar = () => {
       filtro.de = de.value; filtro.ate = ate.value; filtro.sedes = sede.value; salvarFiltro();
       marcarProntos(); renderLista();
@@ -379,7 +369,7 @@
     sede.addEventListener('input', U.debounce ? U.debounce(aplicar, 250) : aplicar);
     const atalho = (rot, d0, d1) => h('button', { type: 'button', class: 'btn btn-fantasma', onclick: () => { de.value = d0; ate.value = d1; aplicar(); }, text: rot });
     const modo = h('div', { class: 'seg', role: 'radiogroup', 'aria-label': 'O que buscar' },
-      [['novos', 'Só os novos'], ['todos', 'Todos do período (copia de novo)']].map(([v, t]) => h('button', {
+      [['novos', 'Só novos'], ['todos', 'Todos do período']].map(([v, t]) => h('button', {
         type: 'button', role: 'radio', class: `seg-opcao${filtro.modo === v ? ' ativo' : ''}`, 'aria-checked': filtro.modo === v ? 'true' : 'false',
         onclick: () => { filtro.modo = v; salvarFiltro(); render(); }, text: t
       })));
@@ -387,13 +377,11 @@
     const seg = buscando ? Math.round((Date.now() - buscando.inicio) / 1000) : 0;
     return h('section', { class: 'cartao pilha' },
       h('h2', { text: 'Buscar agora' }),
-      h('div', { class: 'grade-3' }, ui.campo('De', de), ui.campo('Até', ate), ui.campo('Sede', sede, { ajuda: 'ex.: CP · várias separadas por vírgula · vazio = todas' })), lista,
-      h('div', { class: 'linha-acoes' }, atalho('Hoje', hoje(), hoje()), atalho('Ontem', diasAtras(1), diasAtras(1)), atalho('7 dias', diasAtras(7), hoje()), atalho('30 dias', diasAtras(30), hoje())),
-      modo,
-      h('div', { class: 'linha-acoes' },
+      h('div', { class: 'grade-3' }, ui.campo('De', de), ui.campo('Até', ate), ui.campo('Sede', sede)), lista,
+      h('div', { class: 'linha-acoes bc-acoes' }, atalho('Hoje', hoje(), hoje()), atalho('Ontem', diasAtras(1), diasAtras(1)), atalho('7 dias', diasAtras(7), hoje()), atalho('30 dias', diasAtras(30), hoje()),
+        modo,
         h('button', { class: 'btn btn-primario', 'data-bc-buscar': '', disabled: ocupado || null, onclick: buscarAgora }, ui.icone('sync'), document.createTextNode(ocupado ? `Buscando… ${seg}s` : 'Buscar agora')),
-        ocupado ? h('button', { class: 'btn', onclick: cancelarEspera, text: 'Parar de esperar' }) : null),
-      ocupado ? h('p', { class: 'aviso', text: 'O Windows está buscando no carro: o Wi-Fi do notebook cai por alguns segundos e volta sozinho. Se o navegador perguntar "Abrir Buscar arquivos do carro?", marque "Sempre permitir" e confirme.' }) : null);
+        ocupado ? h('button', { class: 'btn', onclick: cancelarEspera, text: 'Parar' }) : null));
   }
 
   let listaEl = null;
@@ -405,16 +393,15 @@
     const contagem = {};
     todos.forEach((a) => { const k = situacao(a)[0]; contagem[k] = (contagem[k] || 0) + 1; });
     const corpo = !pasta || !permitido
-      ? [h('p', { class: 'sub', text: 'Ligue a pasta Carro Controle (no alto) para ver os arquivos do carro.' })]
+      ? [h('p', { class: 'sub', text: 'Abra a pasta para ver a lista.' })]
       : !catalogo
-      ? [h('p', { class: 'sub', text: 'Ainda não há lista: ela aparece depois da primeira busca com o cabo do carro conectado.' })]
+      ? [h('p', { class: 'sub', text: 'Sem lista ainda: faça uma busca com o cabo do carro.' })]
       : !todos.length
-        ? [h('p', { class: 'sub', text: 'Nenhum arquivo do carro nesse período/sede.' })]
+        ? [h('p', { class: 'sub', text: 'Nenhum arquivo nesse filtro.' })]
         : [
-          h('p', { class: 'sub', 'data-carro-resumo': '' }, `${todos.length} arquivo(s) no carro nesse filtro`,
+          h('p', { class: 'sub', 'data-carro-resumo': '' }, `${todos.length} arquivo(s)`,
             contagem.novo ? ` · ${contagem.novo} novo(s)` : '', contagem.pronto ? ` · ${contagem.pronto} pronto(s)` : '',
-            contagem.montagem ? ` · ${contagem.montagem} já na Montagem` : '', contagem.carro ? ` · ${contagem.carro} só no carro` : '',
-            catalogo.geradoEm ? ` · lista de ${dataHora(catalogo.geradoEm)}` : ''),
+            contagem.montagem ? ` · ${contagem.montagem} na Montagem` : '', contagem.carro ? ` · ${contagem.carro} só no carro` : ''),
           h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela mt-tabela bc-tabela' },
             h('thead', {}, h('tr', {},
               h('th', {}, h('input', { type: 'checkbox', 'aria-label': 'Marcar todos', checked: sel.length && sel.length === todos.filter(podeTrazer).length || null,
@@ -428,11 +415,10 @@
                   onchange: (e) => { if (e.target.checked) marcados.add(a.nome); else marcados.delete(a.nome); renderLista(); } })),
                 h('td', { text: a.nome }), h('td', { text: a.sede || '—' }), h('td', { text: dataBr(a.data) }), h('td', {}, h('span', { class: `bc-sit bc-sit-${k}`, text: t })));
             })))),
-          todos.length > MAX_LINHAS ? h('p', { class: 'sub', text: `Mostrando ${MAX_LINHAS} de ${todos.length}: estreite o período ou a sede.` }) : null,
-          contagem.carro ? h('p', { class: 'sub', text: 'Os que estão "só no carro" ainda não foram copiados: use Buscar agora com "Todos do período".' }) : null
+          todos.length > MAX_LINHAS ? h('p', { class: 'sub', text: `Mostrando ${MAX_LINHAS} de ${todos.length}.` }) : null
         ];
     ui.trocar(listaEl,
-      h('div', { class: 'tela-cab' }, h('h2', { text: 'Arquivos do carro' }),
+      h('div', { class: 'bc-cab' }, h('h2', { text: 'Arquivos do carro' }),
         h('button', { class: 'btn btn-primario', disabled: !sel.length || trazendo || null, onclick: trazer }, ui.icone('upload'), trazendo ? 'Trazendo…' : `Trazer para a Montagem (${sel.length})`)),
       ...corpo);
   }
@@ -444,13 +430,13 @@
     campos.intervaloMin = h('select', {}, INTERVALOS.map(([v, t]) => h('option', { value: v, selected: Number(c.intervaloMin) === v || null, text: t })));
     campos.horaIni = h('input', { type: 'time', value: c.horaIni || '' });
     campos.horaFim = h('input', { type: 'time', value: c.horaFim || '' });
-    campos.avisos = h('select', {}, [['sempre', 'Sempre (inclusive "não existe arquivo novo")'], ['novos', 'Só quando vier arquivo novo ou der problema'], ['nunca', 'Nunca']]
+    campos.avisos = h('select', {}, [['sempre', 'Sempre'], ['novos', 'Só com novidade ou problema'], ['nunca', 'Nunca']]
       .map(([v, t]) => h('option', { value: v, selected: c.avisos === v || null, text: t })));
     campos.origens = h('textarea', { rows: 2, placeholder: '\\\\em3\\C\\DADOS', value: arr(c.origens).join('\n') });
     campos.ignorar = h('input', { type: 'text', value: arr(c.ignorar).join(', '), placeholder: 'teste' });
     campos.dias = h('input', { type: 'number', min: 0, max: 365, value: c.dias });
     campos.segundosAviso = h('input', { type: 'number', min: 5, max: 600, value: c.segundosAviso });
-    campos.modoWifi = h('select', {}, [['desconectar', 'Desconectar (sem administrador)'], ['desativar', 'Desativar o adaptador (administrador)']]
+    campos.modoWifi = h('select', {}, [['desconectar', 'Desconectar'], ['desativar', 'Desligar o adaptador (administrador)']]
       .map(([v, t]) => h('option', { value: v, selected: c.modoWifi === v || null, text: t })));
     async function salvar() {
       const num = (x, d) => (x !== '' && Number.isFinite(Number(x)) ? Number(x) : d);
@@ -488,22 +474,22 @@
     }
     return h('section', { class: 'cartao pilha' },
       h('h2', { text: 'Busca automática' }),
-      chk('ativo', 'Buscar sozinho de tempos em tempos'),
+      chk('ativo', 'Ligada'),
       h('div', { class: 'grade-3' },
-        ui.campo('Buscar a cada', campos.intervaloMin),
-        ui.campo('Só a partir de', campos.horaIni, { ajuda: 'vazio = o dia todo' }),
-        ui.campo('Até', campos.horaFim)),
-      ui.campo('Aviso no fim da busca automática', campos.avisos),
+        ui.campo('A cada', campos.intervaloMin),
+        ui.campo('Das', campos.horaIni),
+        ui.campo('Até as', campos.horaFim)),
+      ui.campo('Aviso no fim', campos.avisos),
       h('details', { class: 'ca-config' }, h('summary', { text: 'Mais opções' }),
         h('div', { class: 'pilha' },
-          ui.campo('Pastas dos computadores do carro (uma por linha)', campos.origens, { ajuda: 'Vazio = usa o que está no configuracao.ps1 do script.' }),
+          ui.campo('Pastas do carro (uma por linha)', campos.origens),
           h('div', { class: 'grade-3' },
-            ui.campo('Desprezar arquivos com no nome', campos.ignorar, { ajuda: 'separe por vírgula' }),
-            ui.campo('Busca automática: últimos (dias)', campos.dias, { ajuda: '0 = todos' }),
-            ui.campo('Janela de aviso fecha em (s)', campos.segundosAviso)),
-          ui.campo('Wi-Fi durante a cópia', campos.modoWifi),
-          chk('avisarSemCabo', 'Avisar quando o cabo do carro não estiver conectado'),
-          chk('atualizarAuto', 'Atualizar o script sozinho pelo GitHub'))),
+            ui.campo('Desprezar nomes com', campos.ignorar),
+            ui.campo('Dias para trás (0 = todos)', campos.dias),
+            ui.campo('Aviso fecha em (s)', campos.segundosAviso)),
+          ui.campo('Wi-Fi na cópia', campos.modoWifi),
+          chk('avisarSemCabo', 'Avisar sem o cabo do carro'),
+          chk('atualizarAuto', 'Atualizar o script pelo GitHub'))),
       h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-primario', onclick: salvar }, ui.icone('check'), 'Salvar configuração')));
   }
 
@@ -532,6 +518,7 @@
   App.buscaCarro = {
     suportado,
     montar(el) { raiz = el; render(); atualizar().then(() => { marcarProntos(); renderLista(); }); },
+    escolherPasta,
     aoMostrar() { atualizar().then(() => { if (!marcados.size) marcarProntos(); renderLista(); }); },
     infoNome
   };

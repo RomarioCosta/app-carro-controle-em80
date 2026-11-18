@@ -1011,3 +1011,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 .bc-sit-montagem { color: var(--texto2); }
 .bc-sit-teste, .bc-sit-carro { color: var(--texto3); }
 .bc-teste td, .bc-montagem td { opacity: .7; }
+
+.bc-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.bc-cab h2 { margin: 0; }
+.bc-acoes { align-items: center; }
+.bc-acoes .seg { margin: 0 6px; }
