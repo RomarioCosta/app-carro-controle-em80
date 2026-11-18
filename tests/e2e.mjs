@@ -1061,6 +1061,13 @@ async function main() {
       await page.getByRole('button', { name: 'Trazer para a Montagem (1)' }).click();
       await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
       await page.locator('.bc-tabela tr', { hasText: 'RLT_FU_20261118.csv' }).locator('.bc-sit-montagem').waitFor();
+      // arquivo novo que chega ao Drive depois: entra sozinho na Montagem ("Trazer sozinho", ligado por padrão)
+      const csvCS = gerarCSV().replace(/;XX1;/g, ';CS;').replace(/01\/09\/2026/g, '06/09/2026');
+      await page.evaluate(async ([csv, token]) => {
+        await fetch('/exec', { method: 'POST', body: JSON.stringify({ acao: 'carroEnviar', dados: { tipo: 'arquivo', nome: 'RLT_CS_20261118.csv', base64: btoa(csv) }, token }) });
+        App.buscaCarro.aoMostrar();
+      }, [csvCS, srv.estado.token]);
+      await page.getByText('Arquivo do carro trazido para a Montagem: RLT_CS_20261118.csv').waitFor();
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 
