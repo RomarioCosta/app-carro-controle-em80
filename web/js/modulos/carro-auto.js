@@ -328,7 +328,10 @@
     return d && !isNaN(d) ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : '—';
   };
   const dataBr = (iso) => (iso ? iso.split('-').reverse().join('/') : '—');
-  const efetiva = () => ({ ...PADRAO, ...((estado && estado.config) || {}), ...(config || {}) });
+  // configuração: a do arquivo (gravada pelo script) e, se for mais nova, a última salva aqui (ainda não confirmada)
+  const configLocal = () => U.pref.get('carroAuto:configLocal', null);
+  const pendente = () => { const l = configLocal(); return !!(l && (!config || !config.salvoEm || new Date(l.salvoEm) > new Date(config.salvoEm) && l.salvoId !== config.salvoId)); };
+  const efetiva = () => ({ ...PADRAO, ...((estado && estado.config) || {}), ...(config || {}), ...(pendente() ? configLocal() : {}) });
 
   function cartaoPasta() {
     const cab = h('h2', { text: 'Buscar arquivos do carro' });
@@ -398,7 +401,8 @@
         ocupado ? h('button', { class: 'btn', onclick: cancelarEspera, text: 'Parar' }) : null),
       pedidoSimples ? h('div', { class: 'ca-novos', 'data-bc-pedido': '' },
         h('span', { text: `Busca pedida às ${String(pedidoSimples.getHours()).padStart(2, '0')}:${String(pedidoSimples.getMinutes()).padStart(2, '0')}. Quando o Windows avisar o resultado, veja aqui:` }),
-        h('button', { class: 'btn btn-primario', onclick: escolherSimples }, ui.icone('sync'), 'Ver resultado')) : null);
+        h('button', { class: 'btn btn-primario', onclick: () => { pedidoSimples = null; render(); escolherSimples(); } }, ui.icone('sync'), 'Ver resultado'),
+        h('button', { class: 'btn-icone', 'aria-label': 'Fechar', onclick: () => { pedidoSimples = null; render(); } }, ui.icone('x'))) : null);
   }
 
   let listaEl = null;
@@ -471,12 +475,13 @@
       if (!!nova.horaIni !== !!nova.horaFim) { ui.toast('Preencha as duas horas do horário, ou deixe as duas vazias.', 'erro', 5000); return; }
       // quem grava é o script (o app só lê a pasta): manda pelo link e espera a configuracao.json mudar
       const id = U.uuid().slice(0, 12);
+      U.pref.set('carroAuto:configLocal', { ...nova, salvoId: id });
       abrirLink('config', {
         id, ativo: nova.ativo, intervalo: nova.intervaloMin, horaIni: nova.horaIni, horaFim: nova.horaFim,
         origens: nova.origens.join('|'), ignorar: nova.ignorar.join(','), dias: nova.dias, avisos: nova.avisos,
         avisarSemCabo: nova.avisarSemCabo, segundosAviso: nova.segundosAviso, modoWifi: nova.modoWifi, atualizarAuto: nova.atualizarAuto
       });
-      if (!pasta || !permitido || ehVirtual()) { ui.toast('Configuração enviada ao Windows. Ela vale a partir da próxima busca.', 'info', 6000); return; }
+      if (!pasta || !permitido || ehVirtual()) { ui.toast('Configuração enviada ao Windows.', 'info', 5000); render(); return; }
       ui.toast('Enviando a configuração ao Windows…', 'info', 3000);
       const inicio = Date.now();
       while (Date.now() - inicio < 60000) {
@@ -493,6 +498,7 @@
     }
     return h('section', { class: 'cartao pilha' },
       h('h2', { text: 'Busca automática' }),
+      pasta && permitido && pendente() ? h('p', { class: 'aviso', text: 'Configuração salva aqui, mas o Windows ainda não confirmou (atualize a pasta depois). Se não confirmar, o botão do app não está chegando ao Windows: rode o "Testar botão.bat".' }) : null,
       chk('ativo', 'Ligada'),
       h('div', { class: 'grade-3' },
         ui.campo('A cada', campos.intervaloMin),
