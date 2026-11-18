@@ -106,12 +106,20 @@
 
   async function escolherPasta() {
     try {
-      const d = await window.showDirectoryPicker({ id: 'carro-controle', mode: 'readwrite', startIn: 'documents' });
+      let d = await window.showDirectoryPicker({ id: 'carro-controle', mode: 'readwrite', startIn: 'documents' });
+      const tem = async (dir, nome, tipo) => { try { await (tipo === 'pasta' ? dir.getDirectoryHandle(nome) : dir.getFileHandle(nome)); return true; } catch (e) { return false; } };
+      // escolheu Documentos: entra na "Carro Controle" que o script cria
+      if (await tem(d, 'Carro Controle', 'pasta')) d = await d.getDirectoryHandle('Carro Controle');
+      // escolheu a pasta do script (onde estão o .bat e o .ps1): não é ali que ficam os arquivos
+      else if (await tem(d, 'buscar-carro.ps1')) {
+        ui.toast('Essa é a pasta do script. Os arquivos do carro ficam em Documentos > Carro Controle: escolha essa pasta (ou a própria Documentos).', 'erro', 12000);
+        return;
+      }
       pasta = d;
       await store.set(CHAVE, d).catch(() => {});
       await temPermissao(true).catch(() => false);
       await ler();
-      if (permitido && !estado && !catalogo && !(await subpasta('Novos'))) ui.toast('Essa pasta não parece a "Carro Controle" do script. Confira se é Documentos\\Carro Controle.', 'info', 8000);
+      if (permitido && !estado && !catalogo && !(await subpasta('Novos'))) ui.toast('Essa pasta ainda não tem nada do script. Ela deve ser Documentos > Carro Controle, criada na primeira vez que o "Buscar arquivos do carro.bat" roda.', 'info', 10000);
     } catch (e) {
       if (e.name !== 'AbortError') ui.toast(`Não foi possível abrir a pasta: ${e.message}`, 'erro', 6000);
     }
@@ -226,7 +234,7 @@
     const cab = h('h2', { text: 'Buscar arquivos do carro' });
     if (!pasta) {
       return h('section', { class: 'cartao pilha' }, cab,
-        h('p', { class: 'sub', text: 'Ligue o app à pasta onde o script "Buscar arquivos do carro" grava os arquivos (Documentos\\Carro Controle). Depois é só buscar e trazer para a Montagem por aqui.' }),
+        h('p', { class: 'sub', text: 'Ligue o app à pasta onde o script "Buscar arquivos do carro" grava os arquivos: Documentos > Carro Controle (pode escolher a própria Documentos). Não é a pasta onde estão o .bat e o script. Na janela de escolha só aparecem pastas, os arquivos não aparecem: isso é normal.' }),
         h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-primario', onclick: escolherPasta }, ui.icone('documento'), 'Escolher a pasta Carro Controle')));
     }
     if (!permitido) {

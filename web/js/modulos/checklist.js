@@ -71,40 +71,49 @@
 
     // Duas abas: o checklist e a análise do arquivo gerado pelo carro.
     const abas = h('div', { class: 'seg seg-abas', role: 'tablist', 'aria-label': 'Checklist ou análise' });
+    // Se uma parte do app não carregou, mostra o erro na própria aba (em vez de tela vazia).
+    const falha = (parte, e) => {
+      console.error(e);
+      ui.trocar(parte, h('section', { class: 'cartao pilha' },
+        h('h2', { text: 'Não foi possível abrir esta tela' }),
+        h('p', { class: 'aviso aviso-erro', text: (e && e.message) || String(e) }),
+        e && e.stack ? h('small', { class: 'sub', text: String(e.stack).split('\n').slice(1, 3).map((l) => l.trim().replace(/^at /, '').replace(/https?:\/\/[^ )]*\//g, '')).join(' · ') }) : null,
+        h('p', { class: 'sub', text: 'Normalmente é o app que não carregou por completo (internet lenta ou caiu ao abrir). Recarregar busca a versão certa; seus dados não são apagados.' }),
+        h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-primario', onclick: () => App.versao.atualizar() }, ui.icone('sync'), 'Recarregar o app'))));
+    };
+    const tentar = (parte, fn) => { try { fn(); return true; } catch (e) { falha(parte, e); return false; } };
     const mostrar = (qual) => {
       U.pref.set('checklist:aba', qual);
+      abas.querySelectorAll('button').forEach((b) => {
+        const ativo = b.dataset.aba === qual;
+        b.classList.toggle('ativo', ativo);
+        b.setAttribute('aria-selected', ativo ? 'true' : 'false');
+      });
       parteChecklist.hidden = qual !== 'checklist';
       parteAnalise.hidden = qual !== 'analise';
       parteTela.hidden = qual !== 'tela';
       parteMontagem.hidden = qual !== 'montagem';
       parteBuscar.hidden = qual !== 'buscar';
       // A Tela do carro usa o arquivo da Análise: monta a análise (escondida) se ainda não montou.
-      if ((qual === 'analise' || qual === 'tela') && !analiseMontada) {
-        App.analise.montar(parteAnalise);
-        analiseMontada = true;
+      const montarAnalise = () => { if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; } };
+      const montarMontagem = () => { montarAnalise(); if (!montagemMontada) { App.montagem.montar(parteMontagem); montagemMontada = true; return true; } return false; };
+      if (qual === 'analise') tentar(parteAnalise, () => { montarAnalise(); if (App.analise.aoMostrar) App.analise.aoMostrar(); });
+      if (qual === 'tela') {
+        tentar(parteTela, () => {
+          montarAnalise();
+          if (!telaMontada) { App.telaCarro.montar(parteTela); telaMontada = true; }
+          App.telaCarro.aoMostrar();
+        });
       }
-      if (qual === 'tela' && !telaMontada) {
-        App.telaCarro.montar(parteTela);
-        telaMontada = true;
-      }
-      if (qual === 'tela') App.telaCarro.aoMostrar();
-      else if (qual === 'analise' && App.analise.aoMostrar) App.analise.aoMostrar();
-      if (qual === 'montagem') {
-        // a montagem usa a geometria importada na Análise e o leitor de .zip de lá
-        if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; }
-        if (!montagemMontada) { App.montagem.montar(parteMontagem); montagemMontada = true; } else App.montagem.aoMostrar();
-      }
+      // a montagem usa a geometria importada na Análise e o leitor de .zip de lá
+      if (qual === 'montagem') tentar(parteMontagem, () => { if (!montarMontagem()) App.montagem.aoMostrar(); });
       if (qual === 'buscar') {
         // traz os arquivos para a Montagem: monta a análise e a montagem (escondidas) se ainda não montou
-        if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; }
-        if (!montagemMontada) { App.montagem.montar(parteMontagem); montagemMontada = true; }
-        if (!buscarMontada) { App.buscaCarro.montar(parteBuscar); buscarMontada = true; } else App.buscaCarro.aoMostrar();
+        tentar(parteBuscar, () => {
+          montarMontagem();
+          if (!buscarMontada) { App.buscaCarro.montar(parteBuscar); buscarMontada = true; } else App.buscaCarro.aoMostrar();
+        });
       }
-      abas.querySelectorAll('button').forEach((b) => {
-        const ativo = b.dataset.aba === qual;
-        b.classList.toggle('ativo', ativo);
-        b.setAttribute('aria-selected', ativo ? 'true' : 'false');
-      });
     };
     // "Buscar do carro" só no computador (o navegador precisa acessar a pasta do script do Windows)
     const comBuscar = App.buscaCarro && App.buscaCarro.suportado();

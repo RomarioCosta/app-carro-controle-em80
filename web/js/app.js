@@ -218,6 +218,26 @@
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker não registrado:', e));
   }
 
+  /**
+   * Confere se todos os arquivos do app carregaram. Com internet lenta, parte dos arquivos pode vir da versão
+   * nova e parte da cópia antiga guardada no navegador: aí alguma tela não existe. Nesse caso limpa a cópia
+   * e recarrega uma vez; se continuar, mostra um aviso com o botão para tentar de novo.
+   */
+  function conferirCarga() {
+    const faltando = ['analise', 'telaCarro', 'montagem', 'buscaCarro'].filter((m) => !App[m]);
+    const erros = (window.__errosCarga || []).slice(0, 3);
+    if (!faltando.length && !erros.length) { try { sessionStorage.removeItem('em80:recarga'); } catch (e) { /* ignora */ } return; }
+    let ja = false;
+    try { ja = sessionStorage.getItem('em80:recarga') === '1'; sessionStorage.setItem('em80:recarga', '1'); } catch (e) { ja = true; }
+    if (!ja && api.modo() === 'web') { atualizarApp(); return; }
+    const detalhe = [...faltando.map((m) => `parte "${m}" não carregou`), ...erros].join(' · ');
+    const aviso = h('div', { class: 'aviso-versao', role: 'alert' },
+      h('span', { text: `O app não carregou por completo (internet lenta ou caiu durante a atualização). ${detalhe}` }),
+      h('button', { class: 'btn btn-primario btn-pequeno', onclick: atualizarApp }, ui.icone('sync'), 'Recarregar o app'),
+      h('button', { class: 'btn-icone', 'aria-label': 'Fechar aviso', onclick: () => aviso.remove() }, ui.icone('x')));
+    document.body.appendChild(aviso);
+  }
+
   function iniciar() {
     ui.tema.aplicar(ui.tema.atual());
     const raiz = document.getElementById('app');
@@ -245,6 +265,7 @@
 
     sync.iniciar();
     registrarServiceWorker();
+    conferirCarga();
     setTimeout(verificarVersao, 3000);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') verificarVersao();

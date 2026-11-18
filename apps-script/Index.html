@@ -14,6 +14,11 @@
         document.documentElement.setAttribute('data-theme', t === 'escuro' ? 'dark' : 'light');
       } catch (e) { /* ignora */ }
     })();
+    // Guarda erros ao carregar os arquivos do app (o aviso de erros só começa depois, no app.js).
+    window.__errosCarga = [];
+    window.addEventListener('error', function (e) {
+      window.__errosCarga.push(((e.filename || '').split('/').pop() || 'arquivo') + ': ' + (e.message || 'erro'));
+    });
   </script>
   <style>
 /* App Carro Controle EM80 – estilos. Cores definidas por tema (claro/escuro). */
@@ -1248,10 +1253,10 @@ window.App = window.App || {};
 
 (function (App) {
   App.config = {
-    versao: '2026.11.17',
+    versao: '2026.11.18',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-dbf93c2296', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-54170d3a08', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -8965,12 +8970,20 @@ window.App = window.App || {};
 
   async function escolherPasta() {
     try {
-      const d = await window.showDirectoryPicker({ id: 'carro-controle', mode: 'readwrite', startIn: 'documents' });
+      let d = await window.showDirectoryPicker({ id: 'carro-controle', mode: 'readwrite', startIn: 'documents' });
+      const tem = async (dir, nome, tipo) => { try { await (tipo === 'pasta' ? dir.getDirectoryHandle(nome) : dir.getFileHandle(nome)); return true; } catch (e) { return false; } };
+      // escolheu Documentos: entra na "Carro Controle" que o script cria
+      if (await tem(d, 'Carro Controle', 'pasta')) d = await d.getDirectoryHandle('Carro Controle');
+      // escolheu a pasta do script (onde estão o .bat e o .ps1): não é ali que ficam os arquivos
+      else if (await tem(d, 'buscar-carro.ps1')) {
+        ui.toast('Essa é a pasta do script. Os arquivos do carro ficam em Documentos > Carro Controle: escolha essa pasta (ou a própria Documentos).', 'erro', 12000);
+        return;
+      }
       pasta = d;
       await store.set(CHAVE, d).catch(() => {});
       await temPermissao(true).catch(() => false);
       await ler();
-      if (permitido && !estado && !catalogo && !(await subpasta('Novos'))) ui.toast('Essa pasta não parece a "Carro Controle" do script. Confira se é Documentos\\Carro Controle.', 'info', 8000);
+      if (permitido && !estado && !catalogo && !(await subpasta('Novos'))) ui.toast('Essa pasta ainda não tem nada do script. Ela deve ser Documentos > Carro Controle, criada na primeira vez que o "Buscar arquivos do carro.bat" roda.', 'info', 10000);
     } catch (e) {
       if (e.name !== 'AbortError') ui.toast(`Não foi possível abrir a pasta: ${e.message}`, 'erro', 6000);
     }
@@ -9085,7 +9098,7 @@ window.App = window.App || {};
     const cab = h('h2', { text: 'Buscar arquivos do carro' });
     if (!pasta) {
       return h('section', { class: 'cartao pilha' }, cab,
-        h('p', { class: 'sub', text: 'Ligue o app à pasta onde o script "Buscar arquivos do carro" grava os arquivos (Documentos\\Carro Controle). Depois é só buscar e trazer para a Montagem por aqui.' }),
+        h('p', { class: 'sub', text: 'Ligue o app à pasta onde o script "Buscar arquivos do carro" grava os arquivos: Documentos > Carro Controle (pode escolher a própria Documentos). Não é a pasta onde estão o .bat e o script. Na janela de escolha só aparecem pastas, os arquivos não aparecem: isso é normal.' }),
         h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-primario', onclick: escolherPasta }, ui.icone('documento'), 'Escolher a pasta Carro Controle')));
     }
     if (!permitido) {
@@ -10327,40 +10340,49 @@ window.App = window.App || {};
 
     // Duas abas: o checklist e a análise do arquivo gerado pelo carro.
     const abas = h('div', { class: 'seg seg-abas', role: 'tablist', 'aria-label': 'Checklist ou análise' });
+    // Se uma parte do app não carregou, mostra o erro na própria aba (em vez de tela vazia).
+    const falha = (parte, e) => {
+      console.error(e);
+      ui.trocar(parte, h('section', { class: 'cartao pilha' },
+        h('h2', { text: 'Não foi possível abrir esta tela' }),
+        h('p', { class: 'aviso aviso-erro', text: (e && e.message) || String(e) }),
+        e && e.stack ? h('small', { class: 'sub', text: String(e.stack).split('\n').slice(1, 3).map((l) => l.trim().replace(/^at /, '').replace(/https?:\/\/[^ )]*\//g, '')).join(' · ') }) : null,
+        h('p', { class: 'sub', text: 'Normalmente é o app que não carregou por completo (internet lenta ou caiu ao abrir). Recarregar busca a versão certa; seus dados não são apagados.' }),
+        h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-primario', onclick: () => App.versao.atualizar() }, ui.icone('sync'), 'Recarregar o app'))));
+    };
+    const tentar = (parte, fn) => { try { fn(); return true; } catch (e) { falha(parte, e); return false; } };
     const mostrar = (qual) => {
       U.pref.set('checklist:aba', qual);
+      abas.querySelectorAll('button').forEach((b) => {
+        const ativo = b.dataset.aba === qual;
+        b.classList.toggle('ativo', ativo);
+        b.setAttribute('aria-selected', ativo ? 'true' : 'false');
+      });
       parteChecklist.hidden = qual !== 'checklist';
       parteAnalise.hidden = qual !== 'analise';
       parteTela.hidden = qual !== 'tela';
       parteMontagem.hidden = qual !== 'montagem';
       parteBuscar.hidden = qual !== 'buscar';
       // A Tela do carro usa o arquivo da Análise: monta a análise (escondida) se ainda não montou.
-      if ((qual === 'analise' || qual === 'tela') && !analiseMontada) {
-        App.analise.montar(parteAnalise);
-        analiseMontada = true;
+      const montarAnalise = () => { if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; } };
+      const montarMontagem = () => { montarAnalise(); if (!montagemMontada) { App.montagem.montar(parteMontagem); montagemMontada = true; return true; } return false; };
+      if (qual === 'analise') tentar(parteAnalise, () => { montarAnalise(); if (App.analise.aoMostrar) App.analise.aoMostrar(); });
+      if (qual === 'tela') {
+        tentar(parteTela, () => {
+          montarAnalise();
+          if (!telaMontada) { App.telaCarro.montar(parteTela); telaMontada = true; }
+          App.telaCarro.aoMostrar();
+        });
       }
-      if (qual === 'tela' && !telaMontada) {
-        App.telaCarro.montar(parteTela);
-        telaMontada = true;
-      }
-      if (qual === 'tela') App.telaCarro.aoMostrar();
-      else if (qual === 'analise' && App.analise.aoMostrar) App.analise.aoMostrar();
-      if (qual === 'montagem') {
-        // a montagem usa a geometria importada na Análise e o leitor de .zip de lá
-        if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; }
-        if (!montagemMontada) { App.montagem.montar(parteMontagem); montagemMontada = true; } else App.montagem.aoMostrar();
-      }
+      // a montagem usa a geometria importada na Análise e o leitor de .zip de lá
+      if (qual === 'montagem') tentar(parteMontagem, () => { if (!montarMontagem()) App.montagem.aoMostrar(); });
       if (qual === 'buscar') {
         // traz os arquivos para a Montagem: monta a análise e a montagem (escondidas) se ainda não montou
-        if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; }
-        if (!montagemMontada) { App.montagem.montar(parteMontagem); montagemMontada = true; }
-        if (!buscarMontada) { App.buscaCarro.montar(parteBuscar); buscarMontada = true; } else App.buscaCarro.aoMostrar();
+        tentar(parteBuscar, () => {
+          montarMontagem();
+          if (!buscarMontada) { App.buscaCarro.montar(parteBuscar); buscarMontada = true; } else App.buscaCarro.aoMostrar();
+        });
       }
-      abas.querySelectorAll('button').forEach((b) => {
-        const ativo = b.dataset.aba === qual;
-        b.classList.toggle('ativo', ativo);
-        b.setAttribute('aria-selected', ativo ? 'true' : 'false');
-      });
     };
     // "Buscar do carro" só no computador (o navegador precisa acessar a pasta do script do Windows)
     const comBuscar = App.buscaCarro && App.buscaCarro.suportado();
@@ -14013,6 +14035,26 @@ window.App = window.App || {};
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker não registrado:', e));
   }
 
+  /**
+   * Confere se todos os arquivos do app carregaram. Com internet lenta, parte dos arquivos pode vir da versão
+   * nova e parte da cópia antiga guardada no navegador: aí alguma tela não existe. Nesse caso limpa a cópia
+   * e recarrega uma vez; se continuar, mostra um aviso com o botão para tentar de novo.
+   */
+  function conferirCarga() {
+    const faltando = ['analise', 'telaCarro', 'montagem', 'buscaCarro'].filter((m) => !App[m]);
+    const erros = (window.__errosCarga || []).slice(0, 3);
+    if (!faltando.length && !erros.length) { try { sessionStorage.removeItem('em80:recarga'); } catch (e) { /* ignora */ } return; }
+    let ja = false;
+    try { ja = sessionStorage.getItem('em80:recarga') === '1'; sessionStorage.setItem('em80:recarga', '1'); } catch (e) { ja = true; }
+    if (!ja && api.modo() === 'web') { atualizarApp(); return; }
+    const detalhe = [...faltando.map((m) => `parte "${m}" não carregou`), ...erros].join(' · ');
+    const aviso = h('div', { class: 'aviso-versao', role: 'alert' },
+      h('span', { text: `O app não carregou por completo (internet lenta ou caiu durante a atualização). ${detalhe}` }),
+      h('button', { class: 'btn btn-primario btn-pequeno', onclick: atualizarApp }, ui.icone('sync'), 'Recarregar o app'),
+      h('button', { class: 'btn-icone', 'aria-label': 'Fechar aviso', onclick: () => aviso.remove() }, ui.icone('x')));
+    document.body.appendChild(aviso);
+  }
+
   function iniciar() {
     ui.tema.aplicar(ui.tema.atual());
     const raiz = document.getElementById('app');
@@ -14040,6 +14082,7 @@ window.App = window.App || {};
 
     sync.iniciar();
     registrarServiceWorker();
+    conferirCarga();
     setTimeout(verificarVersao, 3000);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') verificarVersao();
