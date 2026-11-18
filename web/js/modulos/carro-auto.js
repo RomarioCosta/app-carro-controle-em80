@@ -47,6 +47,12 @@
   const salvarFiltro = () => U.pref.set('carroAuto:filtro', filtro);
   const sedesDoFiltro = () => filtro.sedes.split(/[,;\s]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
 
+  /**
+   * Lista vinda do script. O PowerShell 5.1 às vezes grava a lista como {"value":[...],"Count":1}
+   * (ou um texto só): aqui sempre vira lista.
+   */
+  const arr = (v) => (Array.isArray(v) ? v : v && Array.isArray(v.value) ? v.value : v === null || v === undefined || v === '' ? [] : [v]);
+
   /** RLT_CP_20261117… → { ramal, sede, data: '2026-11-17' } */
   function infoNome(nome) {
     const m = /^([A-Za-z0-9]+)_([A-Za-z0-9]+)_(\d{4})(\d{2})(\d{2})/.exec(nome);
@@ -116,14 +122,24 @@
         return;
       }
       pasta = d;
+      ui.toast(`Pasta ligada: ${d.name}`, 'ok', 3000);
       await store.set(CHAVE, d).catch(() => {});
       await temPermissao(true).catch(() => false);
       await ler();
       if (permitido && !estado && !catalogo && !(await subpasta('Novos'))) ui.toast('Essa pasta ainda não tem nada do script. Ela deve ser Documentos > Carro Controle, criada na primeira vez que o "Buscar arquivos do carro.bat" roda.', 'info', 10000);
     } catch (e) {
-      if (e.name !== 'AbortError') ui.toast(`Não foi possível abrir a pasta: ${e.message}`, 'erro', 6000);
+      if (e.name === 'AbortError') ui.toast('Nenhuma pasta escolhida.', 'info', 4000);
+      else ui.toast(`Não foi possível abrir a pasta: ${e.message}`, 'erro', 8000);
     }
     render();
+  }
+
+  /** Para Buscar agora / Salvar sem pasta ligada: pede a pasta (ou a permissão) na hora. */
+  async function garantirPasta() {
+    if (pasta && permitido) return true;
+    if (pasta) { await permitir(); return permitido; }
+    await escolherPasta();
+    return !!pasta && permitido;
   }
 
   async function permitir() {
@@ -136,7 +152,7 @@
   async function buscarAgora() {
     if (filtro.de && filtro.ate && filtro.de > filtro.ate) { ui.toast('A data inicial é depois da final.', 'erro', 5000); return; }
     try {
-      if (!(await temPermissao(true))) throw new Error('sem permissão na pasta');
+      if (!(await garantirPasta())) return;
       const id = U.uuid();
       await gravarJson('pedido.json', { id, de: filtro.de || '', ate: filtro.ate || '', sedes: sedesDoFiltro(), modo: filtro.modo, criadoEm: new Date().toISOString() });
       buscando = { id, inicio: Date.now() };
@@ -192,7 +208,7 @@
   }
   function listaFiltrada() {
     const sedes = sedesDoFiltro();
-    const base = (catalogo && catalogo.arquivos) || [];
+    const base = arr(catalogo && catalogo.arquivos);
     return base.map((a) => ({ ...infoNome(a.nome), ...a, data: a.data || infoNome(a.nome).data }))
       .filter((a) => (!filtro.de || !a.data || a.data >= filtro.de) && (!filtro.ate || !a.data || a.data <= filtro.ate) && (!sedes.length || sedes.includes(String(a.sede).toUpperCase())))
       .sort((a, b) => (b.data || '').localeCompare(a.data || '') || a.nome.localeCompare(b.nome));
@@ -251,7 +267,7 @@
       const msg = {
         ok: estado.novos ? `${estado.novos} arquivo(s) copiado(s)` : 'nenhum arquivo novo',
         semCabo: 'cabo do carro não conectado',
-        semAcesso: `sem acesso a ${(estado.semAcesso || []).join(', ') || 'pasta do carro'}`,
+        semAcesso: `sem acesso a ${arr(estado.semAcesso).join(', ') || 'pasta do carro'}`,
         semPasta: 'nenhuma pasta do carro configurada'
       }[estado.resultado] || estado.mensagem || '';
       const problema = ['semAcesso', 'semPasta'].includes(estado.resultado) || estado.erros;
@@ -273,7 +289,7 @@
   function cartaoBusca() {
     const de = h('input', { type: 'date', value: filtro.de, name: 'carroDe' });
     const ate = h('input', { type: 'date', value: filtro.ate, name: 'carroAte' });
-    const sedes = [...new Set(((catalogo && catalogo.arquivos) || []).map((a) => String(a.sede || infoNome(a.nome).sede).toUpperCase()).filter(Boolean))].sort();
+    const sedes = [...new Set(arr(catalogo && catalogo.arquivos).map((a) => String(a.sede || infoNome(a.nome).sede).toUpperCase()).filter(Boolean))].sort();
     const lista = h('datalist', { id: 'carro-sedes' }, sedes.map((s) => h('option', { value: s })));
     const sede = h('input', { type: 'text', value: filtro.sedes, list: 'carro-sedes', placeholder: 'todas', name: 'carroSede', autocomplete: 'off' });
     const aplicar = () => {
@@ -309,8 +325,10 @@
     const sel = [...marcados].filter((n) => todos.some((a) => a.nome === n && podeTrazer(a)));
     const contagem = {};
     todos.forEach((a) => { const k = situacao(a)[0]; contagem[k] = (contagem[k] || 0) + 1; });
-    const corpo = !catalogo
-      ? [h('p', { class: 'sub', text: 'Faça uma busca para listar os arquivos do carro.' })]
+    const corpo = !pasta || !permitido
+      ? [h('p', { class: 'sub', text: 'Ligue a pasta Carro Controle (no alto) para ver os arquivos do carro.' })]
+      : !catalogo
+      ? [h('p', { class: 'sub', text: 'Ainda não há lista: ela aparece depois da primeira busca com o cabo do carro conectado.' })]
       : !todos.length
         ? [h('p', { class: 'sub', text: 'Nenhum arquivo do carro nesse período/sede.' })]
         : [
@@ -349,8 +367,8 @@
     campos.horaFim = h('input', { type: 'time', value: c.horaFim || '' });
     campos.avisos = h('select', {}, [['sempre', 'Sempre (inclusive "não existe arquivo novo")'], ['novos', 'Só quando vier arquivo novo ou der problema'], ['nunca', 'Nunca']]
       .map(([v, t]) => h('option', { value: v, selected: c.avisos === v || null, text: t })));
-    campos.origens = h('textarea', { rows: 2, placeholder: '\\\\em3\\C\\DADOS', value: (c.origens || []).join('\n') });
-    campos.ignorar = h('input', { type: 'text', value: (c.ignorar || []).join(', '), placeholder: 'teste' });
+    campos.origens = h('textarea', { rows: 2, placeholder: '\\\\em3\\C\\DADOS', value: arr(c.origens).join('\n') });
+    campos.ignorar = h('input', { type: 'text', value: arr(c.ignorar).join(', '), placeholder: 'teste' });
     campos.dias = h('input', { type: 'number', min: 0, max: 365, value: c.dias });
     campos.segundosAviso = h('input', { type: 'number', min: 5, max: 600, value: c.segundosAviso });
     campos.modoWifi = h('select', {}, [['desconectar', 'Desconectar (sem administrador)'], ['desativar', 'Desativar o adaptador (administrador)']]
@@ -368,7 +386,7 @@
       };
       if (!!nova.horaIni !== !!nova.horaFim) { ui.toast('Preencha as duas horas do horário, ou deixe as duas vazias.', 'erro', 5000); return; }
       try {
-        if (!(await temPermissao(true))) throw new Error('sem permissão na pasta');
+        if (!(await garantirPasta())) return;
         await gravarJson('configuracao.json', nova);
         config = nova;
         ui.toast('Configuração salva. Vale a partir da próxima busca.', 'ok', 4000);
@@ -406,11 +424,18 @@
       return;
     }
     const aberto = raiz.querySelector('.ca-config') && raiz.querySelector('.ca-config').open;
-    if (!pasta || !permitido) { listaEl = null; ui.trocar(raiz, cartaoPasta()); return; }
-    listaEl = h('section', { class: 'cartao pilha bc-lista' });
-    ui.trocar(raiz, cartaoPasta(), cartaoBusca(), listaEl, cartaoAutomatico());
-    renderLista();
-    if (aberto && raiz.querySelector('.ca-config')) raiz.querySelector('.ca-config').open = true;
+    try {
+      // as quatro partes aparecem sempre; sem a pasta ligada, Buscar agora e Salvar pedem a pasta na hora
+      listaEl = h('section', { class: 'cartao pilha bc-lista' });
+      ui.trocar(raiz, cartaoPasta(), cartaoBusca(), listaEl, cartaoAutomatico());
+      renderLista();
+      if (aberto && raiz.querySelector('.ca-config')) raiz.querySelector('.ca-config').open = true;
+    } catch (e) {
+      console.error(e);
+      ui.trocar(raiz, h('section', { class: 'cartao pilha' }, h('h2', { text: 'Buscar arquivos do carro' }),
+        h('p', { class: 'aviso aviso-erro', text: `Erro ao mostrar a tela: ${e.message}` }),
+        h('div', { class: 'linha-acoes' }, h('button', { class: 'btn', onclick: escolherPasta, text: 'Escolher a pasta de novo' }))));
+    }
   }
 
   App.buscaCarro = {
