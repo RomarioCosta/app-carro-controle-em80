@@ -219,6 +219,7 @@
 
   function salvarOpcoes() {
     U.pref.set('bitola:opcoes', opcoes);
+    if (App.montagem && App.montagem.agendarNuvem) App.montagem.agendarNuvem(); // o offset vai junto com a Montagem para o Google Drive
   }
 
   /** Configuração da planta para o arquivo aberto (ramal, linha, elementos e ajuste de km). */
