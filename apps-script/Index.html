@@ -1264,7 +1264,7 @@ window.App = window.App || {};
     versao: '2026.11.18',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-6428027897', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-50e8394961', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -9253,7 +9253,10 @@ window.App = window.App || {};
         ? h('div', { class: 'ca-novos' }, h('span', { text: `Pasta lida às ${dataHora(pasta.lidaEm.toISOString()).slice(6)}: buscas feitas depois não aparecem até atualizar.` }),
           h('button', { class: 'btn btn-primario', onclick: escolherSimples }, ui.icone('sync'), 'Atualizar a pasta'))
         : null,
-      h('small', { class: 'sub' }, `${auto} · ${pasta.name}${ehVirtual() && pasta.lidaEm ? ` (lida às ${dataHora(pasta.lidaEm.toISOString()).slice(6)})` : ''} · `, h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherSimples(); }, text: 'trocar' })));
+      h('small', { class: 'sub' }, `${auto} · ${pasta.name}${ehVirtual() && pasta.lidaEm ? ` (lida às ${dataHora(pasta.lidaEm.toISOString()).slice(6)})` : ' (atualiza sozinha)'} · `,
+        h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherSimples(); }, text: 'trocar' }),
+        ehVirtual() ? ' · ' : null,
+        ehVirtual() ? h('a', { href: '#', title: 'A pasta fica lembrada e a tela atualiza sozinha (se o Chrome deixar)', onclick: (e) => { e.preventDefault(); escolherPasta(); }, text: 'usar acesso permanente' }) : null));
   }
 
   function cartaoBusca() {
@@ -9455,7 +9458,12 @@ window.App = window.App || {};
     montar(el) {
       raiz = el;
       // no modo simples, avisa quando a leitura da pasta ficou velha (sem atrapalhar quem está digitando)
-      setInterval(() => { if (ehVirtual() && raiz && !raiz.hidden && !raiz.contains(document.activeElement)) render(); }, 60000);
+      // com acesso permanente, relê a pasta sozinho a cada minuto (busca automática aparece sem fazer nada)
+      setInterval(() => {
+        if (!raiz || raiz.hidden || raiz.contains(document.activeElement) || buscando || trazendo) return;
+        if (ehVirtual()) render();
+        else if (pasta && permitido) atualizar();
+      }, 60000);
       render(); atualizar().then(() => { marcarProntos(); renderLista(); }); },
     escolherPasta,
     aoMostrar() { atualizar().then(() => { if (!marcados.size) marcarProntos(); renderLista(); }); },

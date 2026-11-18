@@ -381,7 +381,10 @@
         ? h('div', { class: 'ca-novos' }, h('span', { text: `Pasta lida às ${dataHora(pasta.lidaEm.toISOString()).slice(6)}: buscas feitas depois não aparecem até atualizar.` }),
           h('button', { class: 'btn btn-primario', onclick: escolherSimples }, ui.icone('sync'), 'Atualizar a pasta'))
         : null,
-      h('small', { class: 'sub' }, `${auto} · ${pasta.name}${ehVirtual() && pasta.lidaEm ? ` (lida às ${dataHora(pasta.lidaEm.toISOString()).slice(6)})` : ''} · `, h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherSimples(); }, text: 'trocar' })));
+      h('small', { class: 'sub' }, `${auto} · ${pasta.name}${ehVirtual() && pasta.lidaEm ? ` (lida às ${dataHora(pasta.lidaEm.toISOString()).slice(6)})` : ' (atualiza sozinha)'} · `,
+        h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherSimples(); }, text: 'trocar' }),
+        ehVirtual() ? ' · ' : null,
+        ehVirtual() ? h('a', { href: '#', title: 'A pasta fica lembrada e a tela atualiza sozinha (se o Chrome deixar)', onclick: (e) => { e.preventDefault(); escolherPasta(); }, text: 'usar acesso permanente' }) : null));
   }
 
   function cartaoBusca() {
@@ -583,7 +586,12 @@
     montar(el) {
       raiz = el;
       // no modo simples, avisa quando a leitura da pasta ficou velha (sem atrapalhar quem está digitando)
-      setInterval(() => { if (ehVirtual() && raiz && !raiz.hidden && !raiz.contains(document.activeElement)) render(); }, 60000);
+      // com acesso permanente, relê a pasta sozinho a cada minuto (busca automática aparece sem fazer nada)
+      setInterval(() => {
+        if (!raiz || raiz.hidden || raiz.contains(document.activeElement) || buscando || trazendo) return;
+        if (ehVirtual()) render();
+        else if (pasta && permitido) atualizar();
+      }, 60000);
       render(); atualizar().then(() => { marcarProntos(); renderLista(); }); },
     escolherPasta,
     aoMostrar() { atualizar().then(() => { if (!marcados.size) marcarProntos(); renderLista(); }); },
