@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido)
-$Versao = '2026-11-18.2'
+$Versao = '2026-11-18.3'
 $Silencioso = $Agendado -or $Pedido   # sem janela de console (agendado ou pedido do app)
 
 # ---------------- PADROES (sobrescritos por configuracao.ps1) ----------------
@@ -293,8 +293,6 @@ if ($ExigirCabo -and -not (CaboConectado)) {
   Escrever 'Cabo de rede do carro nao conectado: nada foi feito.' 'Yellow'
   GravarEstado 'semCabo' -mensagem 'Cabo de rede do carro nao conectado.'
   if ($AvisarSemCabo -and -not $Pedido -and (-not $Agendado -or $Avisos -ne 'nunca')) { Avisar 'Busca de arquivos do carro: cabo de rede nao conectado. Nada foi feito.' 48 }
-  Fim 0
-}
   Fim 0
 }
 

@@ -26,6 +26,14 @@ jobs:
           node-version: 22
       - name: Testes
         run: npm test
+      - name: Script do Windows sem erro de sintaxe
+        shell: pwsh
+        run: |
+          foreach ($f in Get-ChildItem automacao -Recurse -Filter *.ps1) {
+            $erros = $null; $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$erros) | Out-Null
+            if ($erros.Count) { $erros | ForEach-Object { Write-Error "$($f.Name):$($_.Extent.StartLineNumber) $($_.Message)" }; exit 1 }
+          }
       - name: Index.html e cache atualizados
         run: node tools/build.mjs && git diff --exit-code
 
