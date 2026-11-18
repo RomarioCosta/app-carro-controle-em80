@@ -266,7 +266,6 @@
     sync.iniciar();
     registrarServiceWorker();
     conferirCarga();
-    if (App.buscaCarro && App.buscaCarro.iniciarFundo) App.buscaCarro.iniciarFundo(); // arquivos do carro que chegam ao Drive
     setTimeout(verificarVersao, 3000);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') verificarVersao();
