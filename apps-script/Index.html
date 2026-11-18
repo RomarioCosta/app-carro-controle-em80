@@ -1256,7 +1256,7 @@ window.App = window.App || {};
     versao: '2026.11.18',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-4496ac533c', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-2abe797faa', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -8906,6 +8906,7 @@ window.App = window.App || {};
   let buscando = null; // { id, inicio }
   let trazendo = false;
   let erro = '';
+  let falhaPicker = ''; // erro da janela de pasta do Chrome (aí mostra o modo simples em destaque)
   let passo = ''; // o que aconteceu ao escolher a pasta (aparece na tela, para o diagnóstico)
   let timer = null;
 
@@ -8966,7 +8967,10 @@ window.App = window.App || {};
   async function atualizar() {
     if (!suportado() || !raiz) return;
     try {
-      if (!pasta) pasta = (await store.get(CHAVE).catch(() => null)) || null;
+      if (!pasta) {
+        const salvo = await store.get(CHAVE).catch(() => null);
+        pasta = salvo && typeof salvo.getDirectoryHandle === 'function' ? salvo : null; // só pasta de verdade (não o modo simples)
+      }
       if (pasta) await ler();
     } catch (e) {
       erro = e.message;
@@ -8975,11 +8979,49 @@ window.App = window.App || {};
   }
 
   const marcar = (t) => { passo = t; const el = raiz && raiz.querySelector('[data-bc-passo]'); if (el) el.textContent = t; };
-  async function escolherPasta() {
+  /**
+   * Modo simples: a pasta escolhida pelo campo de arquivos do navegador (input webkitdirectory), que funciona
+   * mesmo quando a janela de pasta do Chrome (showDirectoryPicker) não liga. Vira um objeto com as mesmas
+   * funções de leitura da pasta de verdade; é uma foto da pasta (não atualiza sozinha).
+   */
+  function pastaVirtual(files) {
+    const lista = [...files].filter((f) => f.webkitRelativePath);
+    const no = (nome) => ({ nome, arquivos: new Map(), pastas: new Map() });
+    const raizNo = no((lista[0] && lista[0].webkitRelativePath.split('/')[0]) || 'pasta');
+    lista.forEach((f) => {
+      const partes = f.webkitRelativePath.split('/').slice(1);
+      let atual = raizNo;
+      partes.slice(0, -1).forEach((p) => { if (!atual.pastas.has(p)) atual.pastas.set(p, no(p)); atual = atual.pastas.get(p); });
+      atual.arquivos.set(partes[partes.length - 1], f);
+    });
+    const arq = (n, f) => ({ kind: 'file', name: n, getFile: async () => f });
+    const dir = (n0) => ({
+      kind: 'directory', name: n0.nome, virtual: true,
+      async getFileHandle(n) { if (!n0.arquivos.has(n)) throw new DOMException(`${n} não encontrado`, 'NotFoundError'); return arq(n, n0.arquivos.get(n)); },
+      async getDirectoryHandle(n) { if (!n0.pastas.has(n)) throw new DOMException(`${n} não encontrada`, 'NotFoundError'); return dir(n0.pastas.get(n)); },
+      async *entries() { for (const [n, f] of n0.arquivos) yield [n, arq(n, f)]; for (const [n, p] of n0.pastas) yield [n, dir(p)]; },
+      async removeEntry() { throw new DOMException('somente leitura', 'NotAllowedError'); }
+    });
+    return dir(raizNo);
+  }
+  const ehVirtual = () => !!(pasta && pasta.virtual);
+
+  function escolherSimples() {
+    const input = h('input', { type: 'file', webkitdirectory: '', multiple: '', hidden: true });
+    input.addEventListener('change', async () => {
+      if (!input.files || !input.files.length) { marcar('Nenhum arquivo na pasta escolhida (a pasta Novos vazia é normal; escolha a Carro Controle).'); return; }
+      await ligar(pastaVirtual(input.files));
+      input.remove();
+    });
+    document.body.appendChild(input);
+    marcar('Abrindo a janela de escolha da pasta (modo simples)…');
+    input.click();
+  }
+
+  /** Liga a pasta escolhida (de verdade ou do modo simples). */
+  async function ligar(d0) {
+    let d = d0;
     try {
-      marcar('Abrindo a janela de escolha da pasta…');
-      let d = await window.showDirectoryPicker({ id: 'carro-controle', mode: 'read', startIn: 'documents' });
-      marcar(`Pasta escolhida: ${d.name}. Conferindo…`);
       const tem = async (dir, nome, tipo) => { try { await (tipo === 'pasta' ? dir.getDirectoryHandle(nome) : dir.getFileHandle(nome)); return true; } catch (e) { return false; } };
       // escolheu Documentos: entra na "Carro Controle" que o script cria
       if (await tem(d, 'Carro Controle', 'pasta')) { d = await d.getDirectoryHandle('Carro Controle'); marcar(`Pasta escolhida: Documentos → ${d.name}. Lendo…`); }
@@ -8991,18 +9033,32 @@ window.App = window.App || {};
       }
       pasta = d;
       ui.toast(`Pasta ligada: ${d.name}`, 'ok', 3000);
-      await store.set(CHAVE, d).catch(() => {});
-      await temPermissao(true).catch(() => false);
+      if (!d.virtual) await store.set(CHAVE, d).catch(() => {});
+      if (!d.virtual) await temPermissao(true).catch(() => false);
       await ler();
       marcar(permitido
-        ? `Pasta ligada: ${d.name}${estado ? ` · última busca encontrada (versão do script ${estado.versao || '?'})` : ' · ainda sem busca registrada'}`
+        ? `Pasta ligada: ${d.name}${d.virtual ? ' (modo simples: depois de uma busca, abra a pasta de novo para atualizar)' : ''}${estado ? ` · última busca encontrada (script ${estado.versao || '?'})` : ' · ainda sem busca registrada'}`
         : `Pasta ${d.name} escolhida, mas o navegador não deu permissão de leitura. Clique em "Permitir acesso à pasta".`);
       if (permitido && !estado && !catalogo && !(await subpasta('Novos'))) ui.toast('Essa pasta ainda não tem nada do script. Ela deve ser Documentos > Carro Controle, criada na primeira vez que o "Buscar arquivos do carro.bat" roda.', 'info', 10000);
     } catch (e) {
-      if (e.name === 'AbortError') { ui.toast('Nenhuma pasta escolhida.', 'info', 4000); marcar('Nenhuma pasta escolhida. Se você escolheu a Documentos, o Chrome não aceita (pasta do sistema): entre na Documentos e escolha a Carro Controle.'); }
-      else { ui.toast(`Não foi possível abrir a pasta: ${e.message}`, 'erro', 8000); marcar(`Erro: ${e.name}: ${e.message}`); }
+      marcar(`Erro ao ler a pasta: ${e.name}: ${e.message}`);
     }
     try { render(); } catch (e) { marcar(`Erro ao mostrar: ${e.message}`); }
+  }
+
+  async function escolherPasta() {
+    const t0 = Date.now();
+    try {
+      marcar('Abrindo a janela de escolha da pasta…');
+      const d = await window.showDirectoryPicker({ id: 'carro-controle', mode: 'read', startIn: 'documents' });
+      marcar(`Pasta escolhida: ${d.name}. Conferindo…`);
+      await ligar(d);
+    } catch (e) {
+      // mostra o erro exato (nome, mensagem e em quanto tempo veio) e oferece o modo simples
+      falhaPicker = `${e.name}: ${e.message} (${Date.now() - t0} ms)`;
+      marcar(`A janela de pasta do Chrome não ligou: ${falhaPicker}. Use "Abrir a pasta (modo simples)".`);
+      try { render(); } catch (e2) { /* segue */ }
+    }
   }
 
   /** Para Buscar agora / Salvar sem pasta ligada: pede a pasta (ou a permissão) na hora. */
@@ -9034,6 +9090,7 @@ window.App = window.App || {};
       // o Windows abre o script (link registrado pelo próprio script na primeira vez que roda)
       abrirLink('buscar', { id, de: filtro.de || '', ate: filtro.ate || '', sedes: sedesDoFiltro().join(','), modo: filtro.modo });
       if (!pasta || !permitido) { ui.toast('Busca pedida ao Windows. Para ver o resultado e a lista aqui, ligue a pasta Carro Controle.', 'info', 8000); return; }
+      if (ehVirtual()) { ui.toast('Busca pedida ao Windows. Quando terminar (o Wi-Fi volta), clique em "Abrir a pasta de novo" para ver a lista.', 'info', 10000); return; }
       buscando = { id, inicio: Date.now() };
       render();
       esperar();
@@ -9133,7 +9190,10 @@ window.App = window.App || {};
     if (!pasta) {
       return h('section', { class: 'cartao pilha' }, cab,
         h('p', { class: 'sub', text: 'Ligue o app à pasta onde o script "Buscar arquivos do carro" grava os arquivos: entre em Documentos, clique uma vez na pasta Carro Controle e em "Selecionar pasta". A própria Documentos o Chrome não deixa escolher (diz que tem arquivos do sistema). Não é a pasta onde estão o .bat e o script. Na janela só aparecem pastas, os arquivos não aparecem: isso é normal.' }),
-        h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-primario', onclick: escolherPasta }, ui.icone('documento'), 'Escolher a pasta Carro Controle')));
+        h('div', { class: 'linha-acoes' },
+          h('button', { class: falhaPicker ? 'btn' : 'btn btn-primario', onclick: escolherPasta }, ui.icone('documento'), 'Escolher a pasta Carro Controle'),
+          h('button', { class: falhaPicker ? 'btn btn-primario' : 'btn', onclick: escolherSimples }, ui.icone('documento'), 'Abrir a pasta (modo simples)')),
+        falhaPicker ? h('p', { class: 'sub', text: 'No modo simples o Chrome pergunta se pode "enviar" os arquivos da pasta para o site: eles só são lidos aqui no notebook, nada é enviado para a internet.' }) : null);
     }
     if (!permitido) {
       return h('section', { class: 'cartao pilha' }, cab,
@@ -9165,7 +9225,8 @@ window.App = window.App || {};
       h('div', { class: 'tela-cab' }, cab, h('button', { class: 'btn-icone', title: 'Ler de novo a pasta', 'aria-label': 'Atualizar', onclick: () => atualizar() }, ui.icone('sync'))),
       erro ? h('p', { class: 'aviso aviso-erro', text: erro }) : null,
       ...linhas,
-      h('small', { class: 'sub' }, `Pasta: ${pasta.name}${estado && estado.versao ? ` · script ${estado.versao}` : ''} · `, h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherPasta(); }, text: 'trocar' })));
+      ehVirtual() ? h('div', { class: 'linha-acoes' }, h('button', { class: 'btn', onclick: escolherSimples }, ui.icone('sync'), 'Abrir a pasta de novo (atualizar)')) : null,
+      h('small', { class: 'sub' }, `Pasta: ${pasta.name}${ehVirtual() ? ' (modo simples)' : ''}${estado && estado.versao ? ` · script ${estado.versao}` : ''} · `, h('a', { href: '#', onclick: (e) => { e.preventDefault(); escolherPasta(); }, text: 'trocar' })));
   }
 
   function cartaoBusca() {
@@ -9274,7 +9335,7 @@ window.App = window.App || {};
         origens: nova.origens.join('|'), ignorar: nova.ignorar.join(','), dias: nova.dias, avisos: nova.avisos,
         avisarSemCabo: nova.avisarSemCabo, segundosAviso: nova.segundosAviso, modoWifi: nova.modoWifi, atualizarAuto: nova.atualizarAuto
       });
-      if (!pasta || !permitido) { ui.toast('Configuração enviada ao Windows. Ligue a pasta Carro Controle para confirmar aqui.', 'info', 6000); return; }
+      if (!pasta || !permitido || ehVirtual()) { ui.toast('Configuração enviada ao Windows. Ela vale a partir da próxima busca.', 'info', 6000); return; }
       ui.toast('Enviando a configuração ao Windows…', 'info', 3000);
       const inicio = Date.now();
       while (Date.now() - inicio < 60000) {

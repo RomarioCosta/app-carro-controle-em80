@@ -6,7 +6,9 @@
  */
 import { deflateRawSync } from 'node:zlib';
 import { createRequire } from 'node:module';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { iniciarServidor } from './servidor-teste.mjs';
@@ -991,7 +993,24 @@ async function main() {
         };
       }, [csvCP, csvGV]);
       await page.getByRole('tab', { name: 'Buscar do carro' }).click();
+      // janela de pasta do Chrome que não liga: mostra o erro e o modo simples (campo de pasta do navegador)
+      await page.evaluate(() => { window.__picker = window.showDirectoryPicker; window.showDirectoryPicker = async () => { throw new DOMException('The user aborted a request.', 'AbortError'); }; });
       await page.getByRole('button', { name: 'Escolher a pasta Carro Controle' }).click();
+      await page.getByText(/não ligou: AbortError: The user aborted a request/).waitFor();
+      const docs = mkdtempSync(join(tmpdir(), 'docs-'));
+      mkdirSync(join(docs, 'Carro Controle', 'Todos'), { recursive: true });
+      writeFileSync(join(docs, 'Carro Controle', 'estado.json'), JSON.stringify({ versao: 'S1', ultimaBusca: new Date().toISOString(), resultado: 'semCabo' }));
+      writeFileSync(join(docs, 'Carro Controle', 'catalogo.json'), JSON.stringify({ arquivos: [{ nome: 'RLT_FU_20261101.csv', sede: 'FU', data: '2026-11-01' }] }));
+      writeFileSync(join(docs, 'Carro Controle', 'Todos', 'RLT_FU_20261101.csv'), 'x');
+      const [seletorPasta] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'Abrir a pasta (modo simples)' }).click()]);
+      await seletorPasta.setFiles(docs);
+      await page.getByText(/Pasta ligada: Carro Controle \(modo simples/).waitFor();
+      assert.ok((await page.locator('[data-carro-estado]').textContent()).includes('cabo do carro não conectado'));
+      await page.getByRole('button', { name: 'Abrir a pasta de novo (atualizar)' }).waitFor();
+      // volta para a janela de pasta (simulada) e segue
+      await page.evaluate(() => { window.showDirectoryPicker = window.__picker; });
+      await page.getByRole('link', { name: 'trocar' }).click();
+      await page.getByText(/Pasta ligada: carro · /).waitFor();
       assert.ok((await page.locator('[data-carro-estado]').textContent()).includes('1 arquivo(s) copiado(s) · 1 de teste desprezado(s)'));
       const de = page.locator('input[name=carroDe]');
       await de.fill('2026-11-01'); await de.dispatchEvent('change');
