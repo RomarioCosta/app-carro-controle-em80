@@ -1067,6 +1067,26 @@ async function main() {
       await page.getByRole('button', { name: 'Trazer para a Montagem (1)' }).click();
       await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
       await page.locator('.bc-tabela tr', { hasText: 'RLT_FU_20261118.csv' }).locator('.bc-sit-montagem').waitFor();
+
+      // Montagem no Google Drive (original + ajustes): a Montagem deste aparelho vai para o Drive…
+      const servidorChama = (acao, dados) => page.evaluate(async ([acao, dados, token]) => (await (await fetch('/exec', { method: 'POST', body: JSON.stringify({ acao, dados, token }) })).json()).dados, [acao, dados, srv.estado.token]);
+      let mDrive = null;
+      for (let t = 0; t < 40 && !(mDrive && mDrive.arquivos.some((x) => x.nome === 'RLT_FU_20261118.csv')); t++) { await page.waitForTimeout(500); mDrive = await servidorChama('montagemLer', {}); }
+      assert.ok(mDrive.arquivos.some((x) => x.nome === 'RLT_FU_20261118.csv'), 'a Montagem foi para o Drive');
+      const noDrive = (await servidorChama('carroStatus', { soArquivos: true })).arquivos.map((x) => x.nome);
+      assert.ok(mDrive.arquivos.every((x) => noDrive.includes(x.nome)), 'os CSV da Montagem estão no Drive');
+      // …e o que outro aparelho mudar lá (um corte num arquivo e um arquivo novo) chega aqui
+      const csvSJ = gerarCSV().replace(/;XX1;/g, ';SJ;').replace(/01\/09\/2026/g, '07/09/2026');
+      const fu = mDrive.arquivos.find((x) => x.nome === 'RLT_FU_20261118.csv');
+      await page.evaluate(async ([csv, token]) => { await fetch('/exec', { method: 'POST', body: JSON.stringify({ acao: 'carroEnviar', dados: { tipo: 'arquivo', nome: 'RLT_SJ_20261118.csv', base64: btoa(csv) }, token }) }); }, [csvSJ, srv.estado.token]);
+      const outro = { ...mDrive, atualizadoEm: new Date(Date.now() + 60000).toISOString(),
+        arquivos: [...mDrive.arquivos.map((x) => (x.id === fu.id ? { ...x, recorte: [[2400, 2450]] } : x)), { id: 'outro-1', nome: 'RLT_SJ_20261118.csv', ciclo: fu.ciclo, adicionadoEm: new Date().toISOString(), recorte: null, compensar: [], regras: null, linhas: null }] };
+      await servidorChama('montagemSalvar', { conteudo: JSON.stringify(outro) });
+      await page.evaluate(() => App.montagem.receberNuvem({ forcar: true }));
+      await page.getByText('Montagem atualizada com os ajustes salvos no Google Drive.').waitFor({ timeout: 20000 });
+      await page.getByRole('tab', { name: 'Montagem' }).click();
+      await page.locator('.mt-arquivo > summary', { hasText: 'RLT_SJ_20261118.csv' }).waitFor();
+      await page.locator('.mt-arquivo > summary', { hasText: 'RLT_FU_20261118.csv' }).filter({ hasText: '1 corte(s)' }).waitFor();
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 

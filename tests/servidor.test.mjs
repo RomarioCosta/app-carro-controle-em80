@@ -275,3 +275,17 @@ test('carro: o script manda estado, histórico, lista e CSV para o Drive e o app
   assert.equal(arq2.gzip, true);
   assert.equal(gunzipSync(Buffer.from(arq2.base64, 'base64')).toString('latin1'), csv);
 });
+
+test('montagem no Drive: salva e lê os ajustes (original + ajustes)', () => {
+  const { ctx, props } = carregarServidor(CODIGO);
+  ctx.setup();
+  const token = props.get('API_TOKEN');
+  const chamar = (acao, dados) => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify({ acao, dados, token }) } }).getContent());
+  assert.equal(chamar('montagemLer', {}).dados, null);
+  assert.equal(chamar('montagemSalvar', { conteudo: '{"arquivos":[]}' }).ok, false); // sem data
+  const m = { versao: 1, atualizadoEm: '2026-11-18T19:00:00.000Z', arquivos: [{ id: 'a1', nome: 'X.csv', recorte: [[100, 200]], linhas: { 0: '2' } }], prefs: { 'bitola:opcoes': { offset: 3 } } };
+  assert.equal(chamar('montagemSalvar', { conteudo: JSON.stringify(m) }).ok, true);
+  assert.deepEqual(chamar('montagemLer', {}).dados, m);
+  chamar('carroEnviar', { tipo: 'arquivo', nome: 'X.csv', gzip: '1', base64: 'AA==' });
+  assert.deepEqual(chamar('carroStatus', { soArquivos: true }).dados, { arquivos: [{ nome: 'X.csv', gzip: true }] });
+});

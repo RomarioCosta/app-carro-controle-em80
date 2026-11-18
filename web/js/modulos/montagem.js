@@ -102,7 +102,138 @@
     return new Response(g.gz.stream().pipeThrough(new DecompressionStream('gzip'))).text();
   }
   const semCsv = () => ui.toast('Este arquivo foi adicionado numa versão anterior: na Montagem, clique em "Adicionar de novo" e escolha o mesmo arquivo (o recorte é mantido).', 'erro', 9000);
-  const gravar = () => store.set(CHAVE, arquivos).catch((e) => ui.toast(`Não foi possível guardar: ${e.message}`, 'erro', 6000));
+  const gravarLocal = () => store.set(CHAVE, arquivos).catch((e) => ui.toast(`Não foi possível guardar: ${e.message}`, 'erro', 6000));
+  /** Guarda no aparelho e, com o servidor configurado, manda os ajustes para o Google Drive (alguns segundos depois). */
+  const gravar = async () => { await gravarLocal(); U.pref.set('montagem:alteradaEm', new Date().toISOString()); agendarNuvem(); };
+
+  /* ---------------- Montagem no Google Drive (original + ajustes) ---------------- */
+  /*
+   * O CSV do carro fica intacto no Drive (pasta Arquivos, compactado). Os ajustes de cada arquivo (cortes, troca de linha,
+   * compensações, regras) e as opções (offset da análise, regras da compensação) vão em montagem.json.
+   * Em outro aparelho (ou se o navegador for limpo), o app baixa os CSV do Drive e aplica os ajustes.
+   */
+  const PREFS_NUVEM = ['bitola:opcoes', 'montagem:compensacao'];
+  const nuvemOk = () => !!(App.api && App.api.configurado());
+  let nuvemTimer = null;
+  let nuvemOcupada = false;
+  let nuvemTexto = '';
+  let nuvemLidaEm = 0;
+  const ajustesDe = (a) => ({ id: a.id, nome: a.nome, ciclo: a.ciclo || '', adicionadoEm: a.adicionadoEm, recorte: a.recorte || null, compensar: a.compensar || [], regras: a.regras || null, linhas: a.linhas || null });
+  const mesmo = (x, y) => JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
+  function mostrarNuvem(t) {
+    nuvemTexto = t;
+    const el = raiz && raiz.querySelector('[data-mt-nuvem]');
+    if (el) el.textContent = t;
+  }
+  function agendarNuvem(atraso = 3000) {
+    if (!nuvemOk()) return;
+    clearTimeout(nuvemTimer);
+    nuvemTimer = setTimeout(() => enviarNuvem(), atraso);
+  }
+  const blobBase64 = (blob) => new Promise((ok, falha) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result).split(',')[1] || '');
+    r.onerror = () => falha(r.error);
+    r.readAsDataURL(blob);
+  });
+
+  async function enviarNuvem() {
+    if (!nuvemOk()) return;
+    if (nuvemOcupada) { agendarNuvem(5000); return; }
+    nuvemOcupada = true;
+    try {
+      // CSV que ainda não estão no Drive (adicionados à mão ou pela pasta): sobem compactados, uma vez
+      const st = await App.api.chamar('carroStatus', { soArquivos: true });
+      const noDrive = new Set((st.arquivos || []).map((x) => x.nome));
+      const faltam = arquivos.filter((a) => !a.antigo && !noDrive.has(a.nome) && /\.csv$/i.test(a.nome));
+      for (let i = 0; i < faltam.length; i++) {
+        const a = faltam[i];
+        const g = await store.get(CHAVE_CSV(a.id)).catch(() => null);
+        if (!g) continue;
+        mostrarNuvem(`Enviando ${a.nome} para o Google Drive (${i + 1}/${faltam.length})…`);
+        const blob = g.gz || await new Response(new Blob([g.texto]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+        await App.api.chamar('carroEnviar', { tipo: 'arquivo', nome: a.nome, gzip: '1', base64: await blobBase64(blob) });
+      }
+      const dados = { versao: 1, atualizadoEm: new Date().toISOString(), arquivos: arquivos.map(ajustesDe), prefs: Object.fromEntries(PREFS_NUVEM.map((k) => [k, U.pref.get(k, null)])) };
+      await App.api.chamar('montagemSalvar', { conteudo: JSON.stringify(dados) });
+      U.pref.set('montagem:nuvemEm', dados.atualizadoEm);
+      U.pref.set('montagem:nuvemIds', arquivos.map((a) => a.id));
+      mostrarNuvem(`Montagem salva no Google Drive às ${new Date(dados.atualizadoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`);
+    } catch (e) {
+      mostrarNuvem(`Montagem não foi para o Google Drive (${e.message}); tenta de novo em 2 min.`);
+      agendarNuvem(120000);
+    }
+    nuvemOcupada = false;
+  }
+
+  /** Traz do Drive o que mudou em outro aparelho (ou restaura tudo, se este navegador foi limpo). */
+  async function receberNuvem({ forcar = false } = {}) {
+    if (!nuvemOk() || nuvemOcupada) return;
+    if (!forcar && Date.now() - nuvemLidaEm < 60000) return;
+    nuvemLidaEm = Date.now();
+    let d;
+    try { d = await App.api.chamar('montagemLer', {}); } catch (e) { return; }
+    const sincEm = U.pref.get('montagem:nuvemEm', '');
+    const alteradaEm = U.pref.get('montagem:alteradaEm', '');
+    if (!d || !d.atualizadoEm) { if (arquivos.length) agendarNuvem(500); return; } // nada no Drive ainda: manda o que tem
+    if (sincEm && d.atualizadoEm <= sincEm) { if (alteradaEm > sincEm) agendarNuvem(500); return; } // o Drive não tem nada novo
+    if (!planta) { mostrarNuvem('Há ajustes da Montagem no Google Drive: importe a geometria na Análise para aplicar.'); return; }
+    nuvemOcupada = true;
+    try {
+      const jaSinc = new Set(U.pref.get('montagem:nuvemIds', []));
+      const doDrive = new Map((d.arquivos || []).map((x) => [x.id, x]));
+      let mudou = 0;
+      const ficam = [];
+      for (const a of arquivos) {
+        const x = doDrive.get(a.id);
+        if (!x) { if (!jaSinc.has(a.id)) ficam.push(a); else mudou++; continue; } // removido em outro aparelho (os novos daqui ficam)
+        const recalc = !mesmo(x.linhas, a.linhas) || !mesmo(x.compensar, a.compensar) || !mesmo(x.regras, a.regras);
+        if (recalc || !mesmo(x.recorte, a.recorte) || (x.ciclo || '') !== (a.ciclo || '')) {
+          Object.assign(a, { recorte: x.recorte || null, compensar: x.compensar || [], regras: x.regras || a.regras, linhas: x.linhas || null, ciclo: x.ciclo || '' });
+          if (recalc) {
+            const texto = await lerCsv(a.id).catch(() => null);
+            if (texto) a.resumo = C().resumirArquivo(B().lerCSV(texto), planta, a.nome, { compensar: a.compensar, compensacao: a.regras || regras(), linhas: a.linhas });
+          }
+          mudou++;
+        }
+        ficam.push(a);
+      }
+      // arquivos que estão no Drive e não neste aparelho: baixa o CSV e aplica os ajustes
+      const novos = (d.arquivos || []).filter((x) => !ficam.some((a) => a.id === x.id));
+      for (let i = 0; i < novos.length; i++) {
+        const x = novos[i];
+        mostrarNuvem(`Trazendo do Google Drive ${x.nome} (${i + 1}/${novos.length})…`);
+        try {
+          const r = await App.api.chamar('carroArquivo', { nome: x.nome });
+          const bin = atob(r.base64);
+          let bytes = new Uint8Array(bin.length);
+          for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+          if (r.gzip) bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+          const { texto } = await App.analise.textoDoArquivo(new File([bytes], x.nome, { type: 'text/csv' }));
+          const rg = x.regras || regras();
+          const resumo = C().resumirArquivo(B().lerCSV(texto), planta, x.nome, { compensar: x.compensar || [], compensacao: rg, linhas: x.linhas || null });
+          await guardarCsv(x.id, texto);
+          ficam.push({ id: x.id, nome: x.nome, ciclo: x.ciclo || '', adicionadoEm: x.adicionadoEm, recorte: x.recorte || null, compensar: x.compensar || [], regras: rg, linhas: x.linhas || null, resumo });
+          mudou++;
+        } catch (e) { mostrarNuvem(`${x.nome} não pôde ser trazido do Google Drive: ${e.message}`); }
+      }
+      const removidos = arquivos.filter((a) => !ficam.includes(a));
+      for (const a of removidos) await store.del(CHAVE_CSV(a.id)).catch(() => {});
+      arquivos = ficam;
+      Object.entries(d.prefs || {}).forEach(([k, v]) => { if (PREFS_NUVEM.includes(k) && v !== null && v !== undefined) U.pref.set(k, v); });
+      await gravarLocal();
+      U.pref.set('montagem:nuvemEm', d.atualizadoEm);
+      U.pref.set('montagem:nuvemIds', (d.arquivos || []).map((x) => x.id));
+      mostrarNuvem(mudou ? `Montagem atualizada pelo Google Drive (${mudou} arquivo(s)).` : `Montagem igual à do Google Drive.`);
+      if (mudou) ui.toast('Montagem atualizada com os ajustes salvos no Google Drive.', 'ok', 5000);
+      // havia novidades só daqui (arquivos novos ou ajustes): manda de volta
+      if (ficam.some((a) => !doDrive.has(a.id)) || alteradaEm > sincEm) agendarNuvem(1000);
+    } catch (e) {
+      mostrarNuvem(`Não foi possível ler a Montagem do Google Drive: ${e.message}`);
+    }
+    nuvemOcupada = false;
+    render();
+  }
 
   /* ---------------- Arquivos ---------------- */
 
@@ -361,6 +492,7 @@
     const ramalAtual = ramalEscolhido();
     return h('section', { class: 'cartao pilha' },
       h('div', { class: 'tela-cab' }, h('h1', { text: 'Montagem dos dados' })),
+      nuvemOk() ? h('small', { class: 'sub', 'data-mt-nuvem': '', text: nuvemTexto || 'Ajustes salvos também no Google Drive.' }) : null,
       !planta ? h('p', { class: 'aviso aviso-erro', text: 'Importe a geometria da linha na Análise do arquivo: é ela que diz o que precisa ser medido.' }) : null,
       h('div', { class: 'grade-3' },
         ui.campo('Ciclo', h('input', { type: 'text', value: ciclo(), placeholder: 'ex.: 2026-10', onchange: (e) => { U.pref.set('montagem:ciclo', e.target.value.trim()); render(); } })),
@@ -833,6 +965,7 @@
     const salvar = (campo, v) => {
       const atual = U.pref.get('montagem:compensacao', {}) || {};
       U.pref.set('montagem:compensacao', { ...atual, [campo]: v });
+      agendarNuvem();
       ui.toast('Regra salva. Recalculando os arquivos da Montagem…', 'ok', 3000);
       recalcularTodos();
     };
@@ -960,8 +1093,11 @@
   }
 
   App.montagem = {
-    async montar(el) { raiz = el; await carregar(); render(); atualizarResumos(); },
-    async aoMostrar() { if (!raiz) return; planta = App.analise && App.analise.planta ? await App.analise.planta() : planta; render(); atualizarResumos(); },
+    async montar(el) { raiz = el; await carregar(); render(); atualizarResumos(); receberNuvem({ forcar: true }); },
+    async aoMostrar() { if (!raiz) return; planta = App.analise && App.analise.planta ? await App.analise.planta() : planta; render(); atualizarResumos(); receberNuvem(); },
+    /** Opções que vão junto para o Drive (offset da análise) mudaram. */
+    agendarNuvem: () => agendarNuvem(),
+    receberNuvem: (o) => receberNuvem(o),
     lista: listaParaTela,
     /** Nomes de todos os arquivos da Montagem. */
     async nomes() { await carregar(); return arquivos.map((a) => a.nome); },

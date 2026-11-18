@@ -122,7 +122,8 @@
   async function lerServidor() {
     if (!temServidor()) { servidor = null; return false; }
     const d = await App.api.chamar('carroStatus', {});
-    servidor = d && (d.estado || arr(d.arquivos).length || arr(d.historico).length) ? d : null;
+    // só quando o script já mandou algo (a Montagem também guarda CSV no Drive, mas isso não liga a tela pelo Drive)
+    servidor = d && (d.estado || arr(d.historico).length) ? d : null;
     if (!servidor) return false;
     estado = servidor.estado;
     catalogo = servidor.catalogo;

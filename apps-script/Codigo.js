@@ -356,7 +356,9 @@ var ACOES = {
   carroPing: { escrita: false, fn: function () { return { pong: true }; } },
   carroEnviar: { escrita: true, fn: acaoCarroEnviar_ },
   carroStatus: { escrita: false, fn: acaoCarroStatus_ },
-  carroArquivo: { escrita: false, fn: acaoCarroArquivo_ }
+  carroArquivo: { escrita: false, fn: acaoCarroArquivo_ },
+  montagemSalvar: { escrita: true, fn: acaoMontagemSalvar_ },
+  montagemLer: { escrita: false, fn: acaoMontagemLer_ }
 };
 
 function executar_(acao, dados) {
@@ -449,8 +451,34 @@ function acaoCarroEnviar_(dados) {
   return { tipo: tipo };
 }
 
-function acaoCarroStatus_() {
+/*
+ * Montagem no Drive: "original + ajustes". O CSV do carro fica intacto em Arquivos/ e os ajustes de cada arquivo
+ * (cortes, troca de linha, compensações, regras) e as opções (offset da análise, regras da compensação)
+ * ficam em montagem.json; o app aplica ao abrir, em qualquer aparelho.
+ */
+function acaoMontagemSalvar_(dados) {
+  var texto = String(dados.conteudo || '');
+  if (!texto || texto.length > 5 * 1024 * 1024) throw erro_('VALIDACAO', 'Montagem vazia ou grande demais.');
+  var m = JSON.parse(texto);
+  if (!m || !Array.isArray(m.arquivos) || !m.atualizadoEm) throw erro_('VALIDACAO', 'Montagem inválida.');
+  carroGravarTexto_(carroPasta_(), 'montagem.json', texto);
+  return { atualizadoEm: m.atualizadoEm };
+}
+
+function acaoMontagemLer_() {
+  var t = carroLerTexto_(carroPasta_(), 'montagem.json');
+  if (!t) return null;
+  try { return JSON.parse(t); } catch (e) { return null; }
+}
+
+function acaoCarroStatus_(dados) {
   var pasta = carroPasta_();
+  if (dados && dados.soArquivos) {
+    var lista = [];
+    var it0 = carroSubpasta_(pasta, 'Arquivos').getFiles();
+    while (it0.hasNext()) { var f0 = it0.next(); lista.push({ nome: f0.getName().replace(/\.gz$/i, ''), gzip: /\.gz$/i.test(f0.getName()) }); }
+    return { arquivos: lista };
+  }
   var json = function (nome) {
     var t = carroLerTexto_(pasta, nome).replace(/^\uFEFF/, '');
     if (!t) return null;
