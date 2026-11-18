@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
-$Versao = '2026-11-18.6'
+$Versao = '2026-11-18.7'
 
 # carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
 function LerUrl($u) {
@@ -32,6 +32,12 @@ function LerUrl($u) {
   }
   return $r
 }
+# Registro logo no inicio (antes de qualquer outra coisa): mostra no log que o Windows chamou o script
+try {
+  $logInicio = Join-Path (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Carro Controle') 'log.txt'
+  $como = if ($Url) { " pelo link do app: $Url" } elseif ($Agendado) { ' pelo agendamento' } else { ' (manual)' }
+  Add-Content -LiteralPath $logInicio -Value ('{0:dd/MM/yyyy HH:mm:ss}  Script iniciado{1}' -f (Get-Date), $como) -Encoding UTF8 -ErrorAction Stop
+} catch { }
 $UrlDados = $null
 if ($Url) { $UrlDados = LerUrl $Url; $Pedido = $true }
 $Silencioso = $Agendado -or $Pedido   # sem janela de console (agendado ou pedido do app)
@@ -217,7 +223,7 @@ function GarantirProtocolo {
       New-ItemProperty -LiteralPath $k -Name 'URL Protocol' -Value '' -PropertyType String -Force | Out-Null
       Set-Item -LiteralPath "$k\shell\open\command" -Value $cmd
       Escrever 'Botao "Buscar agora" do app instalado (link carrocontrole://).' 'Green'
-    }
+    } elseif (-not $Silencioso) { Escrever 'Link do app (carrocontrole://) registrado.' }
   } catch { Escrever "Nao foi possivel instalar o link do app: $($_.Exception.Message)" 'Yellow' }
 }
 
@@ -258,7 +264,7 @@ if ($UrlDados -and $UrlDados.acao -eq 'config') { SalvarConfigUrl $UrlDados; exi
 
 # ---------- Atualizacao automatica pelo GitHub (com internet, antes de mexer no Wi-Fi) ----------
 function Atualizar {
-  $arquivos = @('buscar-carro.ps1', 'Buscar arquivos do carro.bat', 'Ativar agendamento.bat', 'Remover agendamento.bat', 'LEIA-ME.txt')
+  $arquivos = @('buscar-carro.ps1', 'Buscar arquivos do carro.bat', 'Ativar agendamento.bat', 'Remover agendamento.bat', 'Testar botao.bat', 'LEIA-ME.txt')
   $mudou = @()
   try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
   $tmp = Join-Path $env:TEMP 'carro-controle-atualizacao'
