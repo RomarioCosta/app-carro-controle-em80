@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
-$Versao = '2026-11-18.11'
+$Versao = '2026-11-18.12'
 
 # carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
 function LerUrl($u) {
@@ -238,12 +238,27 @@ if ($Agendado -and -not $UrlDados -and -not $cfgBaixada -and $agenda -eq 'min1-v
 }
 
 # Agendamento do Windows a cada minuto, sem janela (o intervalo de verdade vem da configuracao)
+# Guarda no estado.json qual agendamento esta instalado
+function MarcarAgenda($chave) {
+  try {
+    $e = if (Test-Path -LiteralPath $EstadoArq) { [IO.File]::ReadAllText($EstadoArq) | ConvertFrom-Json } else { [pscustomobject]@{} }
+    $e | Add-Member -NotePropertyName agenda -NotePropertyValue $chave -Force
+    [IO.File]::WriteAllText($EstadoArq, ($e | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
+  } catch { }
+}
+
+# IMPORTANTE: recriar a tarefa encerra a execucao dela que estiver rodando (inclusive esta).
+# Por isso so e chamada no FIM do script, depois de buscar, gravar e mandar tudo,
+# e marca o agendamento novo no estado ANTES (senao cada minuto tentaria de novo e morreria no meio).
 function GarantirAgenda {
   # v3: tarefa por XML para rodar tambem na bateria (o padrao do Windows so roda na tomada),
   # roda a que perdeu se o note estava desligado e nao abre duas ao mesmo tempo
   $chave = 'min1-v3'
   if ($agenda -eq $chave) { return }
   try {
+    MarcarAgenda $chave
+    $script:agenda = $chave
+    Escrever 'Trocando o agendamento do Windows (confere a cada minuto, inclusive na bateria)...'
     $ps1 = Join-Path $Pasta 'buscar-carro.ps1'
     $argPs = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ps1`" -Agendado"
     # conhost --headless: nem pisca a janela (Windows 10 2004+ e 11)
@@ -287,9 +302,9 @@ function GarantirAgenda {
     [IO.File]::WriteAllText($arqXml, $xml, [Text.Encoding]::Unicode)
     $p = Start-Process -FilePath 'schtasks.exe' -ArgumentList "/create /tn `"$NomeTarefa`" /xml `"$arqXml`" /f" -WindowStyle Hidden -Wait -PassThru
     Remove-Item -LiteralPath $arqXml -Force -ErrorAction SilentlyContinue
-    if ($p.ExitCode -eq 0) { $script:agenda = $chave; Escrever 'Agendamento do Windows: confere a cada minuto, inclusive na bateria (busca no intervalo configurado).' 'Green' }
-    else { Escrever "Nao foi possivel criar o agendamento (codigo $($p.ExitCode))." 'Yellow' }
-  } catch { Escrever "Nao foi possivel criar o agendamento: $($_.Exception.Message)" 'Yellow' }
+    if ($p.ExitCode -eq 0) { Escrever 'Agendamento do Windows trocado.' 'Green' }
+    else { MarcarAgenda ''; Escrever "Nao foi possivel criar o agendamento (codigo $($p.ExitCode))." 'Yellow' }
+  } catch { MarcarAgenda ''; Escrever "Nao foi possivel criar o agendamento: $($_.Exception.Message)" 'Yellow' }
 }
 
 # Link carrocontrole:// (botoes do app) -> PowerShell direto -> este script com -Url "<link>"
@@ -337,7 +352,6 @@ function SalvarConfigUrl($d) {
   Escrever "Configuracao salva pelo app (intervalo $($cfg.intervaloMin) min)." 'Green'
   if ($null -ne $cfg.ativo) { $script:Ativo = [bool]$cfg.ativo }
   if ($cfg.intervaloMin) { $script:IntervaloMin = [int]$cfg.intervaloMin }
-  GarantirAgenda
   if ($estadoAnt) {
     try {
       $estadoAnt | Add-Member -NotePropertyName agenda -NotePropertyValue $agenda -Force
@@ -425,7 +439,7 @@ function Sincronizar {
 # configuracao baixada pelo app: aplica (e, se nao houver pedido de busca junto, termina aqui)
 if ($cfgBaixada) {
   SalvarConfigUrl $cfgBaixada
-  if (-not $UrlDados) { GravarEstadoConfig; Sincronizar; exit 0 }
+  if (-not $UrlDados) { GravarEstadoConfig; Sincronizar; GarantirAgenda; exit 0 }
 }
 if ($SoEnviar) { Sincronizar; exit 0 }
 
@@ -490,6 +504,7 @@ if ($Origens.Count -eq 0) {
   GravarEstado 'semPasta' -mensagem 'Nenhuma pasta do carro configurada.'
   Avisar 'Nenhuma pasta do carro configurada. Configure no app (Montagem > Arquivos do carro) ou no configuracao.ps1.' 48
   Sincronizar
+  GarantirAgenda
   Fim 1
 }
 
@@ -558,13 +573,12 @@ Escrever ("=== Buscar arquivos do Carro Controle (versao $Versao) ===" + $(if ($
 if ($ped) { Escrever ("Pedido do app: {0} a {1}, sede(s) {2}, {3}" -f $ped.de, $ped.ate, $(if ($pedSedes.Count) { $pedSedes -join ', ' } else { 'todas' }), $ped.modo) }
 Escrever "Pasta dos arquivos: $Destino"
 if ($erroConfig) { Escrever "configuracao.json com erro (usando o padrao): $erroConfig" 'Yellow' }
-GarantirAgenda
-
 if ($ExigirCabo -and -not (CaboConectado)) {
   Escrever 'Cabo de rede do carro nao conectado: nada foi feito.' 'Yellow'
   GravarEstado 'semCabo' -mensagem 'Cabo de rede do carro nao conectado.'
   if (($UrlDados -and $UrlDados.acao -eq 'buscar') -or ($AvisarSemCabo -and -not $Pedido -and (-not $Agendado -or $Avisos -ne 'nunca'))) { Avisar 'Busca de arquivos do carro: cabo de rede nao conectado. Nada foi feito.' 48 }
   Sincronizar
+  GarantirAgenda
   Fim 0
 }
 
@@ -670,4 +684,5 @@ if ($mostrar) { Avisar $msg $icone }
 # manda o resultado e os CSV copiados para o app (o Wi-Fi ja voltou)
 if ($copiadosAgora.Count) { Add-Content -LiteralPath $FilaEnvio -Value @($copiadosAgora) -Encoding UTF8 }
 Sincronizar
+GarantirAgenda   # por ultimo: pode encerrar esta execucao
 Fim 0
