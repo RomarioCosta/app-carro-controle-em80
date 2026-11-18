@@ -14,6 +14,11 @@
         document.documentElement.setAttribute('data-theme', t === 'escuro' ? 'dark' : 'light');
       } catch (e) { /* ignora */ }
     })();
+    // Guarda erros ao carregar os arquivos do app (o aviso de erros só começa depois, no app.js).
+    window.__errosCarga = [];
+    window.addEventListener('error', function (e) {
+      window.__errosCarga.push(((e.filename || '').split('/').pop() || 'arquivo') + ': ' + (e.message || 'erro'));
+    });
   </script>
   <!--pwa-->
   <link rel="manifest" href="manifest.webmanifest">

@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido)
-$Versao = '2026-11-17.3'
+$Versao = '2026-11-18.1'
 $Silencioso = $Agendado -or $Pedido   # sem janela de console (agendado ou pedido do app)
 
 # ---------------- PADROES (sobrescritos por configuracao.ps1) ----------------
@@ -24,7 +24,7 @@ $Origens       = @()                                       # pastas dos computad
 $Filtro        = '*.csv'
 $Ignorar       = @('teste')                                # texto no nome = arquivo desprezado
 $Dias          = 10                                        # 0 = todos
-$Destino       = Join-Path $env:USERPROFILE 'Documents\Carro Controle'
+$Destino       = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Carro Controle'   # a pasta Documentos de verdade (inclusive no OneDrive)
 $EsperaRede    = 45
 $ExigirCabo    = $true
 $AvisarSemCabo = $true
@@ -47,6 +47,11 @@ if (Test-Path -LiteralPath $Config) { . $Config }
 
 $ErrorActionPreference = 'Stop'
 $Titulo  = 'Carro Controle EM80'
+# Versoes anteriores gravavam em %USERPROFILE%\Documents; com o OneDrive a pasta Documentos e outra: muda para la
+$antiga = Join-Path $env:USERPROFILE 'Documents\Carro Controle'
+if ($Destino -ne $antiga -and (Test-Path -LiteralPath $antiga) -and -not (Test-Path -LiteralPath $Destino)) {
+  try { Move-Item -LiteralPath $antiga -Destination $Destino } catch { }
+}
 $Todos   = Join-Path $Destino 'Todos'
 $Novos   = Join-Path $Destino 'Novos'
 $Indice  = Join-Path $Destino 'copiados.txt'
@@ -100,7 +105,7 @@ function GravarEstado($resultado, $qNovos = 0, $qTestes = 0, $qErros = 0, $lista
   try {
     $pend = @(Get-ChildItem -LiteralPath $Novos -File -ErrorAction SilentlyContinue).Count
     $obj = [ordered]@{
-      versao = $Versao; ultimaBusca = (Get-Date).ToString("yyyy-MM-dd'T'HH:mm:ssK"); resultado = $resultado
+      versao = $Versao; destino = $Destino; ultimaBusca = (Get-Date).ToString("yyyy-MM-dd'T'HH:mm:ssK"); resultado = $resultado
       novos = $qNovos; testes = $qTestes; erros = $qErros; semAcesso = @($listaSemAcesso); pendentes = $pend
       mensagem = $mensagem; agendado = [bool]$Agendado; agenda = $agenda
       pedidoId = $script:pedidoId; copiados = @($script:copiadosAgora)
@@ -277,6 +282,7 @@ function EhTeste($nome) {
 
 Escrever ("=== Buscar arquivos do Carro Controle (versao $Versao) ===" + $(if ($Agendado) { ' (agendado)' } elseif ($Pedido) { ' (pedido do app)' } else { '' })) 'Cyan'
 if ($ped) { Escrever ("Pedido do app: {0} a {1}, sede(s) {2}, {3}" -f $ped.de, $ped.ate, $(if ($pedSedes.Count) { $pedSedes -join ', ' } else { 'todas' }), $ped.modo) }
+Escrever "Pasta dos arquivos: $Destino"
 if ($erroConfig) { Escrever "configuracao.json com erro (usando o padrao): $erroConfig" 'Yellow' }
 GarantirAgenda
 GarantirProtocolo
