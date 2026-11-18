@@ -995,29 +995,25 @@ async function main() {
       await page.getByRole('tab', { name: 'Buscar do carro' }).click();
       // janela de pasta do Chrome que não liga: mostra o erro e o modo simples (campo de pasta do navegador)
       await page.evaluate(() => { window.__picker = window.showDirectoryPicker; window.showDirectoryPicker = async () => { throw new DOMException('The user aborted a request.', 'AbortError'); }; });
-      await page.getByRole('button', { name: 'Escolher a pasta Carro Controle' }).click();
+      await page.getByRole('button', { name: 'Acesso permanente' }).click();
       await page.getByText(/não ligou: AbortError: The user aborted a request/).waitFor();
       const docs = mkdtempSync(join(tmpdir(), 'docs-'));
       mkdirSync(join(docs, 'Carro Controle', 'Todos'), { recursive: true });
       writeFileSync(join(docs, 'Carro Controle', 'estado.json'), JSON.stringify({ versao: 'S1', ultimaBusca: new Date().toISOString(), resultado: 'semCabo' }));
       writeFileSync(join(docs, 'Carro Controle', 'catalogo.json'), JSON.stringify({ arquivos: [{ nome: 'RLT_FU_20261101.csv', sede: 'FU', data: '2026-11-01' }] }));
       writeFileSync(join(docs, 'Carro Controle', 'Todos', 'RLT_FU_20261101.csv'), 'x');
-      const [seletorPasta] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'Abrir a pasta (modo simples)' }).click()]);
+      const [seletorPasta] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: 'Abrir a pasta Carro Controle' }).click()]);
       await seletorPasta.setFiles(docs);
-      await page.getByText(/Pasta ligada: Carro Controle \(modo simples/).waitFor();
-      assert.ok((await page.locator('[data-carro-estado]').textContent()).includes('cabo do carro não conectado'));
-      await page.getByRole('button', { name: 'Abrir a pasta de novo (atualizar)' }).waitFor();
-      // volta para a janela de pasta (simulada) e segue
-      await page.evaluate(() => { window.showDirectoryPicker = window.__picker; });
-      await page.getByRole('link', { name: 'trocar' }).click();
-      await page.getByText(/Pasta ligada: carro · /).waitFor();
+      await page.locator('[data-carro-estado]', { hasText: 'cabo do carro não conectado' }).waitFor();
+      // volta para a janela de pasta (simulada, com acesso permanente) e segue
+      await page.evaluate(() => { window.showDirectoryPicker = window.__picker; return App.buscaCarro.escolherPasta(); });
       assert.ok((await page.locator('[data-carro-estado]').textContent()).includes('1 arquivo(s) copiado(s) · 1 de teste desprezado(s)'));
       const de = page.locator('input[name=carroDe]');
       await de.fill('2026-11-01'); await de.dispatchEvent('change');
       const ate = page.locator('input[name=carroAte]');
       await ate.fill('2026-11-30'); await ate.dispatchEvent('change');
       const resumoBc = page.locator('[data-carro-resumo]');
-      await page.waitForFunction(() => (document.querySelector('[data-carro-resumo]') || {}).textContent?.startsWith('3 arquivo(s) no carro nesse filtro · 1 novo(s) · 1 só no carro'));
+      await page.waitForFunction(() => (document.querySelector('[data-carro-resumo]') || {}).textContent?.startsWith('3 arquivo(s) · 1 novo(s) · 1 só no carro'));
       await page.locator('input[name=carroSede]').fill('cp');
       await page.waitForFunction(() => document.querySelector('[data-carro-resumo]').textContent.startsWith('2 arquivo(s)'));
       await page.locator('input[name=carroSede]').fill('');
@@ -1029,9 +1025,9 @@ async function main() {
       assert.deepEqual([ped.de, ped.ate, ped.sedes, ped.modo], ['2026-11-01', '2026-11-30', '', 'novos']);
       await page.getByRole('button', { name: 'Trazer para a Montagem (2)' }).click();
       await page.getByText('2 arquivo(s) adicionado(s).').waitFor();
-      await page.waitForFunction(() => document.querySelector('[data-carro-resumo]').textContent.includes('2 já na Montagem'));
+      await page.waitForFunction(() => document.querySelector('[data-carro-resumo]').textContent.includes('2 na Montagem'));
       assert.equal(await page.locator('.bc-sit-novo').count(), 0);
-      await page.getByLabel('Buscar a cada').selectOption('60');
+      await page.getByLabel('A cada').selectOption('60');
       await page.getByRole('button', { name: 'Salvar configuração' }).click();
       await page.getByText('Configuração salva. Vale a partir da próxima busca.').waitFor();
       const cfg = await page.evaluate(async () => JSON.parse(await (await (await (await (await navigator.storage.getDirectory()).getDirectoryHandle('carro')).getFileHandle('configuracao.json')).getFile()).text()));
