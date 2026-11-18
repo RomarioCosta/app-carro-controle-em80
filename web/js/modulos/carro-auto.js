@@ -42,6 +42,7 @@
   let naMontagem = new Set();
   let marcados = new Set();
   let buscando = null; // { id, inicio }
+  let pedidoSimples = null; // hora da busca pedida no modo simples (o app não acompanha: botão Ver resultado)
   let trazendo = false;
   let erro = '';
   let falhaPicker = ''; // erro da janela de pasta do Chrome (aí mostra o modo simples em destaque)
@@ -180,6 +181,7 @@
       if (!d.virtual) await store.set(CHAVE, d).catch(() => {});
       if (!d.virtual) await temPermissao(true).catch(() => false);
       await ler();
+      pedidoSimples = null;
       marcarProntos();
       marcar(permitido
         ? `Pasta ligada: ${d.name}${d.virtual ? ' (modo simples: depois de uma busca, abra a pasta de novo para atualizar)' : ''}${estado ? ` · última busca encontrada (script ${estado.versao || '?'})` : ' · ainda sem busca registrada'}`
@@ -235,7 +237,7 @@
       // o Windows abre o script (link registrado pelo próprio script na primeira vez que roda)
       abrirLink('buscar', { id, de: filtro.de || '', ate: filtro.ate || '', sedes: sedesDoFiltro().join(','), modo: filtro.modo });
       if (!pasta || !permitido) { ui.toast('Busca pedida ao Windows. Para ver o resultado e a lista aqui, ligue a pasta Carro Controle.', 'info', 8000); return; }
-      if (ehVirtual()) { ui.toast('Busca pedida ao Windows: o resultado aparece numa janela do Windows. Depois atualize a pasta para ver a lista.', 'info', 8000); return; }
+      if (ehVirtual()) { pedidoSimples = new Date(); render(); return; }
       buscando = { id, inicio: Date.now() };
       render();
       esperar();
@@ -393,7 +395,10 @@
       h('div', { class: 'linha-acoes bc-acoes' }, atalho('Hoje', hoje(), hoje()), atalho('Ontem', diasAtras(1), diasAtras(1)), atalho('7 dias', diasAtras(7), hoje()), atalho('30 dias', diasAtras(30), hoje()),
         modo,
         h('button', { class: 'btn btn-primario', 'data-bc-buscar': '', disabled: ocupado || null, onclick: buscarAgora }, ui.icone('sync'), document.createTextNode(ocupado ? `Buscando… ${seg}s` : 'Buscar agora')),
-        ocupado ? h('button', { class: 'btn', onclick: cancelarEspera, text: 'Parar' }) : null));
+        ocupado ? h('button', { class: 'btn', onclick: cancelarEspera, text: 'Parar' }) : null),
+      pedidoSimples ? h('div', { class: 'ca-novos', 'data-bc-pedido': '' },
+        h('span', { text: `Busca pedida às ${String(pedidoSimples.getHours()).padStart(2, '0')}:${String(pedidoSimples.getMinutes()).padStart(2, '0')}. Quando o Windows avisar o resultado, veja aqui:` }),
+        h('button', { class: 'btn btn-primario', onclick: escolherSimples }, ui.icone('sync'), 'Ver resultado')) : null);
   }
 
   let listaEl = null;

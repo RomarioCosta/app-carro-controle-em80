@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
-$Versao = '2026-11-18.5'
+$Versao = '2026-11-18.6'
 
 # carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
 function LerUrl($u) {
@@ -84,8 +84,25 @@ function Escrever($msg, $cor = 'Gray') {
 }
 
 # Janela de aviso que fecha sozinha (64 = informacao, 48 = atencao)
+# Notificacao do Windows (canto da tela), usada se a janela de aviso nao abrir
+function AvisarNotificacao($msg) {
+  [void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+  $tpl = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+  $t = $tpl.GetElementsByTagName('text')
+  [void]$t.Item(0).AppendChild($tpl.CreateTextNode($Titulo))
+  [void]$t.Item(1).AppendChild($tpl.CreateTextNode($msg))
+  $appId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
+  [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show([Windows.UI.Notifications.ToastNotification]::new($tpl))
+}
+
 function Avisar($msg, $icone = 64) {
-  try { (New-Object -ComObject WScript.Shell).Popup($msg, $SegundosAviso, $Titulo, $icone) | Out-Null } catch { }
+  try {
+    (New-Object -ComObject WScript.Shell).Popup($msg, $SegundosAviso, $Titulo, $icone) | Out-Null
+    Escrever 'Aviso mostrado.'
+  } catch {
+    Escrever "A janela de aviso nao abriu ($($_.Exception.Message)); usando a notificacao do Windows." 'Yellow'
+    try { AvisarNotificacao $msg } catch { Escrever "A notificacao tambem falhou: $($_.Exception.Message)" 'Yellow' }
+  }
 }
 
 function Fim($cod = 0) {
