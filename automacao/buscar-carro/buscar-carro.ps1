@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
-$Versao = '2026-11-18.10'
+$Versao = '2026-11-18.11'
 
 # carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
 function LerUrl($u) {
@@ -367,7 +367,10 @@ function Api($acao, $dados) {
 }
 
 function Sincronizar {
-  if (-not $ApiUrl -or -not $ApiToken) { return }
+  if (-not $ApiUrl -or -not $ApiToken) {
+    Escrever 'Envio para o app (Google Drive) desligado: falta o endereco do servidor. No app, clique em Salvar configuracao.' 'Yellow'
+    return
+  }
   try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
   try { Set-Content -LiteralPath $TentativaEnvio -Value (Get-Date).ToString('o') -ErrorAction Stop } catch { }
   # primeira vez: manda tambem os arquivos que ja estavam copiados (ultimos 30 dias)
@@ -381,7 +384,10 @@ function Sincronizar {
   # a internet pode demorar a voltar depois de religar o Wi-Fi
   $online = $false
   for ($i = 0; $i -lt 12; $i++) { try { Api 'carroPing' @{} | Out-Null; $online = $true; break } catch { $ultimoErro = $_.Exception.Message; Start-Sleep -Seconds 5 } }
-  if (-not $online) { Escrever "Sem conexao com o servidor do app ($ultimoErro); manda depois." 'Yellow'; return }
+  if (-not $online) {
+    Escrever "Sem conexao com o servidor do app ($ultimoErro); manda depois. Se o erro fala em 'Acao desconhecida', falta implantar a nova versao do Apps Script." 'Yellow'
+    return
+  }
   $fila = @()
   if (Test-Path -LiteralPath $FilaEnvio) { $fila = @(Get-Content -LiteralPath $FilaEnvio -Encoding UTF8 | Where-Object { $_ } | Select-Object -Unique) }
   $resta = New-Object System.Collections.ArrayList
