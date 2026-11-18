@@ -39,6 +39,7 @@
   let buscando = null; // { id, inicio }
   let trazendo = false;
   let erro = '';
+  let passo = ''; // o que aconteceu ao escolher a pasta (aparece na tela, para o diagnóstico)
   let timer = null;
 
   const hoje = () => new Date().toISOString().slice(0, 10);
@@ -110,15 +111,19 @@
     render();
   }
 
+  const marcar = (t) => { passo = t; const el = raiz && raiz.querySelector('[data-bc-passo]'); if (el) el.textContent = t; };
   async function escolherPasta() {
     try {
+      marcar('Abrindo a janela de escolha da pasta…');
       let d = await window.showDirectoryPicker({ id: 'carro-controle', mode: 'readwrite', startIn: 'documents' });
+      marcar(`Pasta escolhida: ${d.name}. Conferindo…`);
       const tem = async (dir, nome, tipo) => { try { await (tipo === 'pasta' ? dir.getDirectoryHandle(nome) : dir.getFileHandle(nome)); return true; } catch (e) { return false; } };
       // escolheu Documentos: entra na "Carro Controle" que o script cria
-      if (await tem(d, 'Carro Controle', 'pasta')) d = await d.getDirectoryHandle('Carro Controle');
+      if (await tem(d, 'Carro Controle', 'pasta')) { d = await d.getDirectoryHandle('Carro Controle'); marcar(`Pasta escolhida: Documentos → ${d.name}. Lendo…`); }
       // escolheu a pasta do script (onde estão o .bat e o .ps1): não é ali que ficam os arquivos
       else if (await tem(d, 'buscar-carro.ps1')) {
         ui.toast('Essa é a pasta do script. Os arquivos do carro ficam em Documentos > Carro Controle: escolha essa pasta (ou a própria Documentos).', 'erro', 12000);
+        marcar(`"${d.name}" é a pasta do script, não a dos arquivos. Escolha Documentos.`);
         return;
       }
       pasta = d;
@@ -126,12 +131,15 @@
       await store.set(CHAVE, d).catch(() => {});
       await temPermissao(true).catch(() => false);
       await ler();
+      marcar(permitido
+        ? `Pasta ligada: ${d.name}${estado ? ` · última busca encontrada (versão do script ${estado.versao || '?'})` : ' · ainda sem busca registrada'}`
+        : `Pasta ${d.name} escolhida, mas o navegador não deu permissão de gravar. Clique em "Permitir acesso à pasta".`);
       if (permitido && !estado && !catalogo && !(await subpasta('Novos'))) ui.toast('Essa pasta ainda não tem nada do script. Ela deve ser Documentos > Carro Controle, criada na primeira vez que o "Buscar arquivos do carro.bat" roda.', 'info', 10000);
     } catch (e) {
-      if (e.name === 'AbortError') ui.toast('Nenhuma pasta escolhida.', 'info', 4000);
-      else ui.toast(`Não foi possível abrir a pasta: ${e.message}`, 'erro', 8000);
+      if (e.name === 'AbortError') { ui.toast('Nenhuma pasta escolhida.', 'info', 4000); marcar('Nenhuma pasta escolhida (a janela foi fechada ou a permissão de editar foi negada).'); }
+      else { ui.toast(`Não foi possível abrir a pasta: ${e.message}`, 'erro', 8000); marcar(`Erro: ${e.name}: ${e.message}`); }
     }
-    render();
+    try { render(); } catch (e) { marcar(`Erro ao mostrar: ${e.message}`); }
   }
 
   /** Para Buscar agora / Salvar sem pasta ligada: pede a pasta (ou a permissão) na hora. */
@@ -247,6 +255,12 @@
   const efetiva = () => ({ ...PADRAO, ...((estado && estado.config) || {}), ...(config || {}) });
 
   function cartaoPasta() {
+    const el = cartaoPastaBase();
+    el.appendChild(h('small', { class: 'sub', 'data-bc-passo': '', text: passo }));
+    el.appendChild(h('small', { class: 'sub', text: `App ${(App.config && App.config.build) || ''}` }));
+    return el;
+  }
+  function cartaoPastaBase() {
     const cab = h('h2', { text: 'Buscar arquivos do carro' });
     if (!pasta) {
       return h('section', { class: 'cartao pilha' }, cab,
