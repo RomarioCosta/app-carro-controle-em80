@@ -44,6 +44,7 @@
   let logLinhas = []; // fim do log.txt
   let emTodos = new Set();
   let emNovos = new Set();
+  let tamLocal = new Map(); // tamanho dos CSV na pasta Todos do notebook
   let naMontagem = new Set();
   let marcados = new Set();
   let buscando = null; // { id, inicio }
@@ -110,6 +111,9 @@
       .map((l) => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean).reverse();
     logLinhas = (await lerTexto('log.txt')).split(/\r?\n/).filter(Boolean).slice(-150);
     emTodos = await nomesEm('Todos');
+    tamLocal = new Map();
+    const dTodos = await subpasta('Todos');
+    if (dTodos) for await (const [n, hd] of dTodos.entries()) if (hd.kind === 'file') tamLocal.set(n, await hd.getFile().then((f) => f.size).catch(() => null));
     emNovos = await nomesEm('Novos');
     naMontagem = new Set(App.montagem && App.montagem.nomes ? await App.montagem.nomes() : []);
   }
@@ -138,7 +142,7 @@
   async function atualizar() {
     if (!suportado() || !raiz) return;
     try {
-      if (await lerServidor().catch(() => false)) { render(); autoTrazer(); return; }
+      if (await lerServidor().catch(() => false)) { render(); return; }
       if (!pasta) {
         const salvo = await store.get(CHAVE).catch(() => null);
         pasta = salvo && typeof salvo.getDirectoryHandle === 'function' ? salvo : null; // só pasta de verdade (não o modo simples)
@@ -327,13 +331,17 @@
     const base = arr(catalogo && catalogo.arquivos).slice();
     const vistos = new Set(base.map((a) => a.nome));
     [...emTodos, ...emNovos].filter((n) => /\.csv$/i.test(n) && !vistos.has(n)).forEach((n) => { vistos.add(n); base.push({ nome: n }); });
-    return base.map((a) => ({ ...infoNome(a.nome), ...a, data: a.data || infoNome(a.nome).data }))
+    const tamServ = new Map(arr(servidor && servidor.arquivos).map((x) => [x.nome, x.tamanho]));
+    return base.map((a) => ({ ...infoNome(a.nome), ...a, data: a.data || infoNome(a.nome).data,
+      // tamanho do CSV (lista do carro ou pasta do notebook); do Drive só o compactado (aproximado)
+      tamanho: a.tamanho ?? tamLocal.get(a.nome) ?? null, tamanhoGz: tamServ.get(a.nome) ?? null }))
       .filter((a) => (!filtro.de || !a.data || a.data >= filtro.de) && (!filtro.ate || !a.data || a.data <= filtro.ate) && (!sedes.length || sedes.includes(String(a.sede).toUpperCase())))
       .sort((a, b) => (b.data || '').localeCompare(a.data || '') || a.nome.localeCompare(b.nome));
   }
   const podeTrazer = (a) => ['novo', 'pronto'].includes(situacao(a)[0]);
+  // nada vem marcado: o carro gera arquivos vazios, de LOCOM etc.; você escolhe o que vai para a Montagem
   function marcarProntos() {
-    marcados = new Set(listaFiltrada().filter((a) => podeTrazer(a)).map((a) => a.nome));
+    marcados = new Set([...marcados].filter((n) => listaFiltrada().some((a) => a.nome === n && podeTrazer(a))));
   }
 
   /** Baixa um CSV do Google Drive (pelo servidor do app); o script manda compactado (gzip). */
@@ -344,32 +352,6 @@
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     if (r.gzip) bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
     return new File([bytes], n, { type: 'text/csv' });
-  }
-
-  /* ---------- trazer sozinho para a Montagem (arquivos novos que chegam ao Drive) ---------- */
-  const autoLigado = () => U.pref.get('carroAuto:autoTrazer', true) !== false;
-  let autoRodando = false;
-  async function autoTrazer() {
-    if (!autoLigado() || !servidor || autoRodando || trazendo) return;
-    let desde = U.pref.get('carroAuto:autoDesde', '');
-    if (!desde) { desde = new Date().toISOString(); U.pref.set('carroAuto:autoDesde', desde); } // só o que chegar daqui para frente
-    const feitos = new Set(U.pref.get('carroAuto:autoFeitos', []));
-    const novos = arr(servidor.arquivos).filter((a) => a.atualizado > desde && !naMontagem.has(a.nome) && !feitos.has(a.nome) && !/teste/i.test(a.nome));
-    if (!novos.length) return;
-    autoRodando = true;
-    try {
-      for (const a of novos) {
-        feitos.add(a.nome); // não tenta de novo (nem se você tirar da Montagem)
-        U.pref.set('carroAuto:autoFeitos', [...feitos].slice(-500));
-        const f = await baixarDoServidor(a.nome);
-        const ok = (await App.montagem.adicionarArquivos([f])) || [];
-        if (ok.length) { naMontagem.add(a.nome); ui.toast(`Arquivo do carro trazido para a Montagem: ${a.nome}`, 'ok', 6000); }
-      }
-    } catch (e) {
-      ui.toast(`Não foi possível trazer o arquivo do carro: ${e.message}`, 'erro', 8000);
-    }
-    autoRodando = false;
-    if (raiz && !raiz.hidden) renderLista();
   }
 
   async function trazer() {
@@ -498,6 +480,14 @@
         h('button', { class: 'btn-icone', 'aria-label': 'Fechar', onclick: () => { pedidoSimples = null; render(); } }, ui.icone('x'))) : null);
   }
 
+  // tamanho do arquivo: ajuda a ver os vazios (o carro gera muitos)
+  const fmtTam = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+  function celTamanho(a) {
+    if (a.tamanho != null) return h('td', { class: a.tamanho < 20480 ? 'bc-vazio' : '', title: a.tamanho < 20480 ? 'Arquivo muito pequeno: provavelmente vazio' : '', text: a.tamanho < 20480 ? `${fmtTam(a.tamanho)} · vazio?` : fmtTam(a.tamanho) });
+    if (a.tamanhoGz != null) return h('td', { title: 'Tamanho compactado no Google Drive', text: `~${fmtTam(a.tamanhoGz)} (comp.)` });
+    return h('td', { text: '—' });
+  }
+
   let listaEl = null;
   function renderLista() {
     if (!listaEl) return;
@@ -522,23 +512,20 @@
             h('thead', {}, h('tr', {},
               h('th', {}, h('input', { type: 'checkbox', 'aria-label': 'Marcar todos', checked: sel.length && sel.length === todos.filter(podeTrazer).length || null,
                 onchange: (e) => { marcados = e.target.checked ? new Set(todos.filter(podeTrazer).map((a) => a.nome)) : new Set(); renderLista(); } })),
-              h('th', { text: 'Arquivo' }), h('th', { text: 'Sede' }), h('th', { text: 'Data' }), h('th', { text: 'Situação' }))),
+              h('th', { text: 'Arquivo' }), h('th', { text: 'Sede' }), h('th', { text: 'Data' }), h('th', { text: 'Tamanho' }), h('th', { text: 'Situação' }))),
             h('tbody', {}, linhas.map((a) => {
               const [k, t] = situacao(a);
               const pode = podeTrazer(a);
               return h('tr', { class: `bc-${k}` },
                 h('td', {}, h('input', { type: 'checkbox', 'aria-label': `Marcar ${a.nome}`, disabled: !pode || null, checked: (pode && marcados.has(a.nome)) || null,
                   onchange: (e) => { if (e.target.checked) marcados.add(a.nome); else marcados.delete(a.nome); renderLista(); } })),
-                h('td', { text: a.nome }), h('td', { text: a.sede || '—' }), h('td', { text: dataBr(a.data) }), h('td', {}, h('span', { class: `bc-sit bc-sit-${k}`, text: t })));
+                h('td', { text: a.nome }), h('td', { text: a.sede || '—' }), h('td', { text: dataBr(a.data) }), celTamanho(a), h('td', {}, h('span', { class: `bc-sit bc-sit-${k}`, text: t })));
             })))),
           todos.length > MAX_LINHAS ? h('p', { class: 'sub', text: `Mostrando ${MAX_LINHAS} de ${todos.length}.` }) : null
         ];
     ui.trocar(listaEl,
       h('div', { class: 'bc-cab' }, h('h2', { text: 'Arquivos do carro' }),
-        h('div', { class: 'linha-acoes' },
-          doServidor() ? h('label', { class: 'check', title: 'Cada arquivo novo que chegar ao Google Drive entra sozinho na Montagem (com o app aberto)' },
-            h('input', { type: 'checkbox', checked: autoLigado() || null, onchange: (e) => { U.pref.set('carroAuto:autoTrazer', e.target.checked); if (e.target.checked) autoTrazer(); } }), ' Trazer sozinho') : null,
-          h('button', { class: 'btn btn-primario', disabled: !sel.length || trazendo || null, onclick: trazer }, ui.icone('upload'), trazendo ? 'Trazendo…' : `Trazer para a Montagem (${sel.length})`))),
+        h('button', { class: 'btn btn-primario', disabled: !sel.length || trazendo || null, onclick: trazer }, ui.icone('upload'), trazendo ? 'Trazendo…' : `Trazer para a Montagem (${sel.length})`)),
       ...corpo);
   }
 
@@ -678,16 +665,6 @@
       }, 60000);
       render(); atualizar().then(() => { marcarProntos(); renderLista(); }); },
     escolherPasta,
-    /** Com o app aberto (em qualquer tela), confere o Drive a cada minuto e traz os arquivos novos para a Montagem. */
-    iniciarFundo() {
-      const ciclo = async () => {
-        if (!temServidor() || !autoLigado() || document.hidden) return;
-        if (raiz && !raiz.hidden) return; // na aba, o próprio atualizar() já faz isso
-        try { if (await lerServidor()) await autoTrazer(); } catch (e) { /* sem rede: tenta no próximo */ }
-      };
-      setTimeout(ciclo, 8000);
-      setInterval(ciclo, 60000);
-    },
     aoMostrar() { atualizar().then(() => { if (!marcados.size) marcarProntos(); renderLista(); }); },
     infoNome
   };

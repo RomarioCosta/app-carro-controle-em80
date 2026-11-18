@@ -1030,6 +1030,10 @@ async function main() {
       await page.getByText('Busca concluída: 1 arquivo(s) copiado(s).').waitFor();
       const ped = await page.evaluate(() => window.__pedido);
       assert.deepEqual([ped.de, ped.ate, ped.sedes, ped.modo], ['2026-11-01', '2026-11-30', '', 'novos']);
+      // nada vem marcado: escolhe os arquivos
+      assert.equal(await page.getByRole('button', { name: 'Trazer para a Montagem (0)' }).count(), 1);
+      await page.getByLabel('Marcar RLT_CP_20261117.csv').check();
+      await page.getByLabel('Marcar RLT_GV_20261110.csv').check();
       await page.getByRole('button', { name: 'Trazer para a Montagem (2)' }).click();
       await page.getByText('2 arquivo(s) adicionado(s).').waitFor();
       await page.waitForFunction(() => document.querySelector('[data-carro-resumo]').textContent.includes('2 na Montagem'));
@@ -1058,16 +1062,10 @@ async function main() {
       await page.locator('[data-bc-fonte="servidor"]').waitFor();
       await page.locator('input[name=carroDe]').fill('2026-11-01'); await page.locator('input[name=carroDe]').dispatchEvent('change');
       await page.locator('.bc-tabela tr', { hasText: 'RLT_FU_20261118.csv' }).locator('.bc-sit-novo').waitFor();
+      await page.getByLabel('Marcar RLT_FU_20261118.csv').check();
       await page.getByRole('button', { name: 'Trazer para a Montagem (1)' }).click();
       await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
       await page.locator('.bc-tabela tr', { hasText: 'RLT_FU_20261118.csv' }).locator('.bc-sit-montagem').waitFor();
-      // arquivo novo que chega ao Drive depois: entra sozinho na Montagem ("Trazer sozinho", ligado por padrão)
-      const csvCS = gerarCSV().replace(/;XX1;/g, ';CS;').replace(/01\/09\/2026/g, '06/09/2026');
-      await page.evaluate(async ([csv, token]) => {
-        await fetch('/exec', { method: 'POST', body: JSON.stringify({ acao: 'carroEnviar', dados: { tipo: 'arquivo', nome: 'RLT_CS_20261118.csv', base64: btoa(csv) }, token }) });
-        App.buscaCarro.aoMostrar();
-      }, [csvCS, srv.estado.token]);
-      await page.getByText('Arquivo do carro trazido para a Montagem: RLT_CS_20261118.csv').waitFor();
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 

@@ -1019,3 +1019,5 @@ input:focus, select:focus, textarea:focus { border-color: var(--foco); outline: 
 
 .bc-hist-erro td { color: var(--erro, #c0392b); }
 .bc-log { max-height: 320px; overflow: auto; font-size: .78rem; white-space: pre-wrap; background: var(--sup2); padding: 8px 10px; border-radius: 8px; }
+
+.bc-vazio { color: var(--texto3); font-style: italic; }
