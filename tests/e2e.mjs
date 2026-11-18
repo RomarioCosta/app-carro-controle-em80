@@ -1042,6 +1042,22 @@ async function main() {
       assert.deepEqual(cfg.origens, ['\\\\pc\\C\\DADOS']);
       await page.getByRole('tab', { name: 'Montagem' }).click();
       await page.locator('.mt-arquivo > summary', { hasText: 'RLT_GV_20261110.csv' }).waitFor();
+      // pelo servidor do app (Google Drive): o script mandou estado, histórico, lista e um CSV; a tela usa isso sozinha
+      const csvFU = gerarCSV().replace(/;XX1;/g, ';FU;').replace(/01\/09\/2026/g, '05/09/2026');
+      await page.evaluate(async ([csv, token]) => {
+        const env = (dados) => fetch('/exec', { method: 'POST', body: JSON.stringify({ acao: 'carroEnviar', dados, token }) }).then((r) => r.json());
+        await env({ tipo: 'estado', conteudo: JSON.stringify({ versao: 'S2', ultimaBusca: new Date().toISOString(), resultado: 'ok', novos: 1, copiados: ['RLT_FU_20261118.csv'], config: { intervaloMin: 30 } }) });
+        await env({ tipo: 'historico', conteudo: JSON.stringify({ data: new Date().toISOString(), tipo: 'automatica', resultado: 'ok', novos: 1 }) + '\n' });
+        await env({ tipo: 'catalogo', conteudo: JSON.stringify({ arquivos: [{ nome: 'RLT_FU_20261118.csv', sede: 'FU', data: '2026-11-18' }] }) });
+        await env({ tipo: 'arquivo', nome: 'RLT_FU_20261118.csv', base64: btoa(csv) });
+      }, [csvFU, srv.estado.token]);
+      await page.getByRole('tab', { name: 'Buscar do carro' }).click();
+      await page.locator('[data-bc-fonte="servidor"]').waitFor();
+      await page.locator('input[name=carroDe]').fill('2026-11-01'); await page.locator('input[name=carroDe]').dispatchEvent('change');
+      await page.locator('.bc-tabela tr', { hasText: 'RLT_FU_20261118.csv' }).locator('.bc-sit-novo').waitFor();
+      await page.getByRole('button', { name: 'Trazer para a Montagem (1)' }).click();
+      await page.getByText('1 arquivo(s) adicionado(s).').waitFor();
+      await page.locator('.bc-tabela tr', { hasText: 'RLT_FU_20261118.csv' }).locator('.bc-sit-montagem').waitFor();
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 

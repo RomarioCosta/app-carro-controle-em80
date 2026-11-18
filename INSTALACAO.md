@@ -83,6 +83,12 @@ Só é necessário quando o arquivo `Codigo.js` mudar (o servidor), ou se você 
 
 O link continua o mesmo. Os dados não são afetados. Abas e colunas novas da planilha são criadas sozinhas na primeira utilização (não precisa rodar `setup` de novo).
 
+**Permissão do Google Drive (arquivos do carro).** A partir da versão que guarda os arquivos do carro no Drive,
+o servidor precisa de acesso ao Google Drive. Depois de colar o `Codigo.js` novo, antes de implantar:
+no editor, escolha a função **`setup`** e clique em **Executar** → **Revisar permissões** → sua conta →
+**Avançado → Acessar (não seguro)** → **Permitir**. Depois faça o passo 2 acima (Nova versão).
+A pasta **"Carro Controle EM80"** aparece no seu Google Drive na primeira vez que o script do notebook mandar algo.
+
 ---
 
 ## Sobre o funcionamento sem internet
