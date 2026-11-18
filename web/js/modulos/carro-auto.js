@@ -128,7 +128,7 @@
     catalogo = servidor.catalogo;
     config = null;
     historico = arr(servidor.historico).slice().reverse();
-    logLinhas = [];
+    logLinhas = arr(servidor.log);
     emTodos = new Set(arr(servidor.arquivos).map((a) => a.nome));
     // "Novo": copiado na última busca e ainda fora da Montagem
     emNovos = new Set(arr(estado && estado.copiados).filter((n) => emTodos.has(n)));

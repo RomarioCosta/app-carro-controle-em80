@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
-$Versao = '2026-11-18.13'
+$Versao = '2026-11-18.14'
 
 # carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
 function LerUrl($u) {
@@ -430,6 +430,10 @@ function Sincronizar {
     if (Test-Path -LiteralPath $hist) {
       $ult = @([IO.File]::ReadAllLines($hist) | Select-Object -Last 300)
       Api 'carroEnviar' @{ tipo = 'historico'; conteudo = (($ult -join "`n") + "`n") } | Out-Null
+    }
+    if (Test-Path -LiteralPath $Log) {
+      $ultLog = @([IO.File]::ReadAllLines($Log) | Select-Object -Last 300)
+      Api 'carroEnviar' @{ tipo = 'log'; conteudo = (($ultLog -join "`n") + "`n") } | Out-Null
     }
     $cat = Join-Path $Destino 'catalogo.json'
     $marcaCat = Join-Path $Destino 'catalogo-enviado.txt'
