@@ -976,10 +976,12 @@ async function main() {
         window.showDirectoryPicker = async () => d;
         const clicar = HTMLAnchorElement.prototype.click;
         HTMLAnchorElement.prototype.click = function () {
-          if (!this.href.startsWith('carrocontrole:')) return clicar.call(this);
-          const u = new URL(this.href);
-          const q = Object.fromEntries(u.searchParams);
+          if (!this.download || !this.download.startsWith('carro-controle-')) return clicar.call(this);
+          const href = this.href;
+          const u = { host: this.download.includes('pedido') ? 'buscar' : 'config' };
+          let q = null;
           setTimeout(async () => { // o "script": busca (copia o GV e grava o estado) ou grava a configuração
+            q = JSON.parse(await (await fetch(href)).text());
             if (u.host === 'buscar') {
               window.__pedido = q;
               await gravar(todos, 'RLT_GV_20261110.csv', gv);

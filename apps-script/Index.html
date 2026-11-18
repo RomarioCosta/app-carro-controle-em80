@@ -1264,7 +1264,7 @@ window.App = window.App || {};
     versao: '2026.11.18',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-a2c2985227', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-6de041de81', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -8873,9 +8873,10 @@ window.App = window.App || {};
 /*
  * Tela "Buscar do carro": conversa com o script do Windows (automacao/buscar-carro).
  * O app só LÊ a pasta Documentos\Carro Controle (empresas costumam bloquear a gravação pelo navegador)
- * e manda os pedidos pelo link carrocontrole://, que o script registrou no Windows:
- *   carrocontrole://buscar/?id&de&ate&sedes&modo   busca agora (período, sedes, só novos/todos)
- *   carrocontrole://config/?id&intervalo&…         o script grava a configuração e ajusta o agendamento
+ * e manda os pedidos como um arquivo baixado (pasta Downloads), que o agendamento do script confere a cada minuto
+ * (o Windows da empresa não deixa o navegador abrir programas):
+ *   carro-controle-pedido.json   busca agora (período, sedes, só novos/todos)
+ *   carro-controle-config.json   o script grava a configuração
  * O que o script grava na pasta:
  *   estado.json        o script grava o resultado da última busca (pedidoId diz qual pedido terminou)
  *   catalogo.json      o script lista todos os CSV do carro (nome, sede, data) a cada busca
@@ -9093,11 +9094,16 @@ window.App = window.App || {};
     render();
   }
 
-  /* ---------- pedidos ao Windows (link carrocontrole://) ---------- */
+  /* ---------- pedidos ao Windows (arquivo baixado na pasta Downloads) ---------- */
 
-  function abrirLink(acao, params) {
-    const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, v === true ? '1' : v === false ? '0' : String(v ?? '')]));
-    h('a', { href: `carrocontrole://${acao}/?${qs}` }).click();
+  function baixarPedido(nome, tipo, params) {
+    const dados = { tipo, ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, v === true ? '1' : v === false ? '0' : String(v ?? '')])) };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(dados)], { type: 'application/json' }));
+    const a = h('a', { href: url, download: nome });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
   /* ---------- buscar agora ---------- */
@@ -9106,9 +9112,9 @@ window.App = window.App || {};
     if (filtro.de && filtro.ate && filtro.de > filtro.ate) { ui.toast('A data inicial é depois da final.', 'erro', 5000); return; }
     try {
       const id = U.uuid().slice(0, 12);
-      // o Windows abre o script (link registrado pelo próprio script na primeira vez que roda)
-      abrirLink('buscar', { id, de: filtro.de || '', ate: filtro.ate || '', sedes: sedesDoFiltro().join(','), modo: filtro.modo });
-      if (!pasta || !permitido) { ui.toast('Busca pedida ao Windows. Para ver o resultado e a lista aqui, ligue a pasta Carro Controle.', 'info', 8000); return; }
+      // o agendamento do script (a cada minuto) pega o pedido na pasta Downloads
+      baixarPedido('carro-controle-pedido.json', 'buscar', { id, de: filtro.de || '', ate: filtro.ate || '', sedes: sedesDoFiltro().join(','), modo: filtro.modo });
+      if (!pasta || !permitido) { ui.toast('Busca pedida: começa em até 1 minuto.', 'info', 6000); return; }
       if (ehVirtual()) { pedidoSimples = new Date(); render(); return; }
       buscando = { id, inicio: Date.now() };
       render();
@@ -9134,7 +9140,7 @@ window.App = window.App || {};
       }
       if (Date.now() - buscando.inicio > 4 * 60000) {
         buscando = null;
-        ui.toast('O Windows não respondeu ao pedido de busca. Se for a primeira vez, rode o "Buscar arquivos do carro.bat" uma vez (ele instala o botão) e tente de novo.', 'erro', 12000);
+        ui.toast('O Windows não pegou o pedido de busca. Confira se o arquivo carro-controle-pedido.json foi baixado na pasta Downloads.', 'erro', 12000);
         render();
         return;
       }
@@ -9272,7 +9278,7 @@ window.App = window.App || {};
         h('button', { class: 'btn btn-primario', 'data-bc-buscar': '', disabled: ocupado || null, onclick: buscarAgora }, ui.icone('sync'), document.createTextNode(ocupado ? `Buscando… ${seg}s` : 'Buscar agora')),
         ocupado ? h('button', { class: 'btn', onclick: cancelarEspera, text: 'Parar' }) : null),
       pedidoSimples ? h('div', { class: 'ca-novos', 'data-bc-pedido': '' },
-        h('span', { text: `Busca pedida às ${String(pedidoSimples.getHours()).padStart(2, '0')}:${String(pedidoSimples.getMinutes()).padStart(2, '0')}. Quando o Windows avisar o resultado, veja aqui:` }),
+        h('span', { text: `Busca pedida às ${String(pedidoSimples.getHours()).padStart(2, '0')}:${String(pedidoSimples.getMinutes()).padStart(2, '0')}: começa em até 1 minuto e o Windows avisa o resultado.` }),
         h('button', { class: 'btn btn-primario', onclick: () => { pedidoSimples = null; render(); escolherSimples(); } }, ui.icone('sync'), 'Ver resultado'),
         h('button', { class: 'btn-icone', 'aria-label': 'Fechar', onclick: () => { pedidoSimples = null; render(); } }, ui.icone('x'))) : null);
   }
@@ -9348,12 +9354,12 @@ window.App = window.App || {};
       // quem grava é o script (o app só lê a pasta): manda pelo link e espera a configuracao.json mudar
       const id = U.uuid().slice(0, 12);
       U.pref.set('carroAuto:configLocal', { ...nova, salvoId: id });
-      abrirLink('config', {
+      baixarPedido('carro-controle-config.json', 'config', {
         id, ativo: nova.ativo, intervalo: nova.intervaloMin, horaIni: nova.horaIni, horaFim: nova.horaFim,
         origens: nova.origens.join('|'), ignorar: nova.ignorar.join(','), dias: nova.dias, avisos: nova.avisos,
         avisarSemCabo: nova.avisarSemCabo, segundosAviso: nova.segundosAviso, modoWifi: nova.modoWifi, atualizarAuto: nova.atualizarAuto
       });
-      if (!pasta || !permitido || ehVirtual()) { ui.toast('Configuração enviada ao Windows.', 'info', 5000); render(); return; }
+      if (!pasta || !permitido || ehVirtual()) { ui.toast('Configuração enviada: vale em até 1 minuto.', 'info', 5000); render(); return; }
       ui.toast('Enviando a configuração ao Windows…', 'info', 3000);
       const inicio = Date.now();
       while (Date.now() - inicio < 60000) {
@@ -9370,7 +9376,7 @@ window.App = window.App || {};
     }
     return h('section', { class: 'cartao pilha' },
       h('h2', { text: 'Busca automática' }),
-      pasta && permitido && pendente() ? h('p', { class: 'aviso', text: 'Configuração salva aqui, mas o Windows ainda não confirmou (atualize a pasta depois). Se não confirmar, o botão do app não está chegando ao Windows: rode o "Testar botão.bat".' }) : null,
+      pasta && permitido && pendente() ? h('p', { class: 'aviso', text: 'Configuração enviada; o Windows aplica em até 1 minuto (atualize a pasta para confirmar).' }) : null,
       chk('ativo', 'Ligada'),
       h('div', { class: 'grade-3' },
         ui.campo('A cada', campos.intervaloMin),
