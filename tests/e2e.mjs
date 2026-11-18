@@ -966,7 +966,7 @@ async function main() {
         const novos = await d.getDirectoryHandle('Novos', { create: true });
         await gravar(todos, 'RLT_CP_20261117.csv', cp);
         await gravar(novos, 'RLT_CP_20261117.csv', cp);
-        await gravar(d, 'estado.json', '﻿' + JSON.stringify({ versao: 'T1', ultimaBusca: new Date().toISOString(), resultado: 'ok', novos: 1, testes: 1, config: { intervaloMin: 120, origens: ['\\\\pc\\C\\DADOS'] } }));
+        await gravar(d, 'estado.json', '﻿' + JSON.stringify({ versao: 'T1', ultimaBusca: new Date().toISOString(), resultado: 'ok', novos: 1, testes: 1, semAcesso: { value: [], Count: 0 }, config: { intervaloMin: 120, origens: { value: ['\\\\pc\\C\\DADOS'], Count: 1 }, ignorar: 'teste' } }));
         await gravar(d, 'catalogo.json', JSON.stringify({ geradoEm: new Date().toISOString(), arquivos: [
           { nome: 'RLT_CP_20261117.csv', sede: 'CP', data: '2026-11-17' },
           { nome: 'RLT_CP_20261116_teste.csv', sede: 'CP', data: '2026-11-16', teste: true },

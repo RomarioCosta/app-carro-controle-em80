@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido)
-$Versao = '2026-11-18.1'
+$Versao = '2026-11-18.2'
 $Silencioso = $Agendado -or $Pedido   # sem janela de console (agendado ou pedido do app)
 
 # ---------------- PADROES (sobrescritos por configuracao.ps1) ----------------
@@ -46,6 +46,8 @@ $Config = Join-Path $Pasta 'configuracao.ps1'
 if (Test-Path -LiteralPath $Config) { . $Config }
 
 $ErrorActionPreference = 'Stop'
+# PowerShell 5.1: sem isto, listas viram {"value":[...],"Count":n} no JSON (o app le estado.json)
+try { Remove-TypeData -TypeName System.Array -ErrorAction Stop } catch { }
 $Titulo  = 'Carro Controle EM80'
 # Versoes anteriores gravavam em %USERPROFILE%\Documents; com o OneDrive a pasta Documentos e outra: muda para la
 $antiga = Join-Path $env:USERPROFILE 'Documents\Carro Controle'
