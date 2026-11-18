@@ -122,8 +122,8 @@
       if (await tem(d, 'Carro Controle', 'pasta')) { d = await d.getDirectoryHandle('Carro Controle'); marcar(`Pasta escolhida: Documentos → ${d.name}. Lendo…`); }
       // escolheu a pasta do script (onde estão o .bat e o .ps1): não é ali que ficam os arquivos
       else if (await tem(d, 'buscar-carro.ps1')) {
-        ui.toast('Essa é a pasta do script. Os arquivos do carro ficam em Documentos > Carro Controle: escolha essa pasta (ou a própria Documentos).', 'erro', 12000);
-        marcar(`"${d.name}" é a pasta do script, não a dos arquivos. Escolha Documentos.`);
+        ui.toast('Essa é a pasta do script. Os arquivos do carro ficam em Documentos > Carro Controle: escolha essa pasta.', 'erro', 12000);
+        marcar(`"${d.name}" é a pasta do script, não a dos arquivos. Escolha Documentos > Carro Controle.`);
         return;
       }
       pasta = d;
@@ -136,7 +136,7 @@
         : `Pasta ${d.name} escolhida, mas o navegador não deu permissão de gravar. Clique em "Permitir acesso à pasta".`);
       if (permitido && !estado && !catalogo && !(await subpasta('Novos'))) ui.toast('Essa pasta ainda não tem nada do script. Ela deve ser Documentos > Carro Controle, criada na primeira vez que o "Buscar arquivos do carro.bat" roda.', 'info', 10000);
     } catch (e) {
-      if (e.name === 'AbortError') { ui.toast('Nenhuma pasta escolhida.', 'info', 4000); marcar('Nenhuma pasta escolhida (a janela foi fechada ou a permissão de editar foi negada).'); }
+      if (e.name === 'AbortError') { ui.toast('Nenhuma pasta escolhida.', 'info', 4000); marcar('Nenhuma pasta escolhida. Se você escolheu a Documentos, o Chrome não aceita (pasta do sistema): entre na Documentos e escolha a Carro Controle. Se ele perguntar se pode editar arquivos, clique em Editar arquivos.'); }
       else { ui.toast(`Não foi possível abrir a pasta: ${e.message}`, 'erro', 8000); marcar(`Erro: ${e.name}: ${e.message}`); }
     }
     try { render(); } catch (e) { marcar(`Erro ao mostrar: ${e.message}`); }
@@ -264,7 +264,7 @@
     const cab = h('h2', { text: 'Buscar arquivos do carro' });
     if (!pasta) {
       return h('section', { class: 'cartao pilha' }, cab,
-        h('p', { class: 'sub', text: 'Ligue o app à pasta onde o script "Buscar arquivos do carro" grava os arquivos: Documentos > Carro Controle (pode escolher a própria Documentos). Não é a pasta onde estão o .bat e o script. Na janela de escolha só aparecem pastas, os arquivos não aparecem: isso é normal.' }),
+        h('p', { class: 'sub', text: 'Ligue o app à pasta onde o script "Buscar arquivos do carro" grava os arquivos: entre em Documentos, clique uma vez na pasta Carro Controle e em "Selecionar pasta". A própria Documentos o Chrome não deixa escolher (diz que tem arquivos do sistema). Não é a pasta onde estão o .bat e o script. Na janela só aparecem pastas, os arquivos não aparecem: isso é normal.' }),
         h('div', { class: 'linha-acoes' }, h('button', { class: 'btn btn-primario', onclick: escolherPasta }, ui.icone('documento'), 'Escolher a pasta Carro Controle')));
     }
     if (!permitido) {
