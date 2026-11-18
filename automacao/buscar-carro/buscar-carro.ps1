@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
-$Versao = '2026-11-18.7'
+$Versao = '2026-11-18.8'
 
 # carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
 function LerUrl($u) {
@@ -36,7 +36,8 @@ function LerUrl($u) {
 try {
   $logInicio = Join-Path (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Carro Controle') 'log.txt'
   $como = if ($Url) { " pelo link do app: $Url" } elseif ($Agendado) { ' pelo agendamento' } else { ' (manual)' }
-  Add-Content -LiteralPath $logInicio -Value ('{0:dd/MM/yyyy HH:mm:ss}  Script iniciado{1}' -f (Get-Date), $como) -Encoding UTF8 -ErrorAction Stop
+  # o agendamento roda a cada minuto (para atender o app); so registra quando nao e agendado
+  if (-not $Agendado) { Add-Content -LiteralPath $logInicio -Value ('{0:dd/MM/yyyy HH:mm:ss}  Script iniciado{1}' -f (Get-Date), $como) -Encoding UTF8 -ErrorAction Stop }
 } catch { }
 $UrlDados = $null
 if ($Url) { $UrlDados = LerUrl $Url; $Pedido = $true }
@@ -177,8 +178,37 @@ function GravarEstado($resultado, $qNovos = 0, $qTestes = 0, $qErros = 0, $lista
   } catch { }
 }
 
-# Busca agendada: respeita ligado/desligado, horario e intervalo (o Windows chama a cada 15 min)
-if ($Agendado) {
+# ---------- Pedidos do app pela pasta Downloads ----------
+# O app nao abre programas: o botao "Buscar agora" baixa carro-controle-pedido.json e o "Salvar configuracao"
+# baixa carro-controle-config.json. O agendamento (a cada minuto) pega esses arquivos e os apaga.
+function PastaDownloads {
+  try {
+    $v = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders' -ErrorAction Stop).'{374DE290-123F-4565-9164-39C4925E467B}'
+    if ($v) { $v = [Environment]::ExpandEnvironmentVariables($v); if (Test-Path -LiteralPath $v) { return $v } }
+  } catch { }
+  return (Join-Path $env:USERPROFILE 'Downloads')
+}
+function LerPedidoBaixado($prefixo) {
+  $dl = PastaDownloads
+  $arqs = @(Get-ChildItem -LiteralPath $dl -File -Filter "$prefixo*.json" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime)
+  if (-not $arqs.Count) { return $null }
+  $d = $null
+  try {
+    $j = [IO.File]::ReadAllText($arqs[-1].FullName) | ConvertFrom-Json
+    $d = @{}
+    $j.PSObject.Properties | ForEach-Object { $d[$_.Name] = [string]$_.Value }
+  } catch { $d = $null }
+  $arqs | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+  # pedido velho (mais de 30 min) e ignorado
+  if ($d -and ((Get-Date) - $arqs[-1].LastWriteTime).TotalMinutes -gt 30) { return $null }
+  return $d
+}
+$cfgBaixada = LerPedidoBaixado 'carro-controle-config'
+$pedBaixado = LerPedidoBaixado 'carro-controle-pedido'
+if ($pedBaixado -and -not $UrlDados) { $pedBaixado.acao = 'buscar'; $UrlDados = $pedBaixado; $Pedido = $true }
+
+# Busca agendada: respeita ligado/desligado, horario e intervalo (o Windows chama a cada minuto)
+if ($Agendado -and -not $UrlDados -and -not $cfgBaixada -and $agenda -eq 'min1-v2') {   # sem o agendamento novo: roda completo uma vez para instala-lo
   if (-not $Ativo) { exit 0 }
   if ($HoraIni -and $HoraFim) {
     $h = (Get-Date).ToString('HH:mm')
@@ -193,18 +223,18 @@ if ($Agendado) {
   }
 }
 
-# Agendamento do Windows a cada 15 min (cria ou troca o antigo de 2 h)
+# Agendamento do Windows a cada minuto, sem janela (o intervalo de verdade vem da configuracao)
 function GarantirAgenda {
-  if (-not $Ativo) { return }
-  $mo = [Math]::Max(15, [Math]::Min(1439, [int]$IntervaloMin))
-  $chave = "ps-$mo"
+  $chave = 'min1-v2'
   if ($agenda -eq $chave) { return }
   try {
     $ps1 = Join-Path $Pasta 'buscar-carro.ps1'
-    $tr = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"$ps1\`" -Agendado"
-    $argumentos = "/create /tn `"$NomeTarefa`" /sc MINUTE /mo $mo /f /tr `"$tr`""
+    $ps = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"$ps1\`" -Agendado"
+    # conhost --headless: nem pisca a janela (Windows 10 2004+ e 11)
+    $tr = if ([Environment]::OSVersion.Version.Build -ge 19041 -and (Test-Path (Join-Path $env:WINDIR 'System32\conhost.exe'))) { "conhost.exe --headless $ps" } else { $ps }
+    $argumentos = "/create /tn `"$NomeTarefa`" /sc MINUTE /mo 1 /f /tr `"$tr`""
     $p = Start-Process -FilePath 'schtasks.exe' -ArgumentList $argumentos -WindowStyle Hidden -Wait -PassThru
-    if ($p.ExitCode -eq 0) { $script:agenda = $chave; Escrever "Agendamento do Windows: a cada $mo min." 'Green' }
+    if ($p.ExitCode -eq 0) { $script:agenda = $chave; Escrever 'Agendamento do Windows: confere a cada minuto (busca no intervalo configurado).' 'Green' }
     else { Escrever "Nao foi possivel criar o agendamento (codigo $($p.ExitCode))." 'Yellow' }
   } catch { Escrever "Nao foi possivel criar o agendamento: $($_.Exception.Message)" 'Yellow' }
 }
@@ -262,9 +292,25 @@ function SalvarConfigUrl($d) {
 }
 if ($UrlDados -and $UrlDados.acao -eq 'config') { SalvarConfigUrl $UrlDados; exit 0 }
 
+function GravarEstadoConfig {
+  try {
+    if (-not $estadoAnt) { return }
+    $cfgAtual = [IO.File]::ReadAllText($ConfigJson) | ConvertFrom-Json
+    $estadoAnt | Add-Member -NotePropertyName config -NotePropertyValue $cfgAtual -Force
+    $estadoAnt | Add-Member -NotePropertyName agenda -NotePropertyValue $agenda -Force
+    [IO.File]::WriteAllText($EstadoArq, ($estadoAnt | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
+  } catch { }
+}
+
+# configuracao baixada pelo app: aplica (e, se nao houver pedido de busca junto, termina aqui)
+if ($cfgBaixada) {
+  SalvarConfigUrl $cfgBaixada
+  if (-not $UrlDados) { GravarEstadoConfig; exit 0 }
+}
+
 # ---------- Atualizacao automatica pelo GitHub (com internet, antes de mexer no Wi-Fi) ----------
 function Atualizar {
-  $arquivos = @('buscar-carro.ps1', 'Buscar arquivos do carro.bat', 'Ativar agendamento.bat', 'Remover agendamento.bat', 'Testar botao.bat', 'LEIA-ME.txt')
+  $arquivos = @('buscar-carro.ps1', 'Buscar arquivos do carro.bat', 'Ativar agendamento.bat', 'Remover agendamento.bat', 'LEIA-ME.txt')
   $mudou = @()
   try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
   $tmp = Join-Path $env:TEMP 'carro-controle-atualizacao'
@@ -391,7 +437,6 @@ if ($ped) { Escrever ("Pedido do app: {0} a {1}, sede(s) {2}, {3}" -f $ped.de, $
 Escrever "Pasta dos arquivos: $Destino"
 if ($erroConfig) { Escrever "configuracao.json com erro (usando o padrao): $erroConfig" 'Yellow' }
 GarantirAgenda
-GarantirProtocolo
 
 if ($ExigirCabo -and -not (CaboConectado)) {
   Escrever 'Cabo de rede do carro nao conectado: nada foi feito.' 'Yellow'
