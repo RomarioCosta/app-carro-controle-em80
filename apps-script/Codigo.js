@@ -381,7 +381,7 @@ function executar_(acao, dados) {
  * estado.json (última busca), historico.jsonl (buscas), catalogo.json (arquivos no carro) e os CSV copiados.
  * Tudo fica na pasta "Carro Controle EM80" do Google Drive; o app lê daqui (sem abrir pasta no notebook).
  */
-var CARRO_TEXTOS = { estado: 'estado.json', historico: 'historico.jsonl', catalogo: 'catalogo.json' };
+var CARRO_TEXTOS = { estado: 'estado.json', historico: 'historico.jsonl', catalogo: 'catalogo.json', log: 'log.txt' };
 var CARRO_MAX_BASE64 = 48 * 1024 * 1024; // o CSV vem compactado (gzip): um de 70 MB chega com ~17 MB
 
 function carroPasta_() {
@@ -444,7 +444,7 @@ function acaoCarroEnviar_(dados) {
   if (!CARRO_TEXTOS[tipo]) throw erro_('VALIDACAO', 'Tipo desconhecido: ' + tipo);
   var texto = String(dados.conteudo || '');
   if (texto.length > 5 * 1024 * 1024) throw erro_('VALIDACAO', 'Conteúdo grande demais.');
-  if (tipo !== 'historico') JSON.parse(texto); // confere se é JSON válido
+  if (tipo !== 'historico' && tipo !== 'log') JSON.parse(texto); // confere se é JSON válido
   carroGravarTexto_(pasta, CARRO_TEXTOS[tipo], texto);
   return { tipo: tipo };
 }
@@ -466,7 +466,8 @@ function acaoCarroStatus_() {
     var n = f.getName();
     arquivos.push({ nome: n.replace(/\.gz$/i, ''), gzip: /\.gz$/i.test(n), tamanho: f.getSize(), atualizado: f.getLastUpdated().toISOString() });
   }
-  return { estado: json(CARRO_TEXTOS.estado), historico: historico, catalogo: json(CARRO_TEXTOS.catalogo), arquivos: arquivos };
+  var log = carroLerTexto_(pasta, CARRO_TEXTOS.log).split(/\r?\n/).filter(function (l) { return l; }).slice(-150);
+  return { estado: json(CARRO_TEXTOS.estado), historico: historico, catalogo: json(CARRO_TEXTOS.catalogo), arquivos: arquivos, log: log };
 }
 
 function acaoCarroArquivo_(dados) {

@@ -245,7 +245,9 @@ test('carro: o script manda estado, histórico, lista e CSV para o Drive e o app
   const token = props.get('API_TOKEN');
   const chamar = (acao, dados) => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify({ acao, dados, token }) } }).getContent());
   assert.equal(chamar('carroPing', {}).ok, true);
-  assert.deepEqual(chamar('carroStatus', {}).dados, { estado: null, historico: [], catalogo: null, arquivos: [] });
+  assert.deepEqual(chamar('carroStatus', {}).dados, { estado: null, historico: [], catalogo: null, arquivos: [], log: [] });
+  assert.equal(chamar('carroEnviar', { tipo: 'log', conteudo: '18/11/2026 14:00:00  linha 1\n18/11/2026 14:01:00  linha 2\n' }).ok, true);
+  assert.deepEqual(chamar('carroStatus', {}).dados.log, ['18/11/2026 14:00:00  linha 1', '18/11/2026 14:01:00  linha 2']);
   assert.equal(chamar('carroEnviar', { tipo: 'estado', conteudo: '﻿{"resultado":"ok","novos":1}' }).ok, false); // BOM: JSON inválido
   assert.equal(chamar('carroEnviar', { tipo: 'estado', conteudo: '{"resultado":"ok","novos":1}' }).ok, true);
   assert.equal(chamar('carroEnviar', { tipo: 'historico', conteudo: '{"tipo":"app","resultado":"semCabo"}\n{"tipo":"automatica","resultado":"ok","novos":1}\n' }).ok, true);
