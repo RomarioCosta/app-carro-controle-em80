@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
-$Versao = '2026-11-18.4'
+$Versao = '2026-11-18.5'
 
 # carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
 function LerUrl($u) {
@@ -135,6 +135,22 @@ function GravarEstado($resultado, $qNovos = 0, $qTestes = 0, $qErros = 0, $lista
       }
     }
     [IO.File]::WriteAllText($EstadoArq, ($obj | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
+  } catch { }
+  # Historico: uma linha JSON por busca (o app mostra na aba Buscar do carro)
+  try {
+    $hist = Join-Path $Destino 'historico.jsonl'
+    $tipo = if ($UrlDados) { 'app' } elseif ($Agendado) { 'automatica' } else { 'manual' }
+    $linha = [ordered]@{
+      data = (Get-Date).ToString("yyyy-MM-dd'T'HH:mm:ssK"); tipo = $tipo; resultado = $resultado
+      novos = $qNovos; testes = $qTestes; erros = $qErros; semAcesso = @($listaSemAcesso)
+      copiados = @($script:copiadosAgora | Select-Object -First 30); mensagem = $mensagem; versao = $Versao
+    }
+    $utf8 = New-Object Text.UTF8Encoding $false
+    [IO.File]::AppendAllText($hist, (($linha | ConvertTo-Json -Depth 4 -Compress) + "`n"), $utf8)
+    if ((Get-Item -LiteralPath $hist).Length -gt 300KB) {   # guarda so as ultimas 500 buscas
+      $ult = @([IO.File]::ReadAllLines($hist, $utf8) | Select-Object -Last 500)
+      [IO.File]::WriteAllLines($hist, [string[]]$ult, $utf8)
+    }
   } catch { }
 }
 
@@ -357,7 +373,7 @@ GarantirProtocolo
 if ($ExigirCabo -and -not (CaboConectado)) {
   Escrever 'Cabo de rede do carro nao conectado: nada foi feito.' 'Yellow'
   GravarEstado 'semCabo' -mensagem 'Cabo de rede do carro nao conectado.'
-  if ($AvisarSemCabo -and -not $Pedido -and (-not $Agendado -or $Avisos -ne 'nunca')) { Avisar 'Busca de arquivos do carro: cabo de rede nao conectado. Nada foi feito.' 48 }
+  if (($UrlDados -and $UrlDados.acao -eq 'buscar') -or ($AvisarSemCabo -and -not $Pedido -and (-not $Agendado -or $Avisos -ne 'nunca'))) { Avisar 'Busca de arquivos do carro: cabo de rede nao conectado. Nada foi feito.' 48 }
   Fim 0
 }
 
@@ -457,6 +473,7 @@ if ($falhas -gt 0) { $msg += "`n$falhas erro(s) ao copiar; veja o log.txt." }
 $icone = if ($semAcesso.Count -gt 0 -or $falhas -gt 0) { 48 } else { 64 }
 $resultado = if ($semAcesso.Count -gt 0) { 'semAcesso' } else { 'ok' }
 GravarEstado $resultado $total $testes $falhas $semAcesso ($msg -replace "`n", ' ')
-$mostrar = (-not $Pedido) -and ((-not $Agendado) -or $Avisos -eq 'sempre' -or ($Avisos -eq 'novos' -and ($total -gt 0 -or $icone -eq 48)))
+$doApp = [bool]($UrlDados -and $UrlDados.acao -eq 'buscar')   # pedido pelo botao do app: sempre avisa o resultado
+$mostrar = $doApp -or ((-not $Pedido) -and ((-not $Agendado) -or $Avisos -eq 'sempre' -or ($Avisos -eq 'novos' -and ($total -gt 0 -or $icone -eq 48))))
 if ($mostrar) { Avisar $msg $icone }
 Fim 0
