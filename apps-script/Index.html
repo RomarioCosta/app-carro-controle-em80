@@ -1264,7 +1264,7 @@ window.App = window.App || {};
     versao: '2026.11.18',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-f2fd2b1a48', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-fd27f73dd6', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -9010,7 +9010,7 @@ window.App = window.App || {};
   async function atualizar() {
     if (!suportado() || !raiz) return;
     try {
-      if (await lerServidor().catch(() => false)) { render(); return; }
+      if (await lerServidor().catch(() => false)) { render(); autoTrazer(); return; }
       if (!pasta) {
         const salvo = await store.get(CHAVE).catch(() => null);
         pasta = salvo && typeof salvo.getDirectoryHandle === 'function' ? salvo : null; // só pasta de verdade (não o modo simples)
@@ -9208,6 +9208,42 @@ window.App = window.App || {};
     marcados = new Set(listaFiltrada().filter((a) => podeTrazer(a)).map((a) => a.nome));
   }
 
+  /** Baixa um CSV do Google Drive (pelo servidor do app); o script manda compactado (gzip). */
+  async function baixarDoServidor(n) {
+    const r = await App.api.chamar('carroArquivo', { nome: n });
+    const bin = atob(r.base64);
+    let bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    if (r.gzip) bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+    return new File([bytes], n, { type: 'text/csv' });
+  }
+
+  /* ---------- trazer sozinho para a Montagem (arquivos novos que chegam ao Drive) ---------- */
+  const autoLigado = () => U.pref.get('carroAuto:autoTrazer', true) !== false;
+  let autoRodando = false;
+  async function autoTrazer() {
+    if (!autoLigado() || !servidor || autoRodando || trazendo) return;
+    let desde = U.pref.get('carroAuto:autoDesde', '');
+    if (!desde) { desde = new Date().toISOString(); U.pref.set('carroAuto:autoDesde', desde); } // só o que chegar daqui para frente
+    const feitos = new Set(U.pref.get('carroAuto:autoFeitos', []));
+    const novos = arr(servidor.arquivos).filter((a) => a.atualizado > desde && !naMontagem.has(a.nome) && !feitos.has(a.nome) && !/teste/i.test(a.nome));
+    if (!novos.length) return;
+    autoRodando = true;
+    try {
+      for (const a of novos) {
+        feitos.add(a.nome); // não tenta de novo (nem se você tirar da Montagem)
+        U.pref.set('carroAuto:autoFeitos', [...feitos].slice(-500));
+        const f = await baixarDoServidor(a.nome);
+        const ok = (await App.montagem.adicionarArquivos([f])) || [];
+        if (ok.length) { naMontagem.add(a.nome); ui.toast(`Arquivo do carro trazido para a Montagem: ${a.nome}`, 'ok', 6000); }
+      }
+    } catch (e) {
+      ui.toast(`Não foi possível trazer o arquivo do carro: ${e.message}`, 'erro', 8000);
+    }
+    autoRodando = false;
+    if (raiz && !raiz.hidden) renderLista();
+  }
+
   async function trazer() {
     const nomes = [...marcados].filter((n) => (emTodos.has(n) || emNovos.has(n)) && !naMontagem.has(n));
     if (!nomes.length) return;
@@ -9215,15 +9251,12 @@ window.App = window.App || {};
     try {
       const files = [];
       if (doServidor()) {
-        // baixa do Google Drive pelo servidor do app
+        // da pasta do notebook se ela estiver aberta e tiver o arquivo (mais rápido); senão do Google Drive
+        const local = pasta && permitido ? await subpasta('Todos') : null;
         for (const n of nomes) {
-          const r = await App.api.chamar('carroArquivo', { nome: n });
-          const bin = atob(r.base64);
-          let bytes = new Uint8Array(bin.length);
-          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-          // o script manda o CSV compactado (gzip): descompacta aqui
-          if (r.gzip) bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
-          files.push(new File([bytes], n, { type: 'text/csv' }));
+          let f = null;
+          if (local) f = await local.getFileHandle(n).then((hd) => hd.getFile()).catch(() => null);
+          files.push(f || await baixarDoServidor(n));
         }
       } else {
         const todos = await subpasta('Todos');
@@ -9374,7 +9407,10 @@ window.App = window.App || {};
         ];
     ui.trocar(listaEl,
       h('div', { class: 'bc-cab' }, h('h2', { text: 'Arquivos do carro' }),
-        h('button', { class: 'btn btn-primario', disabled: !sel.length || trazendo || null, onclick: trazer }, ui.icone('upload'), trazendo ? 'Trazendo…' : `Trazer para a Montagem (${sel.length})`)),
+        h('div', { class: 'linha-acoes' },
+          doServidor() ? h('label', { class: 'check', title: 'Cada arquivo novo que chegar ao Google Drive entra sozinho na Montagem (com o app aberto)' },
+            h('input', { type: 'checkbox', checked: autoLigado() || null, onchange: (e) => { U.pref.set('carroAuto:autoTrazer', e.target.checked); if (e.target.checked) autoTrazer(); } }), ' Trazer sozinho') : null,
+          h('button', { class: 'btn btn-primario', disabled: !sel.length || trazendo || null, onclick: trazer }, ui.icone('upload'), trazendo ? 'Trazendo…' : `Trazer para a Montagem (${sel.length})`))),
       ...corpo);
   }
 
@@ -9514,6 +9550,16 @@ window.App = window.App || {};
       }, 60000);
       render(); atualizar().then(() => { marcarProntos(); renderLista(); }); },
     escolherPasta,
+    /** Com o app aberto (em qualquer tela), confere o Drive a cada minuto e traz os arquivos novos para a Montagem. */
+    iniciarFundo() {
+      const ciclo = async () => {
+        if (!temServidor() || !autoLigado() || document.hidden) return;
+        if (raiz && !raiz.hidden) return; // na aba, o próprio atualizar() já faz isso
+        try { if (await lerServidor()) await autoTrazer(); } catch (e) { /* sem rede: tenta no próximo */ }
+      };
+      setTimeout(ciclo, 8000);
+      setInterval(ciclo, 60000);
+    },
     aoMostrar() { atualizar().then(() => { if (!marcados.size) marcarProntos(); renderLista(); }); },
     infoNome
   };
@@ -14317,6 +14363,7 @@ window.App = window.App || {};
     sync.iniciar();
     registrarServiceWorker();
     conferirCarga();
+    if (App.buscaCarro && App.buscaCarro.iniciarFundo) App.buscaCarro.iniciarFundo(); // arquivos do carro que chegam ao Drive
     setTimeout(verificarVersao, 3000);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') verificarVersao();
