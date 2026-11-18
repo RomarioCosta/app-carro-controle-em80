@@ -1256,7 +1256,7 @@ window.App = window.App || {};
     versao: '2026.11.18',
     /** Endereço do app publicado (GitHub Pages): usado para conferir se há versão nova. */
     siteUrl: 'https://romariocosta.github.io/app-carro-controle-em80/',
-    build: 'em80-af77a7ab3e', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
+    build: 'em80-4496ac533c', // preenchido automaticamente pelo build (mesmo código do cache do PWA)
 
     checklist: [
       {
@@ -8863,9 +8863,12 @@ window.App = window.App || {};
   <script>
 /* js/modulos/carro-auto.js */
 /*
- * Tela "Buscar do carro": conversa com o script do Windows (automacao/buscar-carro) pela pasta
- * Documentos\Carro Controle:
- *   pedido.json        o app pede uma busca agora (período, sedes, só novos/todos) e abre carrocontrole://buscar
+ * Tela "Buscar do carro": conversa com o script do Windows (automacao/buscar-carro).
+ * O app só LÊ a pasta Documentos\Carro Controle (empresas costumam bloquear a gravação pelo navegador)
+ * e manda os pedidos pelo link carrocontrole://, que o script registrou no Windows:
+ *   carrocontrole://buscar/?id&de&ate&sedes&modo   busca agora (período, sedes, só novos/todos)
+ *   carrocontrole://config/?id&intervalo&…         o script grava a configuração e ajusta o agendamento
+ * O que o script grava na pasta:
  *   estado.json        o script grava o resultado da última busca (pedidoId diz qual pedido terminou)
  *   catalogo.json      o script lista todos os CSV do carro (nome, sede, data) a cada busca
  *   configuracao.json  busca automática (intervalo, horário, avisos…), lida pelo script
@@ -8930,11 +8933,7 @@ window.App = window.App || {};
   async function lerJson(nome) {
     try { return JSON.parse(semBom(await (await (await pasta.getFileHandle(nome)).getFile()).text())); } catch (e) { return null; }
   }
-  async function gravarJson(nome, obj) {
-    const w = await (await pasta.getFileHandle(nome, { create: true })).createWritable();
-    await w.write(JSON.stringify(obj, null, 2));
-    await w.close();
-  }
+
   async function subpasta(nome) {
     try { return await pasta.getDirectoryHandle(nome); } catch (e) { return null; }
   }
@@ -8947,7 +8946,7 @@ window.App = window.App || {};
   async function temPermissao(pedir) {
     if (!pasta) return false;
     if (typeof pasta.queryPermission !== 'function') return true;
-    const op = { mode: 'readwrite' };
+    const op = { mode: 'read' };
     if ((await pasta.queryPermission(op)) === 'granted') return true;
     return pedir ? (await pasta.requestPermission(op)) === 'granted' : false;
   }
@@ -8979,7 +8978,7 @@ window.App = window.App || {};
   async function escolherPasta() {
     try {
       marcar('Abrindo a janela de escolha da pasta…');
-      let d = await window.showDirectoryPicker({ id: 'carro-controle', mode: 'readwrite', startIn: 'documents' });
+      let d = await window.showDirectoryPicker({ id: 'carro-controle', mode: 'read', startIn: 'documents' });
       marcar(`Pasta escolhida: ${d.name}. Conferindo…`);
       const tem = async (dir, nome, tipo) => { try { await (tipo === 'pasta' ? dir.getDirectoryHandle(nome) : dir.getFileHandle(nome)); return true; } catch (e) { return false; } };
       // escolheu Documentos: entra na "Carro Controle" que o script cria
@@ -8997,10 +8996,10 @@ window.App = window.App || {};
       await ler();
       marcar(permitido
         ? `Pasta ligada: ${d.name}${estado ? ` · última busca encontrada (versão do script ${estado.versao || '?'})` : ' · ainda sem busca registrada'}`
-        : `Pasta ${d.name} escolhida, mas o navegador não deu permissão de gravar. Clique em "Permitir acesso à pasta".`);
+        : `Pasta ${d.name} escolhida, mas o navegador não deu permissão de leitura. Clique em "Permitir acesso à pasta".`);
       if (permitido && !estado && !catalogo && !(await subpasta('Novos'))) ui.toast('Essa pasta ainda não tem nada do script. Ela deve ser Documentos > Carro Controle, criada na primeira vez que o "Buscar arquivos do carro.bat" roda.', 'info', 10000);
     } catch (e) {
-      if (e.name === 'AbortError') { ui.toast('Nenhuma pasta escolhida.', 'info', 4000); marcar('Nenhuma pasta escolhida. Se você escolheu a Documentos, o Chrome não aceita (pasta do sistema): entre na Documentos e escolha a Carro Controle. Se ele perguntar se pode editar arquivos, clique em Editar arquivos.'); }
+      if (e.name === 'AbortError') { ui.toast('Nenhuma pasta escolhida.', 'info', 4000); marcar('Nenhuma pasta escolhida. Se você escolheu a Documentos, o Chrome não aceita (pasta do sistema): entre na Documentos e escolha a Carro Controle.'); }
       else { ui.toast(`Não foi possível abrir a pasta: ${e.message}`, 'erro', 8000); marcar(`Erro: ${e.name}: ${e.message}`); }
     }
     try { render(); } catch (e) { marcar(`Erro ao mostrar: ${e.message}`); }
@@ -9019,18 +9018,24 @@ window.App = window.App || {};
     render();
   }
 
+  /* ---------- pedidos ao Windows (link carrocontrole://) ---------- */
+
+  function abrirLink(acao, params) {
+    const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, v === true ? '1' : v === false ? '0' : String(v ?? '')]));
+    h('a', { href: `carrocontrole://${acao}/?${qs}` }).click();
+  }
+
   /* ---------- buscar agora ---------- */
 
   async function buscarAgora() {
     if (filtro.de && filtro.ate && filtro.de > filtro.ate) { ui.toast('A data inicial é depois da final.', 'erro', 5000); return; }
     try {
-      if (!(await garantirPasta())) return;
-      const id = U.uuid();
-      await gravarJson('pedido.json', { id, de: filtro.de || '', ate: filtro.ate || '', sedes: sedesDoFiltro(), modo: filtro.modo, criadoEm: new Date().toISOString() });
+      const id = U.uuid().slice(0, 12);
+      // o Windows abre o script (link registrado pelo próprio script na primeira vez que roda)
+      abrirLink('buscar', { id, de: filtro.de || '', ate: filtro.ate || '', sedes: sedesDoFiltro().join(','), modo: filtro.modo });
+      if (!pasta || !permitido) { ui.toast('Busca pedida ao Windows. Para ver o resultado e a lista aqui, ligue a pasta Carro Controle.', 'info', 8000); return; }
       buscando = { id, inicio: Date.now() };
       render();
-      // o Windows abre o script (link registrado pelo próprio script na primeira vez que roda)
-      h('a', { href: 'carrocontrole://buscar' }).click();
       esperar();
     } catch (e) {
       ui.toast(`Não foi possível pedir a busca: ${e.message}`, 'erro', 6000);
@@ -9065,7 +9070,6 @@ window.App = window.App || {};
 
   function cancelarEspera() {
     buscando = null; clearTimeout(timer);
-    pasta && pasta.removeEntry && pasta.removeEntry('pedido.json').catch(() => {});
     render();
   }
 
@@ -9263,15 +9267,27 @@ window.App = window.App || {};
         salvoEm: new Date().toISOString()
       };
       if (!!nova.horaIni !== !!nova.horaFim) { ui.toast('Preencha as duas horas do horário, ou deixe as duas vazias.', 'erro', 5000); return; }
-      try {
-        if (!(await garantirPasta())) return;
-        await gravarJson('configuracao.json', nova);
-        config = nova;
-        ui.toast('Configuração salva. Vale a partir da próxima busca.', 'ok', 4000);
-        render();
-      } catch (e) {
-        ui.toast(`Não foi possível salvar: ${e.message}`, 'erro', 6000);
+      // quem grava é o script (o app só lê a pasta): manda pelo link e espera a configuracao.json mudar
+      const id = U.uuid().slice(0, 12);
+      abrirLink('config', {
+        id, ativo: nova.ativo, intervalo: nova.intervaloMin, horaIni: nova.horaIni, horaFim: nova.horaFim,
+        origens: nova.origens.join('|'), ignorar: nova.ignorar.join(','), dias: nova.dias, avisos: nova.avisos,
+        avisarSemCabo: nova.avisarSemCabo, segundosAviso: nova.segundosAviso, modoWifi: nova.modoWifi, atualizarAuto: nova.atualizarAuto
+      });
+      if (!pasta || !permitido) { ui.toast('Configuração enviada ao Windows. Ligue a pasta Carro Controle para confirmar aqui.', 'info', 6000); return; }
+      ui.toast('Enviando a configuração ao Windows…', 'info', 3000);
+      const inicio = Date.now();
+      while (Date.now() - inicio < 60000) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const c = await lerJson('configuracao.json');
+        if (c && c.salvoId === id) {
+          config = c;
+          ui.toast('Configuração salva. Vale a partir da próxima busca.', 'ok', 4000);
+          render();
+          return;
+        }
       }
+      ui.toast('O Windows não confirmou a configuração. Se o navegador perguntou "Abrir Buscar arquivos do carro?", confirme (marque Sempre permitir). Se for a primeira vez, rode o "Buscar arquivos do carro.bat" uma vez.', 'erro', 12000);
     }
     return h('section', { class: 'cartao pilha' },
       h('h2', { text: 'Busca automática' }),

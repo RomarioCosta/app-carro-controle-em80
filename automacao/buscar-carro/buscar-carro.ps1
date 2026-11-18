@@ -8,15 +8,32 @@
 #  NAO edite este arquivo: ele se atualiza sozinho pelo GitHub.
 #  Configuracao: pelo app (Montagem > Arquivos do carro), que grava
 #  Documentos\Carro Controle\configuracao.json; ou em "configuracao.ps1" (mesma pasta).
-#  O agendamento do Windows roda a cada 15 min; o intervalo de verdade
-#  (ex.: 2 h) e o horario vem da configuracao.
-#  Busca na hora pelo app (aba "Buscar do carro"): o app grava pedido.json
-#  (periodo, sedes) e abre o link carrocontrole://buscar, que chama este
-#  script com -Pedido (o link e registrado aqui, sem administrador).
+#  O agendamento do Windows roda no intervalo configurado (ex.: 2 h),
+#  chamando o PowerShell direto (sem .vbs, que a empresa pode bloquear).
+#  App (aba "Buscar do carro") -> link carrocontrole://buscar/?de=..&ate=..&sedes=..
+#  ou carrocontrole://config/?intervalo=..  -> este script com -Url "<link>"
+#  (o link e registrado aqui, sem administrador). O app so le a pasta.
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
-param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido)
-$Versao = '2026-11-18.3'
+param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
+$Versao = '2026-11-18.4'
+
+# carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
+function LerUrl($u) {
+  $r = @{ acao = '' }
+  if ($u -match '^carrocontrole:/*([A-Za-z]+)/?\??(.*)$') {
+    $r.acao = $Matches[1].ToLower()
+    foreach ($par in ($Matches[2] -split '&')) {
+      if (-not $par) { continue }
+      $kv = $par -split '=', 2
+      $v = if ($kv.Count -gt 1) { [Uri]::UnescapeDataString($kv[1].Replace('+', ' ')) } else { '' }
+      $r[[Uri]::UnescapeDataString($kv[0])] = $v
+    }
+  }
+  return $r
+}
+$UrlDados = $null
+if ($Url) { $UrlDados = LerUrl $Url; $Pedido = $true }
 $Silencioso = $Agendado -or $Pedido   # sem janela de console (agendado ou pedido do app)
 
 # ---------------- PADROES (sobrescritos por configuracao.ps1) ----------------
@@ -139,21 +156,25 @@ if ($Agendado) {
 
 # Agendamento do Windows a cada 15 min (cria ou troca o antigo de 2 h)
 function GarantirAgenda {
-  if (-not $Ativo -or $agenda -eq 'cada15') { return }
+  if (-not $Ativo) { return }
+  $mo = [Math]::Max(15, [Math]::Min(1439, [int]$IntervaloMin))
+  $chave = "ps-$mo"
+  if ($agenda -eq $chave) { return }
   try {
-    $vbs = Join-Path $Pasta 'rodar-oculto.vbs'
-    $argumentos = "/create /tn `"$NomeTarefa`" /sc MINUTE /mo 15 /f /tr `"wscript.exe \`"$vbs\`"`""
+    $ps1 = Join-Path $Pasta 'buscar-carro.ps1'
+    $tr = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"$ps1\`" -Agendado"
+    $argumentos = "/create /tn `"$NomeTarefa`" /sc MINUTE /mo $mo /f /tr `"$tr`""
     $p = Start-Process -FilePath 'schtasks.exe' -ArgumentList $argumentos -WindowStyle Hidden -Wait -PassThru
-    if ($p.ExitCode -eq 0) { $script:agenda = 'cada15'; Escrever 'Agendamento do Windows ativado (verifica a cada 15 min).' 'Green' }
+    if ($p.ExitCode -eq 0) { $script:agenda = $chave; Escrever "Agendamento do Windows: a cada $mo min." 'Green' }
     else { Escrever "Nao foi possivel criar o agendamento (codigo $($p.ExitCode))." 'Yellow' }
   } catch { Escrever "Nao foi possivel criar o agendamento: $($_.Exception.Message)" 'Yellow' }
 }
 
-# Link carrocontrole:// (botao "Buscar agora" do app) -> rodar-oculto.vbs -> este script com -Pedido
+# Link carrocontrole:// (botoes do app) -> PowerShell direto -> este script com -Url "<link>"
 function GarantirProtocolo {
   try {
-    $vbs = Join-Path $Pasta 'rodar-oculto.vbs'
-    $cmd = "wscript.exe `"$vbs`" `"%1`""
+    $ps1 = Join-Path $Pasta 'buscar-carro.ps1'
+    $cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ps1`" -Url `"%1`""
     $k = 'HKCU:\Software\Classes\carrocontrole'
     $atual = $null
     try { $atual = (Get-Item -LiteralPath "$k\shell\open\command" -ErrorAction Stop).GetValue('') } catch { }
@@ -167,9 +188,44 @@ function GarantirProtocolo {
   } catch { Escrever "Nao foi possivel instalar o link do app: $($_.Exception.Message)" 'Yellow' }
 }
 
+# ---------- Configuracao enviada pelo app (carrocontrole://config/?...) ----------
+function SalvarConfigUrl($d) {
+  $cfg = [ordered]@{}
+  if (Test-Path -LiteralPath $ConfigJson) {
+    try { $ant = [IO.File]::ReadAllText($ConfigJson) | ConvertFrom-Json; $ant.PSObject.Properties | ForEach-Object { $cfg[$_.Name] = $_.Value } } catch { }
+  }
+  $bool = { param($v) $v -eq '1' -or $v -eq 'true' }
+  if ($d.ContainsKey('ativo'))         { $cfg.ativo = & $bool $d.ativo }
+  if ($d.intervalo -match '^\d{1,4}$')  { $cfg.intervaloMin = [Math]::Max(15, [Math]::Min(1439, [int]$d.intervalo)) }
+  if ($d.ContainsKey('horaIni') -and ($d.horaIni -eq '' -or $d.horaIni -match '^\d{2}:\d{2}$')) { $cfg.horaIni = $d.horaIni }
+  if ($d.ContainsKey('horaFim') -and ($d.horaFim -eq '' -or $d.horaFim -match '^\d{2}:\d{2}$')) { $cfg.horaFim = $d.horaFim }
+  if ($d.ContainsKey('origens'))       { $cfg.origens = @($d.origens -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^(\\\\|[A-Za-z]:\\)' }) }
+  if ($d.ContainsKey('ignorar'))       { $cfg.ignorar = @($d.ignorar -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+  if ($d.dias -match '^\d{1,4}$')       { $cfg.dias = [int]$d.dias }
+  if ($d.avisos -in @('sempre', 'novos', 'nunca')) { $cfg.avisos = $d.avisos }
+  if ($d.ContainsKey('avisarSemCabo')) { $cfg.avisarSemCabo = & $bool $d.avisarSemCabo }
+  if ($d.segundosAviso -match '^\d{1,3}$') { $cfg.segundosAviso = [Math]::Max(5, [int]$d.segundosAviso) }
+  if ($d.modoWifi -in @('desconectar', 'desativar')) { $cfg.modoWifi = $d.modoWifi }
+  if ($d.ContainsKey('atualizarAuto')) { $cfg.atualizarAuto = & $bool $d.atualizarAuto }
+  $cfg.salvoId = [string]$d.id
+  $cfg.salvoEm = (Get-Date).ToString("yyyy-MM-dd'T'HH:mm:ssK")
+  [IO.File]::WriteAllText($ConfigJson, ($cfg | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding $false))
+  Escrever "Configuracao salva pelo app (intervalo $($cfg.intervaloMin) min)." 'Green'
+  if ($null -ne $cfg.ativo) { $script:Ativo = [bool]$cfg.ativo }
+  if ($cfg.intervaloMin) { $script:IntervaloMin = [int]$cfg.intervaloMin }
+  GarantirAgenda
+  if ($estadoAnt) {
+    try {
+      $estadoAnt | Add-Member -NotePropertyName agenda -NotePropertyValue $agenda -Force
+      [IO.File]::WriteAllText($EstadoArq, ($estadoAnt | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
+    } catch { }
+  }
+}
+if ($UrlDados -and $UrlDados.acao -eq 'config') { SalvarConfigUrl $UrlDados; exit 0 }
+
 # ---------- Atualizacao automatica pelo GitHub (com internet, antes de mexer no Wi-Fi) ----------
 function Atualizar {
-  $arquivos = @('buscar-carro.ps1', 'rodar-oculto.vbs', 'Buscar arquivos do carro.bat', 'Ativar agendamento.bat', 'Remover agendamento.bat', 'LEIA-ME.txt')
+  $arquivos = @('buscar-carro.ps1', 'Buscar arquivos do carro.bat', 'Ativar agendamento.bat', 'Remover agendamento.bat', 'LEIA-ME.txt')
   $mudou = @()
   try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
   $tmp = Join-Path $env:TEMP 'carro-controle-atualizacao'
@@ -196,7 +252,7 @@ if ($AtualizarAuto -and -not $SemAtualizar) {
       # roda a versao nova agora
       $args2 = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $Pasta 'buscar-carro.ps1'), '-SemAtualizar')
       if ($Agendado) { $args2 += '-Agendado' }
-      if ($Pedido) { $args2 += '-Pedido' }
+      if ($Url) { $args2 += @('-Url', $Url) } elseif ($Pedido) { $args2 += '-Pedido' }
       & powershell.exe @args2
       exit $LASTEXITCODE
     }
@@ -206,7 +262,16 @@ if ($AtualizarAuto -and -not $SemAtualizar) {
 # Pedido do app (aba "Buscar do carro"): periodo, sedes e modo
 $PedidoArq = Join-Path $Destino 'pedido.json'
 $ped = $null
-if ($Pedido -and (Test-Path -LiteralPath $PedidoArq)) {
+if ($UrlDados -and $UrlDados.acao -eq 'buscar') {
+  $ped = [pscustomobject]@{
+    id    = [string]$UrlDados.id
+    de    = $(if ($UrlDados.de -match '^\d{4}-\d{2}-\d{2}$') { $UrlDados.de } else { '' })
+    ate   = $(if ($UrlDados.ate -match '^\d{4}-\d{2}-\d{2}$') { $UrlDados.ate } else { '' })
+    sedes = @(([string]$UrlDados.sedes) -split '[,; ]' | Where-Object { $_ -match '^[A-Za-z0-9]+$' })
+    modo  = $(if ($UrlDados.modo -eq 'todos') { 'todos' } else { 'novos' })
+  }
+  $pedidoId = $ped.id
+} elseif ($Pedido -and (Test-Path -LiteralPath $PedidoArq)) {
   try { $ped = [IO.File]::ReadAllText($PedidoArq) | ConvertFrom-Json; $pedidoId = [string]$ped.id } catch { }
   Remove-Item -LiteralPath $PedidoArq -Force -ErrorAction SilentlyContinue
 }
