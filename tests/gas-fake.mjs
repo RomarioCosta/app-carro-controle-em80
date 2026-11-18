@@ -151,6 +151,7 @@ class FakeFolder {
   constructor(drive, nome) { Object.assign(this, { drive, nome, arquivos: [], pastas: [], id: randomUUID(), lixo: false }); drive.porId.set(this.id, this); }
   getId() { return this.id; }
   getName() { return this.nome; }
+  getUrl() { return `https://drive.google.com/drive/folders/${this.id}`; }
   isTrashed() { return this.lixo; }
   createFolder(nome) { const f = new FakeFolder(this.drive, nome); this.pastas.push(f); return f; }
   getFoldersByName(nome) { return iterador(this.pastas.filter((f) => f.nome === nome && !f.lixo)); }

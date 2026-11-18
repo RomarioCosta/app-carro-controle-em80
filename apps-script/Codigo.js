@@ -279,8 +279,9 @@ function setup() {
   if (!props.getProperty('API_TOKEN')) {
     props.setProperty('API_TOKEN', gerarToken_());
   }
-  carroPasta_(); // pede a permissão do Google Drive e cria a pasta dos arquivos do carro
-  var msg = 'Instalação concluída. Código de acesso do app: ' + props.getProperty('API_TOKEN');
+  var pastaCarro = carroPasta_(); // pede a permissão do Google Drive e cria a pasta dos arquivos do carro
+  var msg = 'Instalação concluída. Código de acesso do app: ' + props.getProperty('API_TOKEN') +
+    ' | Pasta dos arquivos do carro no Google Drive: "' + pastaCarro.getName() + '" ' + pastaCarro.getUrl();
   console.log(msg);
   return msg;
 }
