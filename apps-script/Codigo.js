@@ -350,7 +350,11 @@ var ACOES = {
   importarOMs: { escrita: true, fn: acaoImportarOMs_ },
   getRecentes: { escrita: false, fn: acaoGetRecentes_ },
   getChecklist: { escrita: false, fn: acaoGetChecklist_ },
-  getRota: { escrita: false, fn: acaoGetRota_ }
+  getRota: { escrita: false, fn: acaoGetRota_ },
+  carroPing: { escrita: false, fn: function () { return { pong: true }; } },
+  carroEnviar: { escrita: true, fn: acaoCarroEnviar_ },
+  carroStatus: { escrita: false, fn: acaoCarroStatus_ },
+  carroArquivo: { escrita: false, fn: acaoCarroArquivo_ }
 };
 
 function executar_(acao, dados) {
@@ -365,6 +369,105 @@ function executar_(acao, dados) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Busca dos arquivos do carro (script do Windows -> Google Drive)      */
+/* ------------------------------------------------------------------ */
+/*
+ * O script do notebook (automacao/buscar-carro) manda para cá, depois de cada busca:
+ * estado.json (última busca), historico.jsonl (buscas), catalogo.json (arquivos no carro) e os CSV copiados.
+ * Tudo fica na pasta "Carro Controle EM80" do Google Drive; o app lê daqui (sem abrir pasta no notebook).
+ */
+var CARRO_TEXTOS = { estado: 'estado.json', historico: 'historico.jsonl', catalogo: 'catalogo.json' };
+var CARRO_MAX_BASE64 = 40 * 1024 * 1024;
+
+function carroPasta_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('CARRO_PASTA_ID');
+  if (id) {
+    try {
+      var f = DriveApp.getFolderById(id);
+      if (!f.isTrashed()) return f;
+    } catch (e) { /* recria abaixo */ }
+  }
+  var pasta = DriveApp.createFolder('Carro Controle EM80');
+  props.setProperty('CARRO_PASTA_ID', pasta.getId());
+  return pasta;
+}
+
+function carroSubpasta_(pai, nome) {
+  var it = pai.getFoldersByName(nome);
+  return it.hasNext() ? it.next() : pai.createFolder(nome);
+}
+
+function carroArquivoPorNome_(pasta, nome) {
+  var it = pasta.getFilesByName(nome);
+  return it.hasNext() ? it.next() : null;
+}
+
+function carroGravarTexto_(pasta, nome, texto) {
+  var f = carroArquivoPorNome_(pasta, nome);
+  if (f) f.setContent(texto);
+  else pasta.createFile(nome, texto, 'text/plain');
+}
+
+function carroLerTexto_(pasta, nome) {
+  var f = carroArquivoPorNome_(pasta, nome);
+  return f ? f.getBlob().getDataAsString() : '';
+}
+
+function carroNomeCsv_(nome) {
+  var n = String(nome || '').split(/[\\/]/).pop();
+  if (!/^[^<>:"|?*]{1,200}\.csv$/i.test(n)) throw erro_('VALIDACAO', 'Nome de arquivo inválido: ' + nome);
+  return n;
+}
+
+function acaoCarroEnviar_(dados) {
+  var pasta = carroPasta_();
+  var tipo = String(dados.tipo || '');
+  if (tipo === 'arquivo') {
+    var nome = carroNomeCsv_(dados.nome);
+    var b64 = String(dados.base64 || '');
+    if (!b64 || b64.length > CARRO_MAX_BASE64) throw erro_('VALIDACAO', 'Arquivo vazio ou grande demais: ' + nome);
+    var arquivos = carroSubpasta_(pasta, 'Arquivos');
+    var antigo = carroArquivoPorNome_(arquivos, nome);
+    if (antigo) antigo.setTrashed(true);
+    arquivos.createFile(Utilities.newBlob(Utilities.base64Decode(b64), 'text/csv', nome));
+    return { nome: nome };
+  }
+  if (!CARRO_TEXTOS[tipo]) throw erro_('VALIDACAO', 'Tipo desconhecido: ' + tipo);
+  var texto = String(dados.conteudo || '');
+  if (texto.length > 5 * 1024 * 1024) throw erro_('VALIDACAO', 'Conteúdo grande demais.');
+  if (tipo !== 'historico') JSON.parse(texto); // confere se é JSON válido
+  carroGravarTexto_(pasta, CARRO_TEXTOS[tipo], texto);
+  return { tipo: tipo };
+}
+
+function acaoCarroStatus_() {
+  var pasta = carroPasta_();
+  var json = function (nome) {
+    var t = carroLerTexto_(pasta, nome).replace(/^\uFEFF/, '');
+    if (!t) return null;
+    try { return JSON.parse(t); } catch (e) { return null; }
+  };
+  var historico = carroLerTexto_(pasta, CARRO_TEXTOS.historico).split(/\r?\n/).filter(function (l) { return l; })
+    .map(function (l) { try { return JSON.parse(l); } catch (e) { return null; } })
+    .filter(function (x) { return x; }).slice(-200);
+  var arquivos = [];
+  var it = carroSubpasta_(pasta, 'Arquivos').getFiles();
+  while (it.hasNext()) {
+    var f = it.next();
+    arquivos.push({ nome: f.getName(), tamanho: f.getSize(), atualizado: f.getLastUpdated().toISOString() });
+  }
+  return { estado: json(CARRO_TEXTOS.estado), historico: historico, catalogo: json(CARRO_TEXTOS.catalogo), arquivos: arquivos };
+}
+
+function acaoCarroArquivo_(dados) {
+  var nome = carroNomeCsv_(dados.nome);
+  var f = carroArquivoPorNome_(carroSubpasta_(carroPasta_(), 'Arquivos'), nome);
+  if (!f) throw erro_('NAO_ENCONTRADO', 'Arquivo não está no Drive: ' + nome);
+  return { nome: nome, base64: Utilities.base64Encode(f.getBlob().getBytes()) };
 }
 
 /* ------------------------------------------------------------------ */

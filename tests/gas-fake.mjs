@@ -128,9 +128,51 @@ function formatDate(d, tz, padrao) {
 }
 
 /** Carrega o Codigo.js num contexto isolado com os serviços simulados. */
+/* Drive mínimo: pastas e arquivos em memória (para a pasta do Carro Controle). */
+class FakeBlob {
+  constructor(bytes, tipo, nome) { this.bytes = Buffer.from(bytes); this.tipo = tipo || 'application/octet-stream'; this.nome = nome || ''; }
+  getBytes() { return [...this.bytes].map((b) => (b > 127 ? b - 256 : b)); }
+  getDataAsString() { return this.bytes.toString('utf8'); }
+  setName(n) { this.nome = n; return this; }
+  getName() { return this.nome; }
+}
+class FakeFile {
+  constructor(pasta, nome, bytes, tipo) { Object.assign(this, { pasta, nome, bytes: Buffer.from(bytes), tipo, atualizado: new Date(), lixo: false, id: randomUUID() }); }
+  getName() { return this.nome; }
+  getId() { return this.id; }
+  getSize() { return this.bytes.length; }
+  getLastUpdated() { return this.atualizado; }
+  getBlob() { return new FakeBlob(this.bytes, this.tipo, this.nome); }
+  setContent(t) { this.bytes = Buffer.from(String(t), 'utf8'); this.atualizado = new Date(); return this; }
+  setTrashed(v) { this.lixo = !!v; return this; }
+}
+const iterador = (lista) => { let i = 0; return { hasNext: () => i < lista.length, next: () => lista[i++] }; };
+class FakeFolder {
+  constructor(drive, nome) { Object.assign(this, { drive, nome, arquivos: [], pastas: [], id: randomUUID(), lixo: false }); drive.porId.set(this.id, this); }
+  getId() { return this.id; }
+  getName() { return this.nome; }
+  isTrashed() { return this.lixo; }
+  createFolder(nome) { const f = new FakeFolder(this.drive, nome); this.pastas.push(f); return f; }
+  getFoldersByName(nome) { return iterador(this.pastas.filter((f) => f.nome === nome && !f.lixo)); }
+  getFilesByName(nome) { return iterador(this.arquivos.filter((f) => f.nome === nome && !f.lixo)); }
+  getFiles() { return iterador(this.arquivos.filter((f) => !f.lixo)); }
+  createFile(a, conteudo, tipo) {
+    const f = a instanceof FakeBlob ? new FakeFile(this, a.nome, a.bytes, a.tipo) : new FakeFile(this, a, Buffer.from(String(conteudo), 'utf8'), tipo || 'text/plain');
+    this.arquivos.push(f);
+    return f;
+  }
+}
+class FakeDrive {
+  constructor() { this.porId = new Map(); this.raiz = new FakeFolder(this, 'Meu Drive'); }
+  getRootFolder() { return this.raiz; }
+  createFolder(nome) { return this.raiz.createFolder(nome); }
+  getFolderById(id) { const f = this.porId.get(id); if (!f) throw new Error('No item with the given ID could be found'); return f; }
+}
+
 export function carregarServidor(caminho, { emailUsuario = '' } = {}) {
   const ss = new FakeSpreadsheet();
   const props = new Map();
+  const drive = new FakeDrive();
   const ctx = {
     console: { ...console, log: () => {} }, // silencia mensagens do setup()
     SpreadsheetApp: { getActiveSpreadsheet: () => ss, openById: () => ss },
@@ -140,7 +182,14 @@ export function carregarServidor(caminho, { emailUsuario = '' } = {}) {
         setProperty: (k, v) => props.set(k, String(v))
       })
     },
-    Utilities: { formatDate, getUuid: () => randomUUID() },
+    Utilities: {
+      formatDate,
+      getUuid: () => randomUUID(),
+      base64Decode: (t) => [...Buffer.from(String(t), 'base64')].map((b) => (b > 127 ? b - 256 : b)),
+      base64Encode: (bytes) => Buffer.from(bytes.map((b) => (b < 0 ? b + 256 : b))).toString('base64'),
+      newBlob: (bytes, tipo, nome) => new FakeBlob(Array.isArray(bytes) ? bytes.map((b) => (b < 0 ? b + 256 : b)) : Buffer.from(String(bytes), 'utf8'), tipo, nome)
+    },
+    DriveApp: drive,
     LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock: () => {}, releaseLock: () => {} }) },
     ContentService: {
       MimeType: { JSON: 'application/json' },
@@ -155,5 +204,5 @@ export function carregarServidor(caminho, { emailUsuario = '' } = {}) {
   };
   vm.createContext(ctx);
   vm.runInContext(readFileSync(caminho, 'utf8'), ctx, { filename: 'Codigo.js' });
-  return { ctx, ss, props };
+  return { ctx, ss, props, drive };
 }

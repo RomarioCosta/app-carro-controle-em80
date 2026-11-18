@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
-$Versao = '2026-11-18.9'
+$Versao = '2026-11-18.10'
 
 # carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
 function LerUrl($u) {
@@ -56,6 +56,8 @@ $SegundosAviso = 30
 $ModoWifi      = 'desconectar'                             # ou 'desativar' (administrador)
 $NomeAdaptador = 'Wi-Fi'
 $AtualizarAuto = $true                                     # baixa a versao nova do GitHub antes de buscar
+$ApiUrl        = ''                                        # servidor do app (vem do app ao salvar a configuracao)
+$ApiToken      = ''
 $Ativo         = $true                                     # busca automatica ligada
 $IntervaloMin  = 120                                       # intervalo entre buscas agendadas
 $HoraIni       = ''                                        # 'HH:mm' (vazio = dia todo)
@@ -80,6 +82,8 @@ if ($Destino -ne $antiga -and (Test-Path -LiteralPath $antiga) -and -not (Test-P
 }
 $Todos   = Join-Path $Destino 'Todos'
 $Novos   = Join-Path $Destino 'Novos'
+$FilaEnvio = Join-Path $Destino 'envio-pendente.txt'      # CSV copiados que ainda nao foram para o app (Google Drive)
+$TentativaEnvio = Join-Path $Destino 'envio-tentativa.txt'
 $Indice  = Join-Path $Destino 'copiados.txt'
 $Log     = Join-Path $Destino 'log.txt'
 New-Item -ItemType Directory -Force -Path $Todos, $Novos | Out-Null
@@ -136,6 +140,8 @@ if (Test-Path -LiteralPath $ConfigJson) {
     if ($j.segundosAviso)           { $SegundosAviso = [int]$j.segundosAviso }
     if ($j.modoWifi)                { $ModoWifi = [string]$j.modoWifi }
     if ($null -ne $j.atualizarAuto) { $AtualizarAuto = [bool]$j.atualizarAuto }
+    if ($j.apiUrl)                  { $ApiUrl = [string]$j.apiUrl }
+    if ($j.apiToken)                { $ApiToken = [string]$j.apiToken }
   } catch { $erroConfig = $_.Exception.Message }
 }
 $estadoAnt = $null
@@ -208,19 +214,27 @@ $pedBaixado = LerPedidoBaixado 'carro-controle-pedido'
 if ($pedBaixado -and -not $UrlDados) { $pedBaixado.acao = 'buscar'; $UrlDados = $pedBaixado; $Pedido = $true }
 
 # Busca agendada: respeita ligado/desligado, horario e intervalo (o Windows chama a cada minuto)
-if ($Agendado -and -not $UrlDados -and -not $cfgBaixada -and $agenda -eq 'min1-v3') {   # sem o agendamento novo: roda completo uma vez para instala-lo
-  if (-not $Ativo) { exit 0 }
+function ForaDaHora {
+  if (-not $Ativo) { return $true }
   if ($HoraIni -and $HoraFim) {
     $h = (Get-Date).ToString('HH:mm')
     $dentro = if ($HoraIni -le $HoraFim) { $h -ge $HoraIni -and $h -le $HoraFim } else { $h -ge $HoraIni -or $h -le $HoraFim }
-    if (-not $dentro) { exit 0 }
+    if (-not $dentro) { return $true }
   }
   if ($estadoAnt -and $estadoAnt.ultimaBusca) {
     try {
       $ult = [DateTime]::Parse([string]$estadoAnt.ultimaBusca)
-      if (((Get-Date) - $ult).TotalMinutes -lt ($IntervaloMin - 5)) { exit 0 }
+      if (((Get-Date) - $ult).TotalMinutes -lt ($IntervaloMin - 5)) { return $true }
     } catch { }
   }
+  return $false
+}
+$SoEnviar = $false
+if ($Agendado -and -not $UrlDados -and -not $cfgBaixada -and $agenda -eq 'min1-v3' -and (ForaDaHora)) {   # sem o agendamento novo: roda completo uma vez para instala-lo
+  # nao e hora de buscar; se ficou envio para o app pendente (sem internet antes), tenta de novo a cada 10 min
+  $pendente = (Test-Path -LiteralPath $FilaEnvio) -and (Get-Item -LiteralPath $FilaEnvio).Length -gt 0 -and $ApiUrl
+  $velha = -not (Test-Path -LiteralPath $TentativaEnvio) -or ((Get-Date) - (Get-Item -LiteralPath $TentativaEnvio).LastWriteTime).TotalMinutes -ge 10
+  if ($pendente -and $velha) { $SoEnviar = $true } else { exit 0 }
 }
 
 # Agendamento do Windows a cada minuto, sem janela (o intervalo de verdade vem da configuracao)
@@ -315,6 +329,8 @@ function SalvarConfigUrl($d) {
   if ($d.segundosAviso -match '^\d{1,3}$') { $cfg.segundosAviso = [Math]::Max(5, [int]$d.segundosAviso) }
   if ($d.modoWifi -in @('desconectar', 'desativar')) { $cfg.modoWifi = $d.modoWifi }
   if ($d.ContainsKey('atualizarAuto')) { $cfg.atualizarAuto = & $bool $d.atualizarAuto }
+  if ($d.apiUrl -match '^https://[^\s"]+$') { $cfg.apiUrl = $d.apiUrl; $script:ApiUrl = $d.apiUrl }
+  if ($d.apiToken -match '^[A-Za-z0-9_-]{4,128}$') { $cfg.apiToken = $d.apiToken; $script:ApiToken = $d.apiToken }
   $cfg.salvoId = [string]$d.id
   $cfg.salvoEm = (Get-Date).ToString("yyyy-MM-dd'T'HH:mm:ssK")
   [IO.File]::WriteAllText($ConfigJson, ($cfg | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding $false))
@@ -335,17 +351,77 @@ function GravarEstadoConfig {
   try {
     if (-not $estadoAnt) { return }
     $cfgAtual = [IO.File]::ReadAllText($ConfigJson) | ConvertFrom-Json
+    $cfgAtual.PSObject.Properties.Remove('apiToken')   # o codigo de acesso nao vai para o estado
     $estadoAnt | Add-Member -NotePropertyName config -NotePropertyValue $cfgAtual -Force
     $estadoAnt | Add-Member -NotePropertyName agenda -NotePropertyValue $agenda -Force
     [IO.File]::WriteAllText($EstadoArq, ($estadoAnt | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
   } catch { }
 }
 
+# ---------- Envio para o app (servidor do app -> pasta "Carro Controle EM80" no Google Drive) ----------
+function Api($acao, $dados) {
+  $corpo = [ordered]@{ acao = $acao; dados = $dados; token = $ApiToken } | ConvertTo-Json -Depth 6 -Compress
+  $r = Invoke-RestMethod -Uri $ApiUrl -Method Post -Body ([Text.Encoding]::UTF8.GetBytes($corpo)) -ContentType 'text/plain; charset=utf-8' -TimeoutSec 180 -UseBasicParsing
+  if (-not $r -or -not $r.ok) { throw "servidor: $(if ($r) { $r.erro } else { 'sem resposta' })" }
+  return $r.dados
+}
+
+function Sincronizar {
+  if (-not $ApiUrl -or -not $ApiToken) { return }
+  try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+  try { Set-Content -LiteralPath $TentativaEnvio -Value (Get-Date).ToString('o') -ErrorAction Stop } catch { }
+  # primeira vez: manda tambem os arquivos que ja estavam copiados (ultimos 30 dias)
+  $marca = Join-Path $Destino 'envio-inicial.txt'
+  if (-not (Test-Path -LiteralPath $marca)) {
+    $limite = (Get-Date).AddDays(-30)
+    $iniciais = @(Get-ChildItem -LiteralPath $Todos -File -Filter '*.csv' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $limite } | ForEach-Object { $_.Name })
+    if ($iniciais.Count) { Add-Content -LiteralPath $FilaEnvio -Value $iniciais -Encoding UTF8 }
+    try { Set-Content -LiteralPath $marca -Value (Get-Date).ToString('o') } catch { }
+  }
+  # a internet pode demorar a voltar depois de religar o Wi-Fi
+  $online = $false
+  for ($i = 0; $i -lt 12; $i++) { try { Api 'carroPing' @{} | Out-Null; $online = $true; break } catch { $ultimoErro = $_.Exception.Message; Start-Sleep -Seconds 5 } }
+  if (-not $online) { Escrever "Sem conexao com o servidor do app ($ultimoErro); manda depois." 'Yellow'; return }
+  $fila = @()
+  if (Test-Path -LiteralPath $FilaEnvio) { $fila = @(Get-Content -LiteralPath $FilaEnvio -Encoding UTF8 | Where-Object { $_ } | Select-Object -Unique) }
+  $resta = New-Object System.Collections.ArrayList
+  $enviados = 0
+  foreach ($n in $fila) {
+    $arq = Join-Path $Todos $n
+    if (-not (Test-Path -LiteralPath $arq)) { continue }   # apagado: nao manda
+    try {
+      Api 'carroEnviar' @{ tipo = 'arquivo'; nome = $n; base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($arq)) } | Out-Null
+      $enviados++
+    } catch { [void]$resta.Add($n); Escrever "  Nao foi para o app: $n ($($_.Exception.Message))" 'Yellow' }
+  }
+  try { [IO.File]::WriteAllLines($FilaEnvio, [string[]]$resta, (New-Object Text.UTF8Encoding $false)) } catch { }
+  try {
+    if (Test-Path -LiteralPath $EstadoArq) { Api 'carroEnviar' @{ tipo = 'estado'; conteudo = ([IO.File]::ReadAllText($EstadoArq).TrimStart([char]0xFEFF)) } | Out-Null }
+    $hist = Join-Path $Destino 'historico.jsonl'
+    if (Test-Path -LiteralPath $hist) {
+      $ult = @([IO.File]::ReadAllLines($hist) | Select-Object -Last 300)
+      Api 'carroEnviar' @{ tipo = 'historico'; conteudo = (($ult -join "`n") + "`n") } | Out-Null
+    }
+    $cat = Join-Path $Destino 'catalogo.json'
+    $marcaCat = Join-Path $Destino 'catalogo-enviado.txt'
+    if (Test-Path -LiteralPath $cat) {
+      $hash = (Get-FileHash -LiteralPath $cat -Algorithm MD5).Hash
+      $antes = if (Test-Path -LiteralPath $marcaCat) { (Get-Content -LiteralPath $marcaCat -Raw).Trim() } else { '' }
+      if ($hash -ne $antes) {
+        Api 'carroEnviar' @{ tipo = 'catalogo'; conteudo = ([IO.File]::ReadAllText($cat).TrimStart([char]0xFEFF)) } | Out-Null
+        Set-Content -LiteralPath $marcaCat -Value $hash
+      }
+    }
+    Escrever ("Enviado ao app (Google Drive): resultado da busca" + $(if ($enviados) { " e $enviados arquivo(s)" } else { '' }) + $(if ($resta.Count) { "; $($resta.Count) ficaram para depois" } else { '' }) + '.') 'Green'
+  } catch { Escrever "Erro ao mandar para o app: $($_.Exception.Message)" 'Yellow' }
+}
+
 # configuracao baixada pelo app: aplica (e, se nao houver pedido de busca junto, termina aqui)
 if ($cfgBaixada) {
   SalvarConfigUrl $cfgBaixada
-  if (-not $UrlDados) { GravarEstadoConfig; exit 0 }
+  if (-not $UrlDados) { GravarEstadoConfig; Sincronizar; exit 0 }
 }
+if ($SoEnviar) { Sincronizar; exit 0 }
 
 # ---------- Atualizacao automatica pelo GitHub (com internet, antes de mexer no Wi-Fi) ----------
 function Atualizar {
@@ -407,6 +483,7 @@ if ($Origens.Count -eq 0) {
   Escrever 'Nenhuma pasta do carro configurada: edite configuracao.ps1 (lembre das aspas simples).' 'Red'
   GravarEstado 'semPasta' -mensagem 'Nenhuma pasta do carro configurada.'
   Avisar 'Nenhuma pasta do carro configurada. Configure no app (Montagem > Arquivos do carro) ou no configuracao.ps1.' 48
+  Sincronizar
   Fim 1
 }
 
@@ -481,6 +558,7 @@ if ($ExigirCabo -and -not (CaboConectado)) {
   Escrever 'Cabo de rede do carro nao conectado: nada foi feito.' 'Yellow'
   GravarEstado 'semCabo' -mensagem 'Cabo de rede do carro nao conectado.'
   if (($UrlDados -and $UrlDados.acao -eq 'buscar') -or ($AvisarSemCabo -and -not $Pedido -and (-not $Agendado -or $Avisos -ne 'nunca'))) { Avisar 'Busca de arquivos do carro: cabo de rede nao conectado. Nada foi feito.' 48 }
+  Sincronizar
   Fim 0
 }
 
@@ -583,4 +661,7 @@ GravarEstado $resultado $total $testes $falhas $semAcesso ($msg -replace "`n", '
 $doApp = [bool]($UrlDados -and $UrlDados.acao -eq 'buscar')   # pedido pelo botao do app: sempre avisa o resultado
 $mostrar = $doApp -or ((-not $Pedido) -and ((-not $Agendado) -or $Avisos -eq 'sempre' -or ($Avisos -eq 'novos' -and ($total -gt 0 -or $icone -eq 48))))
 if ($mostrar) { Avisar $msg $icone }
+# manda o resultado e os CSV copiados para o app (o Wi-Fi ja voltou)
+if ($copiadosAgora.Count) { Add-Content -LiteralPath $FilaEnvio -Value @($copiadosAgora) -Encoding UTF8 }
+Sincronizar
 Fim 0

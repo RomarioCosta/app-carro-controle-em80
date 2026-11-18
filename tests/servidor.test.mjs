@@ -238,3 +238,30 @@ test('rota: dias com trechos, pontos de atenção, edição e exclusão', () => 
   assert.equal(d.pontos[0].excluido, true);
   assert.deepEqual(s.post('getRota', {}).dados.ciclos, [{ ciclo: '3', dias: 1 }]);
 });
+
+test('carro: o script manda estado, histórico, lista e CSV para o Drive e o app lê de lá', () => {
+  const { ctx, props } = carregarServidor(CODIGO);
+  ctx.setup();
+  const token = props.get('API_TOKEN');
+  const chamar = (acao, dados) => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify({ acao, dados, token }) } }).getContent());
+  assert.equal(chamar('carroPing', {}).ok, true);
+  assert.deepEqual(chamar('carroStatus', {}).dados, { estado: null, historico: [], catalogo: null, arquivos: [] });
+  assert.equal(chamar('carroEnviar', { tipo: 'estado', conteudo: '﻿{"resultado":"ok","novos":1}' }).ok, false); // BOM: JSON inválido
+  assert.equal(chamar('carroEnviar', { tipo: 'estado', conteudo: '{"resultado":"ok","novos":1}' }).ok, true);
+  assert.equal(chamar('carroEnviar', { tipo: 'historico', conteudo: '{"tipo":"app","resultado":"semCabo"}\n{"tipo":"automatica","resultado":"ok","novos":1}\n' }).ok, true);
+  assert.equal(chamar('carroEnviar', { tipo: 'catalogo', conteudo: '{"arquivos":[{"nome":"RLT_CP_20261117.csv"}]}' }).ok, true);
+  const csv = 'KM;LINHA\n1;2\nçã\n';
+  assert.equal(chamar('carroEnviar', { tipo: 'arquivo', nome: 'RLT_CP_20261117.csv', base64: Buffer.from(csv, 'latin1').toString('base64') }).ok, true);
+  assert.equal(chamar('carroEnviar', { tipo: 'arquivo', nome: '../x.exe', base64: 'AA==' }).ok, false);
+  const st = chamar('carroStatus', {}).dados;
+  assert.equal(st.estado.novos, 1);
+  assert.equal(st.historico.length, 2);
+  assert.equal(st.catalogo.arquivos[0].nome, 'RLT_CP_20261117.csv');
+  assert.deepEqual(st.arquivos.map((a) => a.nome), ['RLT_CP_20261117.csv']);
+  // reenviar o mesmo arquivo substitui (não duplica)
+  chamar('carroEnviar', { tipo: 'arquivo', nome: 'RLT_CP_20261117.csv', base64: Buffer.from(csv + '3;4\n', 'latin1').toString('base64') });
+  assert.equal(chamar('carroStatus', {}).dados.arquivos.length, 1);
+  const arq = chamar('carroArquivo', { nome: 'RLT_CP_20261117.csv' }).dados;
+  assert.equal(Buffer.from(arq.base64, 'base64').toString('latin1'), csv + '3;4\n');
+  assert.equal(chamar('carroArquivo', { nome: 'NADA.csv' }).ok, false);
+});
