@@ -16,7 +16,7 @@
 #  Nome dos arquivos do carro: RAMAL_SEDE_AAAAMMDD (ex.: RLT_CP_20261117).
 # =====================================================================
 param([switch]$Agendado, [switch]$SemAtualizar, [switch]$Pedido, [string]$Url = '')
-$Versao = '2026-11-18.8'
+$Versao = '2026-11-18.9'
 
 # carrocontrole://acao/?a=1&b=2 -> @{ acao = 'acao'; a = '1'; b = '2' }
 function LerUrl($u) {
@@ -208,7 +208,7 @@ $pedBaixado = LerPedidoBaixado 'carro-controle-pedido'
 if ($pedBaixado -and -not $UrlDados) { $pedBaixado.acao = 'buscar'; $UrlDados = $pedBaixado; $Pedido = $true }
 
 # Busca agendada: respeita ligado/desligado, horario e intervalo (o Windows chama a cada minuto)
-if ($Agendado -and -not $UrlDados -and -not $cfgBaixada -and $agenda -eq 'min1-v2') {   # sem o agendamento novo: roda completo uma vez para instala-lo
+if ($Agendado -and -not $UrlDados -and -not $cfgBaixada -and $agenda -eq 'min1-v3') {   # sem o agendamento novo: roda completo uma vez para instala-lo
   if (-not $Ativo) { exit 0 }
   if ($HoraIni -and $HoraFim) {
     $h = (Get-Date).ToString('HH:mm')
@@ -225,16 +225,55 @@ if ($Agendado -and -not $UrlDados -and -not $cfgBaixada -and $agenda -eq 'min1-v
 
 # Agendamento do Windows a cada minuto, sem janela (o intervalo de verdade vem da configuracao)
 function GarantirAgenda {
-  $chave = 'min1-v2'
+  # v3: tarefa por XML para rodar tambem na bateria (o padrao do Windows so roda na tomada),
+  # roda a que perdeu se o note estava desligado e nao abre duas ao mesmo tempo
+  $chave = 'min1-v3'
   if ($agenda -eq $chave) { return }
   try {
     $ps1 = Join-Path $Pasta 'buscar-carro.ps1'
-    $ps = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"$ps1\`" -Agendado"
+    $argPs = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ps1`" -Agendado"
     # conhost --headless: nem pisca a janela (Windows 10 2004+ e 11)
-    $tr = if ([Environment]::OSVersion.Version.Build -ge 19041 -and (Test-Path (Join-Path $env:WINDIR 'System32\conhost.exe'))) { "conhost.exe --headless $ps" } else { $ps }
-    $argumentos = "/create /tn `"$NomeTarefa`" /sc MINUTE /mo 1 /f /tr `"$tr`""
-    $p = Start-Process -FilePath 'schtasks.exe' -ArgumentList $argumentos -WindowStyle Hidden -Wait -PassThru
-    if ($p.ExitCode -eq 0) { $script:agenda = $chave; Escrever 'Agendamento do Windows: confere a cada minuto (busca no intervalo configurado).' 'Green' }
+    if ([Environment]::OSVersion.Version.Build -ge 19041 -and (Test-Path (Join-Path $env:WINDIR 'System32\conhost.exe'))) {
+      $cmd = 'conhost.exe'; $args3 = "--headless powershell.exe $argPs"
+    } else { $cmd = 'powershell.exe'; $args3 = $argPs }
+    $esc = { param($t) [Security.SecurityElement]::Escape($t) }
+    $inicio = (Get-Date).AddMinutes(1).ToString('yyyy-MM-ddTHH:mm:00')
+    $usuario = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $xml = @"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>Busca os arquivos do Carro Controle EM80 (app)</Description></RegistrationInfo>
+  <Triggers>
+    <TimeTrigger><StartBoundary>$inicio</StartBoundary><Enabled>true</Enabled>
+      <Repetition><Interval>PT1M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition>
+    </TimeTrigger>
+    <LogonTrigger><Enabled>true</Enabled><UserId>$(& $esc $usuario)</UserId></LogonTrigger>
+  </Triggers>
+  <Principals><Principal id="Author"><UserId>$(& $esc $usuario)</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author"><Exec><Command>$cmd</Command><Arguments>$(& $esc $args3)</Arguments></Exec></Actions>
+</Task>
+"@
+    $arqXml = Join-Path $env:TEMP 'carro-controle-tarefa.xml'
+    [IO.File]::WriteAllText($arqXml, $xml, [Text.Encoding]::Unicode)
+    $p = Start-Process -FilePath 'schtasks.exe' -ArgumentList "/create /tn `"$NomeTarefa`" /xml `"$arqXml`" /f" -WindowStyle Hidden -Wait -PassThru
+    Remove-Item -LiteralPath $arqXml -Force -ErrorAction SilentlyContinue
+    if ($p.ExitCode -eq 0) { $script:agenda = $chave; Escrever 'Agendamento do Windows: confere a cada minuto, inclusive na bateria (busca no intervalo configurado).' 'Green' }
     else { Escrever "Nao foi possivel criar o agendamento (codigo $($p.ExitCode))." 'Yellow' }
   } catch { Escrever "Nao foi possivel criar o agendamento: $($_.Exception.Message)" 'Yellow' }
 }
