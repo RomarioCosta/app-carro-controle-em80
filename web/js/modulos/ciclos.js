@@ -189,8 +189,11 @@
     render();
   }
 
-  async function abrir(x, aba) {
+  let abertoNome = '';
+  async function abrir(x, aba, embutido = false) {
     const q = consulta;
+    abertoNome = `${x.nome} · ${kmTxt(q.de)} a ${kmTxt(q.ate)}`;
+    if (embutido) { U.pref.set(`ciclos:aberto:${aba}`, false); render(); } // recolhe para o arquivo aparecer
     const nome = `${x.nome} · ${nomeCiclo(q.ciclo)} · ${kmTxt(q.de)} a ${kmTxt(q.ate)}`;
     window.dispatchEvent(new CustomEvent('em80:checklist-aba', { detail: aba }));
     await new Promise((r) => setTimeout(r, 30));
@@ -200,10 +203,10 @@
 
   /* ---------------- Tela ---------------- */
 
-  function cartaoConsulta() {
+  function cartaoConsulta(aba = null) {
     const lista = ciclosDrive || [];
     if (!lista.length) {
-      return h('section', { class: 'cartao pilha' }, h('h2', { text: 'Consultar trecho' }),
+      return h('div', { class: 'pilha' }, aba ? null : h('h2', { text: 'Consultar trecho' }),
         h('p', { class: 'sub', text: erroDrive ? `Não foi possível ler o Google Drive: ${erroDrive}` : ciclosDrive ? 'Nenhum ciclo arquivado ainda.' : 'Lendo o Google Drive…' }));
     }
     const pref = U.pref.get('ciclos:consulta', {}) || {};
@@ -225,8 +228,8 @@
       consultar({ ciclo: cicloSel, ramal: ramalSel, linha: linhaSel, de: a, ate: b });
     };
     const faixa = blocos.length ? `km ${Math.min(...blocos)} a ${Math.max(...blocos) + 1}` : '';
-    return h('section', { class: 'cartao pilha' },
-      h('h2', { text: 'Consultar trecho' }),
+    return h('div', { class: 'pilha' },
+      aba ? null : h('h2', { text: 'Consultar trecho' }),
       h('div', { class: 'grade-4' },
         ui.campo('Ciclo', h('select', { onchange: (e) => salvar('ciclo', e.target.value) }, lista.map((x) => h('option', { value: x.ciclo, selected: x.ciclo === cicloSel || null, text: x.ciclo === 'sem-ciclo' ? 'Sem ciclo' : x.ciclo })))),
         ui.campo('Ramal', h('select', { onchange: (e) => salvar('ramal', e.target.value) }, ramais.map((r) => h('option', { value: r, selected: r === ramalSel || null, text: r })))),
@@ -236,10 +239,10 @@
         ui.campo('Km de', de), ui.campo('Km até', ate),
         h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-primario', disabled: ocupado || null, onclick: buscar }, ui.icone('busca'), 'Consultar'))),
       faixa ? h('small', { class: 'sub', text: `Arquivado nesta linha: ${faixa}` }) : null,
-      resultadoConsulta());
+      resultadoConsulta(aba));
   }
 
-  function resultadoConsulta() {
+  function resultadoConsulta(aba) {
     const q = consulta;
     if (!q) return null;
     if (!q.arquivos.length) return ocupado ? null : h('p', { class: 'sub', text: `Nenhum arquivo do ${nomeCiclo(q.ciclo).toLowerCase()} passou por ${q.ramal} L${q.linha} entre ${kmTxt(q.de)} e ${kmTxt(q.ate)}.` });
@@ -250,9 +253,10 @@
         h('div', { class: 'item-principal' },
           h('strong', { text: x.nome }),
           h('div', { class: 'item-sub', text: `${x.info.data || '—'} · ${x.info.corretiva || '—'} · ${kmTxt(x.de)} → ${kmTxt(x.ate)}` }),
-          h('div', { class: 'linha-acoes' },
-            h('button', { class: 'btn btn-pequeno', onclick: () => abrir(x, 'analise') }, ui.icone('grafico'), 'Análise'),
-            h('button', { class: 'btn btn-pequeno', onclick: () => abrir(x, 'tela') }, ui.icone('play'), 'Tela do carro'))))));
+          h('div', { class: 'linha-acoes' }, aba
+            ? h('button', { class: 'btn btn-pequeno', onclick: () => abrir(x, aba, true) }, ui.icone(aba === 'tela' ? 'play' : 'grafico'), 'Abrir')
+            : [h('button', { class: 'btn btn-pequeno', onclick: () => abrir(x, 'analise') }, ui.icone('grafico'), 'Análise'),
+              h('button', { class: 'btn btn-pequeno', onclick: () => abrir(x, 'tela') }, ui.icone('play'), 'Tela do carro')])))));
   }
 
   async function cartaoArquivar() {
@@ -275,8 +279,28 @@
       progresso ? h('p', { class: /^(Com problema|Não foi)/.test(progresso) ? 'aviso aviso-erro' : 'sub', text: progresso }) : null);
   }
 
+  /* Consulta dentro da Análise do arquivo e da Tela do carro (fechada até abrir; lê o Drive só ao abrir) */
+  const embutidos = []; // [{ el, aba }]
+  function renderEmbutido({ el, aba }) {
+    if (!nuvemOk()) { ui.trocar(el); return; }
+    const chave = `ciclos:aberto:${aba}`;
+    const aberto = !!U.pref.get(chave, false);
+    const det = h('details', { class: 'cartao ci-embutido', open: aberto || null },
+      h('summary', {}, h('strong', { text: 'Consultar ciclo anterior' }), abertoNome ? h('small', { class: 'sub', text: ` · aberto: ${abertoNome}` }) : null),
+      aberto ? cartaoConsulta(aba) : null,
+      aberto && progresso && !/^(Separando|Enviando)/.test(progresso) ? h('p', { class: /^(Com problema|Não foi)/.test(progresso) ? 'aviso aviso-erro' : 'sub', text: progresso }) : null);
+    det.addEventListener('toggle', () => {
+      if (det.open === aberto) return;
+      U.pref.set(chave, det.open);
+      renderEmbutido({ el, aba });
+      if (det.open && !ciclosDrive) lerDrive();
+    });
+    ui.trocar(el, det);
+  }
+
   let renderizando = 0;
   async function render() {
+    embutidos.forEach(renderEmbutido);
     if (!raiz) return;
     const vez = ++renderizando;
     if (!nuvemOk()) {
@@ -289,12 +313,19 @@
     ui.trocar(raiz, h('section', { class: 'cartao pilha' },
       h('div', { class: 'tela-cab' }, h('h1', { text: 'Ciclos anteriores' }),
         h('button', { class: 'btn btn-pequeno', disabled: ocupado || null, onclick: () => { ciclosDrive = null; render(); lerDrive(); } }, ui.icone('sync'), 'Atualizar'))),
-    cartaoConsulta(), arq);
+    h('section', { class: 'cartao pilha' }, cartaoConsulta()), arq);
   }
 
   App.ciclos = {
     montar(el) { raiz = el; render(); lerDrive(); },
     aoMostrar() { render(); if (!ocupado) lerDrive(); },
+    /** Põe a consulta (recolhível) no topo de outra aba; "aba" diz onde o arquivo abre ('analise' ou 'tela'). */
+    embutir(el, aba) {
+      const e = { el, aba };
+      embutidos.push(e);
+      renderEmbutido(e);
+      if (U.pref.get(`ciclos:aberto:${aba}`, false) && !ciclosDrive) lerDrive();
+    },
     lerKm
   };
 })(window.App);
