@@ -136,6 +136,7 @@
       e.preventDefault();
       mover((e.deltaY > 0 ? 1 : -1) * janela * 0.1);
     }, { passive: false });
+    if (App.ciclos) App.ciclos.aoMudar(() => atualizarMontagem());
     let arrasto = null;
     corpoEl.addEventListener('pointerdown', (e) => { arrasto = { y: e.clientY, topo }; corpoEl.setPointerCapture(e.pointerId); });
     corpoEl.addEventListener('pointerup', () => { arrasto = null; });
@@ -452,15 +453,20 @@
     const kmInput = h('input', { type: 'text', inputmode: 'decimal', placeholder: 'ex.: 312+000', 'aria-label': 'Ir para o km', onkeydown: (e) => { if (e.key === 'Enter') irParaKm(e.target.value); } });
     const atualId = idAtual();
     const anterior = vizinho(-1); const proximo = vizinho(1);
-    const linhaMontagem = montagemLista.length ? h('div', { class: 'tc-linha tc-linha-arquivo' },
-      h('label', { class: 'tc-campo tc-campo-arquivo' }, h('span', { text: `Arquivos da Montagem${App.montagem.ciclo() ? ` (ciclo ${App.montagem.ciclo()})` : ''}` }),
+    // ciclo: os da Montagem ou um arquivado no Google Drive (consulta por trecho)
+    const cicloArq = App.ciclos ? App.ciclos.arquivado() : null;
+    const campoCiclo = App.ciclos ? App.ciclos.campoCiclo() : null;
+    const linhaMontagem = cicloArq ? h('div', { class: 'tc-linha tc-linha-arquivo' }, campoCiclo, App.ciclos.caixa('tela'))
+      : !montagemLista.length ? (campoCiclo ? h('div', { class: 'tc-linha tc-linha-arquivo' }, campoCiclo, h('span', { class: 'sub', text: 'Nenhum arquivo deste ciclo na Montagem.' })) : null)
+      : h('div', { class: 'tc-linha tc-linha-arquivo' }, campoCiclo,
+      h('label', { class: 'tc-campo tc-campo-arquivo' }, h('span', { text: 'Arquivos da Montagem' }),
         h('select', { 'aria-label': 'Arquivo da Montagem', onchange: (e) => abrirDaMontagem(e.target.value) },
           h('option', { value: '', selected: !atualId || null, text: atualId ? '—' : `Arquivo da Análise${nomeArquivo ? `: ${nomeArquivo}` : ''}` }),
           montagemLista.map((a) => h('option', { value: a.id, selected: a.id === atualId || null, text: a.rotulo })))),
       h('div', { class: 'tc-botoes' },
         h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: !anterior || null, title: anterior ? anterior.nome : '', onclick: () => abrirDaMontagem(anterior.id) }, ui.icone('esquerda'), 'Anterior'),
         h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: !proximo || null, title: proximo ? proximo.nome : '', onclick: () => abrirDaMontagem(proximo.id) }, 'Próximo', ui.icone('direita'))),
-      h('label', { class: 'chip-sel' }, h('input', { type: 'checkbox', checked: seguir || null, onchange: (e) => { seguir = e.target.checked; U.pref.set('telaCarro:seguir', seguir); } }), 'Ao terminar, rodar o próximo arquivo')) : null;
+      h('label', { class: 'chip-sel' }, h('input', { type: 'checkbox', checked: seguir || null, onchange: (e) => { seguir = e.target.checked; U.pref.set('telaCarro:seguir', seguir); } }), 'Ao terminar, rodar o próximo arquivo'));
     ui.trocar(controlesEl,
       linhaMontagem,
       h('div', { class: 'tc-linha' },

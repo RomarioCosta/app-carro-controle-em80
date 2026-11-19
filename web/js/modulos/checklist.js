@@ -60,19 +60,8 @@
         h('p', { class: 'sub', text: 'Responda Sim ou Não. Quando houver problema, descreva o que houve.' })),
       formEl,
       h('section', { class: 'cartao' }, h('h2', { text: 'Checklists recentes' }), listaEl));
-    // Análise e Tela do carro: no topo, a consulta aos ciclos anteriores (arquivados no Drive)
-    const consultaAnalise = h('div');
-    const consultaTela = h('div');
-    const corpoAnalise = h('div', { class: 'tela' });
-    const corpoTela = h('div', { class: 'tela' });
-    const parteAnalise = h('div', { class: 'tela tela-larga', hidden: true }, consultaAnalise, corpoAnalise);
-    const parteTela = h('div', { class: 'tela tela-larga', hidden: true }, consultaTela, corpoTela);
-    let consultasMontadas = false;
-    const montarConsultas = () => {
-      if (consultasMontadas || !App.ciclos) return;
-      consultasMontadas = true;
-      try { App.ciclos.embutir(consultaAnalise, 'analise'); App.ciclos.embutir(consultaTela, 'tela'); } catch (e) { console.error(e); }
-    };
+    const parteAnalise = h('div', { class: 'tela tela-larga', hidden: true });
+    const parteTela = h('div', { class: 'tela tela-larga', hidden: true });
     const parteMontagem = h('div', { class: 'tela tela-larga pilha', hidden: true });
     const parteBuscar = h('div', { class: 'tela tela-larga pilha', hidden: true });
     const parteCiclos = h('div', { class: 'tela tela-larga pilha', hidden: true });
@@ -109,13 +98,13 @@
       parteBuscar.hidden = qual !== 'buscar';
       parteCiclos.hidden = qual !== 'ciclos';
       // A Tela do carro usa o arquivo da Análise: monta a análise (escondida) se ainda não montou.
-      const montarAnalise = () => { if (!analiseMontada) { App.analise.montar(corpoAnalise); analiseMontada = true; } montarConsultas(); };
+      const montarAnalise = () => { if (!analiseMontada) { App.analise.montar(parteAnalise); analiseMontada = true; } };
       const montarMontagem = () => { montarAnalise(); if (!montagemMontada) { App.montagem.montar(parteMontagem); montagemMontada = true; return true; } return false; };
-      if (qual === 'analise') tentar(corpoAnalise, () => { montarAnalise(); if (App.analise.aoMostrar) App.analise.aoMostrar(); });
+      if (qual === 'analise') tentar(parteAnalise, () => { montarAnalise(); if (App.analise.aoMostrar) App.analise.aoMostrar(); });
       if (qual === 'tela') {
-        tentar(corpoTela, () => {
+        tentar(parteTela, () => {
           montarAnalise();
-          if (!telaMontada) { App.telaCarro.montar(corpoTela); telaMontada = true; }
+          if (!telaMontada) { App.telaCarro.montar(parteTela); telaMontada = true; }
           App.telaCarro.aoMostrar();
         });
       }
