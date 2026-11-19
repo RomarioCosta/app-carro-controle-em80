@@ -1112,6 +1112,17 @@ async function main() {
       await page.waitForFunction(() => { const e = App.analise.estado(); return e.arquivo && /RLT_FU_20261118\.csv · /.test(e.nomeArquivo); });
       const faixaKm = await page.evaluate(() => { const p = App.analise.estado().arquivo.pos; return [Math.min(...p), Math.max(...p)]; });
       assert.ok(faixaKm[0] >= 1900 - 1e-6 && faixaKm[1] <= 2100 + 1e-6 && faixaKm[1] - faixaKm[0] > 150, `trecho consultado: ${faixaKm}`);
+      // a mesma consulta no topo da Tela do carro (abre ali mesmo)
+      await page.getByRole('tab', { name: 'Tela do carro' }).click();
+      const embTela = page.locator('.ci-embutido:visible');
+      await embTela.locator('summary').click();
+      await embTela.getByLabel('Km de').fill('2+000');
+      await embTela.getByLabel('Km até').fill('2+050');
+      await embTela.getByRole('button', { name: 'Consultar' }).click();
+      await embTela.locator('.ci-item', { hasText: 'RLT_SJ_20261118.csv' }).getByRole('button', { name: 'Abrir' }).click();
+      await page.waitForFunction(() => /RLT_SJ_20261118\.csv · /.test(App.analise.estado().nomeArquivo));
+      assert.equal(await page.getByRole('tab', { name: 'Tela do carro' }).getAttribute('aria-selected'), 'true');
+      await page.screenshot({ path: `${SAIDA}14-ciclos-tela.png` });
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 
