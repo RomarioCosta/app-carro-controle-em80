@@ -289,3 +289,26 @@ test('montagem no Drive: salva e lê os ajustes (original + ajustes)', () => {
   chamar('carroEnviar', { tipo: 'arquivo', nome: 'X.csv', gzip: '1', base64: 'AA==' });
   assert.deepEqual(chamar('carroStatus', { soArquivos: true }).dados, { arquivos: [{ nome: 'X.csv', gzip: true }] });
 });
+
+test('ciclo arquivado: contêiner, índice e consulta só dos pedaços pedidos', () => {
+  const { ctx, props } = carregarServidor(CODIGO);
+  ctx.setup();
+  const token = props.get('API_TOKEN');
+  const chamar = (acao, dados) => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify({ acao, dados, token }) } }).getContent());
+  const bytes = Buffer.from([1, 2, 3, 200, 250, 6, 7, 8]);
+  assert.equal(chamar('cicloEnviar', { ciclo: '5', nome: 'A.csv.bin', base64: bytes.toString('base64') }).ok, true);
+  assert.equal(chamar('cicloEnviar', { ciclo: '5', nome: '../x.exe', base64: 'AA==' }).ok, false);
+  assert.equal(chamar('cicloEnviar', { ciclo: '../5', nome: 'A.bin', base64: 'AA==' }).ok, false);
+  const ind = { ciclo: '5', arquivos: { 'A.csv': { conteineres: ['A.csv.bin'] } }, blocos: { 'LT|1|3': [{ a: 'A.csv', c: 'A.csv.bin', o: 2, t: 4 }] } };
+  assert.equal(chamar('cicloIndiceSalvar', { ciclo: '5', conteudo: JSON.stringify(ind) }).ok, true);
+  assert.equal(chamar('cicloIndiceSalvar', { ciclo: '5', conteudo: '{}' }).ok, false);
+  const lista = chamar('cicloListar', {}).dados;
+  assert.deepEqual(lista, [{ ciclo: '5', indice: ind }]);
+  assert.deepEqual(chamar('cicloListar', { ciclo: '6' }).dados, []);
+  const r = chamar('cicloTrechos', { ciclo: '5', pedidos: [{ c: 'A.csv.bin', o: 2, t: 4 }, { c: 'A.csv.bin', o: 0, t: 1 }] }).dados;
+  assert.deepEqual(r.map((x) => [...Buffer.from(x.base64, 'base64')]), [[3, 200, 250, 6], [1]]);
+  assert.equal(chamar('cicloTrechos', { ciclo: '9', pedidos: [] }).ok, false);
+  // reenviar o mesmo contêiner substitui
+  chamar('cicloEnviar', { ciclo: '5', nome: 'A.csv.bin', base64: Buffer.from([9, 9]).toString('base64') });
+  assert.deepEqual([...Buffer.from(chamar('cicloTrechos', { ciclo: '5', pedidos: [{ c: 'A.csv.bin', o: 0, t: 2 }] }).dados[0].base64, 'base64')], [9, 9]);
+});

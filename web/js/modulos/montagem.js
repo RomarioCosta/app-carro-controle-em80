@@ -1105,6 +1105,26 @@
     async adicionarArquivos(files) { await carregar(); if (!planta && App.analise && App.analise.planta) planta = await App.analise.planta(); return adicionar(files); },
     atual: () => atual,
     ciclo,
+    /** Ciclos com arquivos neste aparelho: [{ ciclo, qtd }]. */
+    async ciclos() {
+      await carregar();
+      const m = new Map();
+      arquivos.forEach((a) => m.set(a.ciclo || '', (m.get(a.ciclo || '') || 0) + 1));
+      return [...m.entries()].map(([c, qtd]) => ({ ciclo: c, qtd }));
+    },
+    /** Arquivos de um ciclo (com o resumo e os ajustes) e o CSV guardado de cada um. */
+    async doCiclo(c) { await carregar(); return arquivos.filter((a) => (a.ciclo || '') === (c || '')); },
+    lerCsv: (id) => lerCsv(id),
+    /** Tira da Montagem deste aparelho (e do Drive, na próxima gravação) os arquivos de um ciclo já arquivado. */
+    async removerCiclo(c) {
+      await carregar();
+      const sai = arquivos.filter((a) => (a.ciclo || '') === (c || ''));
+      arquivos = arquivos.filter((a) => !sai.includes(a));
+      for (const a of sai) { cortes.delete(a.id); await store.del(CHAVE_CSV(a.id)).catch(() => {}); }
+      await gravar();
+      if (raiz) render();
+      return sai.length;
+    },
     /** Abre um arquivo da Montagem na Análise. aba: 'tela' (Tela do carro, padrão) ou null (fica na aba atual). */
     async abrir(id, { aba = 'tela' } = {}) { await carregar(); if (!planta && App.analise.planta) planta = await App.analise.planta(); const a = arquivos.find((x) => x.id === id); return a ? abrirNaTela(a, null, { aba }) : false; }
   };

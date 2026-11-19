@@ -76,7 +76,7 @@
     try {
       const salvo = await store.get(CHAVE);
       if (v !== versaoArquivo) return;
-      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [], regras: salvo.regras || null, linhas: salvo.linhas || null, cortes: salvo.cortes || [] });
+      if (salvo && salvo.texto) processar(salvo.texto, salvo.nome, { salvar: false, trecho: salvo.recorte || null, compensar: salvo.compensar || [], regras: salvo.regras || null, linhas: salvo.linhas || null, cortes: salvo.cortes || [], kmFixo: !!salvo.kmFixo });
     } catch (e) { /* sem arquivo salvo */ }
   }
 
@@ -156,6 +156,7 @@
   let regrasComp = null;
   /** Correção da coluna LINHA feita na Montagem (B.corrigirLinhas). */
   let regrasLinha = null;
+  let kmFixo = false; // arquivo de ciclo arquivado: o km já vem corrigido (sem ajuste automático nem offset)
 
   function aplicarRecorte() {
     arquivo = B.recortar(arquivoCompleto, recorte.de, recorte.ate, { cortes: cortesMontagem });
@@ -169,7 +170,8 @@
     arquivoTela = B.recortar(arquivoCompleto, recorte.de, recorte.ate, { comDeslocamento: true, cortes: cortesMontagem });
   }
 
-  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [], regras = null, linhas = null, cortes = [] }) {
+  function processar(texto, nome, { salvar, trecho = null, compensar: comp = [], regras = null, linhas = null, cortes = [], kmFixo: fixo = false }) {
+    kmFixo = !!fixo;
     cortesMontagem = B.cortesDe(cortes);
     versaoArquivo++;
     compensar = [...comp];
@@ -204,7 +206,7 @@
     }
     zoom = null;
     recalcular();
-    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar, regras: regrasComp, linhas: regrasLinha, cortes: cortesMontagem }).catch(() => {});
+    if (salvar) store.set(CHAVE, { nome: nomeArquivo, texto, recorte, compensar, regras: regrasComp, linhas: regrasLinha, cortes: cortesMontagem, kmFixo }).catch(() => {});
   }
 
   async function mudarRecorte(de, ate) {
@@ -243,8 +245,10 @@
     const linha = valida ? valida.valida : (linhasPlanta.includes('1') ? '1' : linhasPlanta[0]);
     const localizar = B.localizador(planta, ramal, arquivo, linha);
     const els = B.elementosDaPlanta(planta, ramal, linha);
-    let ajuste = 0; let acerto = null; let faixa = [0, 0]; const automatico = opcoes.ajusteKm === 'auto';
-    if (automatico) {
+    let ajuste = 0; let acerto = null; let faixa = [0, 0]; const automatico = !kmFixo && opcoes.ajusteKm === 'auto';
+    if (kmFixo) {
+      // ciclo arquivado: km já corrigido no arquivamento
+    } else if (automatico) {
       const k = `${nomeArquivo}|${arquivo.pos.length}|${ramal}|${linha}|${opcoes.raioCurva}|${opcoes.suavizacao}`;
       // Correção ponto a ponto: o odômetro escorrega ao longo do arquivo e o km é acertado em campo.
       if (!cacheAjuste.has(k)) cacheAjuste.set(k, B.ajusteVariavel(arquivo.pos, arquivo.dados.curv, els, opcoes));
@@ -256,7 +260,7 @@
       ajuste = Number(opcoes.ajusteKm) || 0;
       faixa = [ajuste, ajuste];
     }
-    const ajusteTxt = Math.abs(faixa[1] - faixa[0]) < 1 ? `${fmt(faixa[0], 0)} m` : `${fmt(faixa[0], 0)} a ${fmt(faixa[1], 0)} m`;
+    const ajusteTxt = kmFixo ? 'feita no arquivamento do ciclo' : Math.abs(faixa[1] - faixa[0]) < 1 ? `${fmt(faixa[0], 0)} m` : `${fmt(faixa[0], 0)} a ${fmt(faixa[1], 0)} m`;
     infoPlanta = { ramal, linha, ajuste, ajusteTxt, acerto, automatico, qtd: els.length, linhasArquivo: resumoLinhas, conferencia: conferirRamal(ramal, linha, els) };
     return { els, ajuste, localizar };
   }
@@ -1165,9 +1169,9 @@
     estado: () => ({ arquivo, arquivoTela: arquivo ? arquivoTela : null, resultado, nomeArquivo, opcoes }),
     textoDoArquivo,
     /** Abre um arquivo vindo de outra tela (Montagem / Tela do carro), com o trecho e as compensações dela. */
-    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [], regras = null, linhas = null, cortes = [] } = {}) => processar(texto, nome, {
+    abrirTexto: (texto, nome, { recorte: trecho = null, compensar: comp = [], regras = null, linhas = null, cortes = [], kmFixo: fixo = false } = {}) => processar(texto, nome, {
       // a Montagem manda os cortes (lista); o formato antigo era um trecho só ("usar de … até")
-      salvar: true, trecho: Array.isArray(trecho) ? null : trecho, compensar: comp, regras, linhas, cortes: Array.isArray(trecho) ? trecho : cortes
+      salvar: true, trecho: Array.isArray(trecho) ? null : trecho, compensar: comp, regras, linhas, cortes: Array.isArray(trecho) ? trecho : cortes, kmFixo: fixo
     }),
     planta: async () => { try { return await store.get(CHAVE_PLANTA); } catch (e) { return null; } }
   };

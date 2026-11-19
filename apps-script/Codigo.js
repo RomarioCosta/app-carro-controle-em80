@@ -358,7 +358,11 @@ var ACOES = {
   carroStatus: { escrita: false, fn: acaoCarroStatus_ },
   carroArquivo: { escrita: false, fn: acaoCarroArquivo_ },
   montagemSalvar: { escrita: true, fn: acaoMontagemSalvar_ },
-  montagemLer: { escrita: false, fn: acaoMontagemLer_ }
+  montagemLer: { escrita: false, fn: acaoMontagemLer_ },
+  cicloEnviar: { escrita: true, fn: acaoCicloEnviar_ },
+  cicloIndiceSalvar: { escrita: true, fn: acaoCicloIndiceSalvar_ },
+  cicloListar: { escrita: false, fn: acaoCicloListar_ },
+  cicloTrechos: { escrita: false, fn: acaoCicloTrechos_ }
 };
 
 function executar_(acao, dados) {
@@ -469,6 +473,92 @@ function acaoMontagemLer_() {
   var t = carroLerTexto_(carroPasta_(), 'montagem.json');
   if (!t) return null;
   try { return JSON.parse(t); } catch (e) { return null; }
+}
+
+/*
+ * Ciclos arquivados (consulta por trecho, como um banco de dados). Ao arquivar um ciclo, o app separa cada arquivo
+ * em blocos de 1 km (ramal/linha/km já corrigidos, sem os cortes) e manda um "contêiner" por arquivo: os blocos
+ * compactados um atrás do outro. O indice.json diz onde está cada bloco (contêiner, início, tamanho).
+ * Na consulta, o servidor devolve só os pedaços pedidos.
+ * Drive: Carro Controle EM80/Ciclos/<ciclo>/indice.json e <arquivo>.bin
+ */
+function cicloNome_(c) {
+  var t = String(c === undefined || c === null ? '' : c).trim() || 'sem-ciclo';
+  if (!/^[\w .\-]{1,40}$/.test(t)) throw erro_('VALIDACAO', 'Nome de ciclo inválido: ' + c);
+  return t;
+}
+
+function cicloPasta_(ciclo, criar) {
+  var ciclos = carroSubpasta_(carroPasta_(), 'Ciclos');
+  var nome = cicloNome_(ciclo);
+  var it = ciclos.getFoldersByName(nome);
+  if (it.hasNext()) return it.next();
+  return criar ? ciclos.createFolder(nome) : null;
+}
+
+function cicloNomeConteiner_(n) {
+  var t = String(n || '');
+  if (!/^[^<>:"|?*\\/]{1,200}\.bin$/.test(t)) throw erro_('VALIDACAO', 'Nome inválido: ' + n);
+  return t;
+}
+
+function acaoCicloEnviar_(dados) {
+  var nome = cicloNomeConteiner_(dados.nome);
+  var b64 = String(dados.base64 || '');
+  if (!b64 || b64.length > CARRO_MAX_BASE64) throw erro_('VALIDACAO', 'Conteúdo vazio ou grande demais: ' + nome);
+  var pasta = cicloPasta_(dados.ciclo, true);
+  var antigo = carroArquivoPorNome_(pasta, nome);
+  if (antigo) antigo.setTrashed(true);
+  pasta.createFile(Utilities.newBlob(Utilities.base64Decode(b64), 'application/octet-stream', nome));
+  return { nome: nome };
+}
+
+function acaoCicloIndiceSalvar_(dados) {
+  var texto = String(dados.conteudo || '');
+  if (!texto || texto.length > 20 * 1024 * 1024) throw erro_('VALIDACAO', 'Índice vazio ou grande demais.');
+  var ind = JSON.parse(texto);
+  if (!ind || !ind.blocos || !ind.arquivos) throw erro_('VALIDACAO', 'Índice inválido.');
+  carroGravarTexto_(cicloPasta_(dados.ciclo, true), 'indice.json', texto);
+  return { ciclo: cicloNome_(dados.ciclo) };
+}
+
+/** Ciclos arquivados, com o índice de cada um (ou só o de um ciclo, se pedido). */
+function acaoCicloListar_(dados) {
+  var ciclos = carroSubpasta_(carroPasta_(), 'Ciclos');
+  var so = dados && dados.ciclo !== undefined && dados.ciclo !== null ? cicloNome_(dados.ciclo) : null;
+  var lista = [];
+  var it = ciclos.getFolders();
+  while (it.hasNext()) {
+    var p = it.next();
+    if (so && p.getName() !== so) continue;
+    var t = carroLerTexto_(p, 'indice.json');
+    var ind = null;
+    try { ind = t ? JSON.parse(t) : null; } catch (e) { ind = null; }
+    if (ind) lista.push({ ciclo: p.getName(), indice: ind });
+  }
+  return lista;
+}
+
+/** Pedaços dos contêineres: pedidos = [{ c: nome, o: início, t: tamanho }] → [{ c, o, t, base64 }]. */
+function acaoCicloTrechos_(dados) {
+  var pasta = cicloPasta_(dados.ciclo, false);
+  if (!pasta) throw erro_('NAO_ENCONTRADO', 'Ciclo não arquivado: ' + dados.ciclo);
+  var pedidos = Array.isArray(dados.pedidos) ? dados.pedidos : [];
+  if (pedidos.length > 2000) throw erro_('VALIDACAO', 'Pedidos demais.');
+  var cache = {};
+  var total = 0;
+  return pedidos.map(function (p) {
+    var nome = cicloNomeConteiner_(p.c);
+    if (!cache[nome]) {
+      var f = carroArquivoPorNome_(pasta, nome);
+      if (!f) throw erro_('NAO_ENCONTRADO', 'Bloco não está no Drive: ' + nome);
+      cache[nome] = f.getBlob().getBytes();
+    }
+    var o = Number(p.o) || 0; var t = Number(p.t) || 0;
+    total += t;
+    if (total > CARRO_MAX_BASE64 * 0.7) throw erro_('VALIDACAO', 'Trecho grande demais: peça menos km.');
+    return { c: nome, o: o, t: t, base64: Utilities.base64Encode(cache[nome].slice(o, o + t)) };
+  });
 }
 
 function acaoCarroStatus_(dados) {

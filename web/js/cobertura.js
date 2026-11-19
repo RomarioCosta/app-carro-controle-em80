@@ -567,5 +567,113 @@
     return { id: a.id, nome: a.nome, trechos, avisos };
   });
 
+  /* ---------------- Ciclo arquivado: blocos de 1 km ---------------- */
+
+  /**
+   * Separa o CSV em blocos de km (padrão 1 km) por linha, já com os ajustes da Montagem: km corrigido (compensação +
+   * geometria, o mesmo do resumo), linha corrigida, sem os cortes e sem LOCOM. As linhas "D" e "E" saem com o KM,
+   * a LOCALIZACAO e a LINHA reescritos; cada parte tem a linha "H" e abre sozinha na Análise.
+   * Retorna { partes: [{ linha, bloco, de, ate, pontos, texto }], pontos, desc }.
+   */
+  C.blocosDoArquivo = (texto, resumo, { cortes = null, tamanho = 1000 } = {}) => {
+    const b = B();
+    const U = App.U;
+    const num = (s) => {
+      const t = String(s ?? '').trim();
+      if (!t || t.includes('*')) return null;
+      const n = Number(t.includes(',') && !t.includes('.') ? t.replace(',', '.') : t);
+      return Number.isFinite(n) ? n : null;
+    };
+    const linhas = String(texto || '').split(/\r?\n/);
+    const iH = linhas.findIndex((l) => l.split(';')[0].trim() === 'H');
+    if (iH < 0) throw new Error('Cabeçalho (linha "H") não encontrado.');
+    const cabTxt = linhas[iH];
+    const cab = cabTxt.split(';').map((x) => U.chaveTitulo(x));
+    const iKm = cab.indexOf(b.COLUNAS.km); const iLoc = cab.indexOf(b.COLUNAS.loc);
+    const iLinha = cab.indexOf('linha'); const iRamal = cab.indexOf('ramal');
+    if (iKm < 0 || iLoc < 0) throw new Error('Colunas KM/LOCALIZACAO não encontradas.');
+    const a = resumo.amostras;
+    const n = resumo.pontos;
+    const passo = Math.max(1, Math.round(1 / (resumo.espacamento || 0.25)));
+    const listaCortes = b.cortesDe(cortes);
+    const comRamal = (c) => iRamal >= 0 && String(c[iRamal] ?? '').trim() !== '';
+    const temRamal = linhas.some((l) => l.startsWith('D') && comRamal(l.split(';')));
+    // correção do km e linha usada no ponto i (amostras a cada "passo" pontos; a última é o ponto n-1)
+    const ajuste = (i) => {
+      const k = Math.min(Math.floor(i / passo), a.aj.length - 1);
+      const i0 = k * passo; const i1 = k + 1 < a.aj.length ? Math.min((k + 1) * passo, n - 1) : i0;
+      return i1 > i0 ? a.aj[k] + ((a.aj[k + 1] - a.aj[k]) * (i - i0)) / (i1 - i0) : a.aj[k];
+    };
+    const linhaDe = (i) => a.linhas[a.linha[Math.min(Math.floor(i / passo), a.linha.length - 1)]];
+    const escrever = (c, p, iK, iL) => {
+      const cm = Math.round(p * 100);
+      const k = Math.floor(cm / 100000);
+      c[iK] = String(k); c[iL] = String((cm - k * 100000) / 100);
+    };
+    const partes = new Map();
+    const parte = (linha, bloco) => {
+      const ch = `${linha}|${bloco}`;
+      if (!partes.has(ch)) partes.set(ch, { linha, bloco, de: Infinity, ate: -Infinity, pontos: 0, ls: [] });
+      return partes.get(ch);
+    };
+    let comecou = !temRamal;
+    let i = -1; // ponto (linha "D" com posição), na mesma contagem da leitura do arquivo
+    let ultima = null; // parte e correção do último ponto que entrou (para os eventos "E")
+    for (let k = iH + 1; k < linhas.length; k++) {
+      const ln = linhas[k];
+      if (!ln) continue;
+      const c = ln.split(';');
+      const tipo = c[0].trim();
+      if (tipo === 'D') {
+        if (!comecou && !comRamal(c)) continue;
+        comecou = true;
+        const km = num(c[iKm]); const loc = num(c[iLoc]);
+        if (km === null || loc === null) continue;
+        i++;
+        ultima = null;
+        if (i >= n) break;
+        const p = km * 1000 + loc;
+        const l = linhaDe(i);
+        if (b.ehDeslocamento(l) || b.noCorte(p, listaCortes)) continue;
+        const aj = ajuste(i);
+        const pc = p + aj;
+        const pt = parte(l, Math.floor(pc / tamanho));
+        escrever(c, pc, iKm, iLoc);
+        if (iLinha >= 0) c[iLinha] = l;
+        pt.ls.push(c.join(';')); pt.pontos++;
+        if (pc < pt.de) pt.de = pc;
+        if (pc > pt.ate) pt.ate = pc;
+        ultima = { pt, aj, l };
+      } else if (tipo === 'E' && ultima) {
+        const km = num(c[7]); const loc = num(c[9]);
+        if (km === null || loc === null) continue;
+        escrever(c, km * 1000 + loc + ultima.aj, 7, 9);
+        ultima.pt.ls.push(c.join(';'));
+      }
+    }
+    if (i + 1 !== n) throw new Error(`O arquivo não confere com o resumo da Montagem (${i + 1} pontos, esperado ${n}).`);
+    const desc = n > 1 && resumo.kmFim < resumo.kmIni;
+    return {
+      pontos: n,
+      desc,
+      partes: [...partes.values()].sort((x, y) => (x.linha < y.linha ? -1 : x.linha > y.linha ? 1 : x.bloco - y.bloco))
+        .map(({ ls, ...pt }) => ({ ...pt, texto: `${cabTxt}\n${ls.join('\n')}\n` }))
+    };
+  };
+
+  /** Junta as partes de um arquivo (na ordem dele) num CSV só: uma linha "H" e as linhas de cada parte. */
+  C.juntarPartes = (textos, desc = false) => {
+    const ord = desc ? [...textos].reverse() : textos;
+    let cab = '';
+    const corpo = [];
+    ord.forEach((t) => {
+      const ls = String(t).split(/\r?\n/).filter((l) => l);
+      if (!ls.length) return;
+      if (!cab) cab = ls[0];
+      corpo.push(...ls.slice(1));
+    });
+    return cab ? `${cab}\n${corpo.join('\n')}\n` : '';
+  };
+
   App.cobertura = C;
 })(window.App);
