@@ -51,6 +51,14 @@
   const deBase64 = (b64) => { const bin = atob(b64); const out = new Uint8Array(bin.length); for (let k = 0; k < bin.length; k++) out[k] = bin.charCodeAt(k); return out; };
   const nomeSeguro = (n) => String(n).replace(/[^\w.\-]/g, '_');
 
+  /** Blocos (km) arquivados de um ramal/linha em faixas contínuas: "km 0 a 12, 309 a 318". */
+  function faixasArquivadas(indice, ramal, linha) {
+    const bs = Object.keys(indice.blocos).map((k) => k.split('|')).filter((k) => k[0] === ramal && k[1] === linha).map((k) => Number(k[2])).sort((a, b) => a - b);
+    const fx = [];
+    bs.forEach((b) => { const u = fx[fx.length - 1]; if (u && b === u[1] + 1) u[1] = b; else fx.push([b, b]); });
+    return fx.length ? `km ${fx.map(([a, b]) => `${a} a ${b + 1}`).join(', ')}` : '';
+  }
+
   async function lerDrive() {
     if (!nuvemOk()) return;
     try { ciclosDrive = await api().chamar('cicloListar', {}); erroDrive = ''; } catch (e) { erroDrive = e.message; }
@@ -148,10 +156,15 @@
   /* ---------------- Consultar ---------------- */
 
   async function consultar({ ciclo, ramal, linha, de, ate }) {
-    const item = (ciclosDrive || []).find((x) => x.ciclo === ciclo);
-    if (!item) return;
     if (de > ate) [de, ate] = [ate, de];
     if (ate - de > MAX_KM_CONSULTA * 1000) { ui.toast(`Consulte até ${MAX_KM_CONSULTA} km por vez.`, 'erro', 5000); return; }
+    // índice sempre atual (o arquivamento pode ter terminado depois que a tela leu o Drive)
+    try {
+      const novo = (await api().chamar('cicloListar', { ciclo }))[0];
+      if (novo) ciclosDrive = [...(ciclosDrive || []).filter((x) => x.ciclo !== ciclo), novo];
+    } catch (e) { /* usa o que já tinha */ }
+    const item = (ciclosDrive || []).find((x) => x.ciclo === ciclo);
+    if (!item) return;
     const ind = item.indice;
     const entradas = [];
     for (let b = Math.floor(de / BLOCO); b <= Math.floor(ate / BLOCO); b++) {
@@ -227,7 +240,7 @@
       U.pref.set('ciclos:consulta', { ...pref, ciclo: cicloSel, ramal: ramalSel, linha: linhaSel, de: de.value.trim(), ate: ate.value.trim() });
       consultar({ ciclo: cicloSel, ramal: ramalSel, linha: linhaSel, de: a, ate: b });
     };
-    const faixa = blocos.length ? `km ${Math.min(...blocos)} a ${Math.max(...blocos) + 1}` : '';
+    const faixa = blocos.length ? faixasArquivadas(ind, ramalSel, linhaSel) : '';
     return h('div', { class: 'pilha' },
       h('h2', { text: 'Consultar trecho' }),
       h('div', { class: 'grade-4' },
@@ -372,6 +385,7 @@
       q && lista.length ? h('div', { class: 'tc-botoes' },
         h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: k <= 0 || null, onclick: () => ir(k - 1) }, ui.icone('esquerda'), 'Anterior'),
         h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: k >= lista.length - 1 || null, onclick: () => ir(k + 1) }, 'Próximo', ui.icone('direita'))) : null,
+      h('small', { class: 'sub', style: 'flex-basis: 100%', text: `Arquivado em ${ramalSel} L${linhaSel}: ${faixasArquivadas(item.indice, ramalSel, linhaSel) || '—'} · ${Object.keys(item.indice.arquivos).length} arquivo(s) no ciclo` }),
       progresso && /^Não foi possível consultar/.test(progresso) ? h('p', { class: 'aviso aviso-erro', text: progresso }) : null);
   }
 

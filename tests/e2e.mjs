@@ -1118,6 +1118,7 @@ async function main() {
       await linhaArq.getByLabel('Ciclo', { exact: true }).selectOption({ label: 'Ciclo 5 · arquivado' });
       await linhaArq.getByLabel('Km de').fill('2+000');
       await linhaArq.getByLabel('Km até').fill('2+050');
+      await linhaArq.getByText(/Arquivado em TST L1: km 1 a 3 · /).waitFor();
       await linhaArq.getByRole('button', { name: 'Consultar' }).click();
       await linhaArq.getByLabel('Arquivo do ciclo arquivado').locator('option', { hasText: 'RLT_SJ_20261118.csv' }).waitFor({ state: 'attached' });
       const valSJ = await linhaArq.getByLabel('Arquivo do ciclo arquivado').locator('option', { hasText: 'RLT_SJ_20261118.csv' }).getAttribute('value');
