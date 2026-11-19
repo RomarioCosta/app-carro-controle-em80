@@ -281,3 +281,26 @@ test('ramal com linha 02 só em alguns trechos: no trecho singelo o arquivo da l
   const lanc = C.kmLancados(resumo('a', 0, 3200, '2'), null, pl);
   assert.deepEqual(j(lanc.map((t) => t.linha)), ['1', '2', '1']);
 });
+
+test('ciclo arquivado: blocos de 1 km com km corrigido, sem cortes, e juntados de volta', async () => {
+  const { gerarCSV } = await import('./csv-sintetico.mjs');
+  const texto = gerarCSV();
+  const B = ctx.App.bitola;
+  const r = C.resumirArquivo(B.lerCSV(texto), { elementos: [], ramais: { TST: ['1'] } }, 'x.csv');
+  r.amostras.aj.fill(10); // correção de +10 m em todo o arquivo
+  const { partes, desc, pontos } = C.blocosDoArquivo(texto, r, { cortes: [{ de: 2000, ate: 2100 }] });
+  assert.equal(pontos, 4000);
+  assert.equal(desc, true);
+  assert.deepEqual(j(partes.map((p) => [p.linha, p.bloco])), [['1', 1], ['1', 2]]);
+  const t = C.juntarPartes(partes.map((p) => p.texto), desc);
+  const lido = B.lerCSV(t);
+  assert.equal(lido.pos.length, 4000 - 401);
+  assert.ok(Math.abs(lido.pos[0] - 2510) < 1e-6);
+  assert.ok(Math.abs(lido.pos[lido.pos.length - 1] - 1510.25) < 1e-6);
+  assert.ok([...lido.pos].every((p, i) => i === 0 || p < lido.pos[i - 1])); // na ordem do arquivo
+  assert.ok([...lido.pos].every((p) => p - 10 < 2000 || p - 10 > 2100)); // o corte ficou de fora
+  assert.equal(lido.meta.linha, '1');
+  assert.ok(lido.eventos.some((e) => e.texto === 'INICIO AMV') === false); // o evento em 2+000 caiu no corte
+  // parte do bloco 2 sozinha abre na Análise
+  assert.ok(B.lerCSV(partes[1].texto).pos.every((p) => p >= 2000));
+});

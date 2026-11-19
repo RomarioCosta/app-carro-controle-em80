@@ -1087,6 +1087,31 @@ async function main() {
       await page.getByRole('tab', { name: 'Montagem' }).click();
       await page.locator('.mt-arquivo > summary', { hasText: 'RLT_SJ_20261118.csv' }).waitFor();
       await page.locator('.mt-arquivo > summary', { hasText: 'RLT_FU_20261118.csv' }).filter({ hasText: '1 corte(s)' }).waitFor();
+
+      // Ciclos anteriores: arquiva o ciclo (blocos de 1 km no Drive), tira da Montagem e consulta só um trecho
+      const qtdCiclo = await page.evaluate(async () => (await App.montagem.doCiclo(App.montagem.ciclo())).length);
+      assert.ok(qtdCiclo >= 2);
+      await page.getByRole('tab', { name: 'Ciclos anteriores' }).click();
+      await page.getByRole('heading', { name: 'Arquivar ciclo' }).waitFor();
+      await page.locator('table', { hasText: 'Arquivos na Montagem' }).getByRole('button', { name: 'Arquivar' }).first().click();
+      await page.locator('.modal').getByRole('button', { name: 'Arquivar' }).click();
+      await page.locator('.modal').getByRole('button', { name: 'Tirar da Montagem' }).click({ timeout: 60000 });
+      await page.getByText(/arquivo\(s\) saíram da Montagem/).waitFor();
+      assert.equal(await page.evaluate(async () => (await App.montagem.doCiclo(App.montagem.ciclo())).length), 0);
+      const ciclosNoDrive = await servidorChama('cicloListar', {});
+      assert.equal(Object.keys(ciclosNoDrive[0].indice.arquivos).length, qtdCiclo);
+      assert.ok(Object.keys(ciclosNoDrive[0].indice.blocos).some((k) => k.startsWith('TST|1|')));
+      await page.getByLabel('Km de').fill('1+900');
+      await page.getByLabel('Km até').fill('2,1');
+      await page.getByRole('button', { name: 'Consultar' }).click();
+      const linhaFU = page.locator('[data-ci-resultado] .ci-item', { hasText: 'RLT_FU_20261118.csv' });
+      await linhaFU.waitFor();
+      assert.ok(await page.locator('[data-ci-resultado] .ci-item', { hasText: 'RLT_SJ_20261118.csv' }).count());
+      await page.screenshot({ path: `${SAIDA}14-ciclos.png`, fullPage: true });
+      await linhaFU.getByRole('button', { name: 'Análise' }).click();
+      await page.waitForFunction(() => { const e = App.analise.estado(); return e.arquivo && /RLT_FU_20261118\.csv · /.test(e.nomeArquivo); });
+      const faixaKm = await page.evaluate(() => { const p = App.analise.estado().arquivo.pos; return [Math.min(...p), Math.max(...p)]; });
+      assert.ok(faixaKm[0] >= 1900 - 1e-6 && faixaKm[1] <= 2100 + 1e-6 && faixaKm[1] - faixaKm[0] > 150, `trecho consultado: ${faixaKm}`);
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });
 

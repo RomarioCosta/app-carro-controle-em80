@@ -156,6 +156,7 @@ class FakeFolder {
   createFolder(nome) { const f = new FakeFolder(this.drive, nome); this.pastas.push(f); return f; }
   getFoldersByName(nome) { return iterador(this.pastas.filter((f) => f.nome === nome && !f.lixo)); }
   getFilesByName(nome) { return iterador(this.arquivos.filter((f) => f.nome === nome && !f.lixo)); }
+  getFolders() { return iterador(this.pastas.filter((f) => !f.lixo)); }
   getFiles() { return iterador(this.arquivos.filter((f) => !f.lixo)); }
   createFile(a, conteudo, tipo) {
     const f = a instanceof FakeBlob ? new FakeFile(this, a.nome, a.bytes, a.tipo) : new FakeFile(this, a, Buffer.from(String(conteudo), 'utf8'), tipo || 'text/plain');
