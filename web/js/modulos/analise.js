@@ -44,6 +44,7 @@
       secoes.arquivo, secoes.planta, secoes.parametros, secoes.kpis, secoes.offset, secoes.graficos, secoes.elementos, secoes.ranking);
     renderArquivo();
     carregarPlanta().then(carregarUltimo).then(atualizarMontagem);
+    if (App.ciclos) App.ciclos.aoMudar(() => atualizarMontagem());
   }
 
   /* ---------------- Arquivo ---------------- */
@@ -390,14 +391,19 @@
     const posArq = arquivoCompleto ? (arquivoCompleto.posArq || arquivoCompleto.pos) : null;
     const atualId = idMontagem();
     const anterior = vizinhoMontagem(-1); const proximo = vizinhoMontagem(1);
-    const daMontagem = montagemLista.length ? h('div', { class: 'tc-linha tc-linha-arquivo' },
-      h('label', { class: 'tc-campo tc-campo-arquivo' }, h('span', { text: `Arquivos da Montagem${App.montagem.ciclo() ? ` (ciclo ${App.montagem.ciclo()})` : ''}` }),
+    // ciclo: os da Montagem ou um arquivado no Google Drive (consulta por trecho)
+    const cicloArq = App.ciclos ? App.ciclos.arquivado() : null;
+    const campoCiclo = App.ciclos ? App.ciclos.campoCiclo() : null;
+    const daMontagem = cicloArq ? h('div', { class: 'tc-linha tc-linha-arquivo' }, campoCiclo, App.ciclos.caixa('analise'))
+      : !montagemLista.length ? (campoCiclo ? h('div', { class: 'tc-linha tc-linha-arquivo' }, campoCiclo, h('span', { class: 'sub', text: 'Nenhum arquivo deste ciclo na Montagem.' })) : null)
+      : h('div', { class: 'tc-linha tc-linha-arquivo' }, campoCiclo,
+      h('label', { class: 'tc-campo tc-campo-arquivo' }, h('span', { text: 'Arquivos da Montagem' }),
         h('select', { 'aria-label': 'Montagem: escolher o arquivo a analisar', onchange: (e) => abrirDaMontagem(e.target.value) },
           h('option', { value: '', selected: !atualId || null, text: atualId ? '—' : (nomeArquivo ? `Arquivo avulso: ${nomeArquivo}` : 'Escolha um arquivo da Montagem') }),
           montagemLista.map((a) => h('option', { value: a.id, selected: a.id === atualId || null, text: a.rotulo })))),
       h('div', { class: 'tc-botoes' },
         h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: !anterior || null, title: anterior ? anterior.nome : '', onclick: () => abrirDaMontagem(anterior.id) }, ui.icone('esquerda'), 'Anterior'),
-        h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: !proximo || null, title: proximo ? proximo.nome : '', onclick: () => abrirDaMontagem(proximo.id) }, 'Próximo', ui.icone('direita')))) : null;
+        h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: !proximo || null, title: proximo ? proximo.nome : '', onclick: () => abrirDaMontagem(proximo.id) }, 'Próximo', ui.icone('direita'))));
     ui.trocar(secoes.arquivo, h('section', { class: 'cartao' },
       h('h2', { text: 'Arquivo' }),
       daMontagem,

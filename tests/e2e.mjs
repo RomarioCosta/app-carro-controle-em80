@@ -676,7 +676,7 @@ async function main() {
       await page.locator('.tc-svg').waitFor();
       assert.equal(await page.locator('.tc-cab-cel.tc-cab-gira').count(), 12); // EX, T/E e 10 parâmetros
       assert.equal(await page.locator('.tc-sinal').count(), 0); // ao abrir, a tela fica vazia
-      await page.locator('.tc-controles select').nth(2).selectOption('20'); // 20×
+      await page.locator('.tc-controles label.tc-campo', { has: page.locator('span', { hasText: /^Velocidade$/ }) }).locator('select').selectOption('20'); // 20×
       await page.locator('.tc-controles').getByRole('button', { name: 'Reproduzir' }).click();
       await page.waitForFunction(() => document.querySelectorAll('.tc-sinal').length >= 9);
       await page.locator('.tc-controles').getByRole('button', { name: 'Pausar' }).click();
@@ -1112,16 +1112,26 @@ async function main() {
       await page.waitForFunction(() => { const e = App.analise.estado(); return e.arquivo && /RLT_FU_20261118\.csv · /.test(e.nomeArquivo); });
       const faixaKm = await page.evaluate(() => { const p = App.analise.estado().arquivo.pos; return [Math.min(...p), Math.max(...p)]; });
       assert.ok(faixaKm[0] >= 1900 - 1e-6 && faixaKm[1] <= 2100 + 1e-6 && faixaKm[1] - faixaKm[0] > 150, `trecho consultado: ${faixaKm}`);
-      // a mesma consulta no topo da Tela do carro (abre ali mesmo)
+      // na Tela do carro: escolhe o ciclo arquivado no campo Ciclo e consulta o trecho ali mesmo
       await page.getByRole('tab', { name: 'Tela do carro' }).click();
-      const embTela = page.locator('.ci-embutido:visible');
-      await embTela.locator('summary').click();
-      await embTela.getByLabel('Km de').fill('2+000');
-      await embTela.getByLabel('Km até').fill('2+050');
-      await embTela.getByRole('button', { name: 'Consultar' }).click();
-      await embTela.locator('.ci-item', { hasText: 'RLT_SJ_20261118.csv' }).getByRole('button', { name: 'Abrir' }).click();
+      const linhaArq = page.locator('.tc-linha-arquivo:visible');
+      await linhaArq.getByLabel('Ciclo', { exact: true }).selectOption({ label: 'Ciclo 5 · arquivado' });
+      await linhaArq.getByLabel('Km de').fill('2+000');
+      await linhaArq.getByLabel('Km até').fill('2+050');
+      await linhaArq.getByRole('button', { name: 'Consultar' }).click();
+      await linhaArq.getByLabel('Arquivo do ciclo arquivado').locator('option', { hasText: 'RLT_SJ_20261118.csv' }).waitFor({ state: 'attached' });
+      const valSJ = await linhaArq.getByLabel('Arquivo do ciclo arquivado').locator('option', { hasText: 'RLT_SJ_20261118.csv' }).getAttribute('value');
+      await linhaArq.getByLabel('Arquivo do ciclo arquivado').selectOption(valSJ);
       await page.waitForFunction(() => /RLT_SJ_20261118\.csv · /.test(App.analise.estado().nomeArquivo));
       assert.equal(await page.getByRole('tab', { name: 'Tela do carro' }).getAttribute('aria-selected'), 'true');
+      // a Análise mostra o mesmo ciclo escolhido; voltar para o ciclo da Montagem traz a lista de sempre
+      await page.getByRole('tab', { name: 'Análise do arquivo' }).click();
+      const linhaAn = page.locator('.tc-linha-arquivo:visible');
+      assert.equal(await linhaAn.getByLabel('Arquivo do ciclo arquivado').count(), 1);
+      await linhaAn.getByLabel('Ciclo', { exact: true }).selectOption({ label: 'Ciclo 5' });
+      await linhaAn.getByText('Nenhum arquivo deste ciclo na Montagem.').waitFor();
+      await linhaAn.getByLabel('Ciclo', { exact: true }).selectOption({ label: 'Ciclo 5 · arquivado' });
+      await page.getByRole('tab', { name: 'Tela do carro' }).click();
       await page.screenshot({ path: `${SAIDA}14-ciclos-tela.png` });
       await page.getByRole('tab', { name: 'Checklist' }).click();
     });

@@ -1115,6 +1115,8 @@
     /** Arquivos de um ciclo (com o resumo e os ajustes) e o CSV guardado de cada um. */
     async doCiclo(c) { await carregar(); return arquivos.filter((a) => (a.ciclo || '') === (c || '')); },
     lerCsv: (id) => lerCsv(id),
+    /** Troca o ciclo da Montagem (o mesmo campo "Ciclo" da tela da Montagem). */
+    async usarCiclo(c) { U.pref.set('montagem:ciclo', String(c || '').trim()); await carregar(); if (raiz) render(); },
     /** Tira da Montagem deste aparelho (e do Drive, na próxima gravação) os arquivos de um ciclo já arquivado. */
     async removerCiclo(c) {
       await carregar();

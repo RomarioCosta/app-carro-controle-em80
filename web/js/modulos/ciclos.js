@@ -55,6 +55,7 @@
     if (!nuvemOk()) return;
     try { ciclosDrive = await api().chamar('cicloListar', {}); erroDrive = ''; } catch (e) { erroDrive = e.message; }
     render();
+    avisar();
   }
 
   /* ---------------- Arquivar ---------------- */
@@ -133,6 +134,7 @@
         ui.toast(`${nomeCiclo(c)} arquivado no Google Drive.`, 'ok', 5000);
         if (await ui.confirmar('Tirar da Montagem', `${nomeCiclo(c)} está arquivado e pode ser consultado aqui por trecho. Tirar os ${lista.length} arquivo(s) dele da Montagem (deixa o app leve)?`, { ok: 'Tirar da Montagem', perigo: true })) {
           const n = await App.montagem.removerCiclo(c);
+          lerLocais();
           ui.toast(`${n} arquivo(s) saíram da Montagem.`, 'ok', 4000);
         }
       }
@@ -189,11 +191,9 @@
     render();
   }
 
-  let abertoNome = '';
-  async function abrir(x, aba, embutido = false) {
+  async function abrir(x, aba) {
     const q = consulta;
-    abertoNome = `${x.nome} · ${kmTxt(q.de)} a ${kmTxt(q.ate)}`;
-    if (embutido) { U.pref.set(`ciclos:aberto:${aba}`, false); render(); } // recolhe para o arquivo aparecer
+    q.aberto = x.nome;
     const nome = `${x.nome} · ${nomeCiclo(q.ciclo)} · ${kmTxt(q.de)} a ${kmTxt(q.ate)}`;
     window.dispatchEvent(new CustomEvent('em80:checklist-aba', { detail: aba }));
     await new Promise((r) => setTimeout(r, 30));
@@ -203,10 +203,10 @@
 
   /* ---------------- Tela ---------------- */
 
-  function cartaoConsulta(aba = null) {
+  function cartaoConsulta() {
     const lista = ciclosDrive || [];
     if (!lista.length) {
-      return h('div', { class: 'pilha' }, aba ? null : h('h2', { text: 'Consultar trecho' }),
+      return h('div', { class: 'pilha' }, h('h2', { text: 'Consultar trecho' }),
         h('p', { class: 'sub', text: erroDrive ? `Não foi possível ler o Google Drive: ${erroDrive}` : ciclosDrive ? 'Nenhum ciclo arquivado ainda.' : 'Lendo o Google Drive…' }));
     }
     const pref = U.pref.get('ciclos:consulta', {}) || {};
@@ -229,7 +229,7 @@
     };
     const faixa = blocos.length ? `km ${Math.min(...blocos)} a ${Math.max(...blocos) + 1}` : '';
     return h('div', { class: 'pilha' },
-      aba ? null : h('h2', { text: 'Consultar trecho' }),
+      h('h2', { text: 'Consultar trecho' }),
       h('div', { class: 'grade-4' },
         ui.campo('Ciclo', h('select', { onchange: (e) => salvar('ciclo', e.target.value) }, lista.map((x) => h('option', { value: x.ciclo, selected: x.ciclo === cicloSel || null, text: x.ciclo === 'sem-ciclo' ? 'Sem ciclo' : x.ciclo })))),
         ui.campo('Ramal', h('select', { onchange: (e) => salvar('ramal', e.target.value) }, ramais.map((r) => h('option', { value: r, selected: r === ramalSel || null, text: r })))),
@@ -239,10 +239,10 @@
         ui.campo('Km de', de), ui.campo('Km até', ate),
         h('div', { class: 'mt-acao' }, h('button', { class: 'btn btn-primario', disabled: ocupado || null, onclick: buscar }, ui.icone('busca'), 'Consultar'))),
       faixa ? h('small', { class: 'sub', text: `Arquivado nesta linha: ${faixa}` }) : null,
-      resultadoConsulta(aba));
+      resultadoConsulta());
   }
 
-  function resultadoConsulta(aba) {
+  function resultadoConsulta() {
     const q = consulta;
     if (!q) return null;
     if (!q.arquivos.length) return ocupado ? null : h('p', { class: 'sub', text: `Nenhum arquivo do ${nomeCiclo(q.ciclo).toLowerCase()} passou por ${q.ramal} L${q.linha} entre ${kmTxt(q.de)} e ${kmTxt(q.ate)}.` });
@@ -253,10 +253,9 @@
         h('div', { class: 'item-principal' },
           h('strong', { text: x.nome }),
           h('div', { class: 'item-sub', text: `${x.info.data || '—'} · ${x.info.corretiva || '—'} · ${kmTxt(x.de)} → ${kmTxt(x.ate)}` }),
-          h('div', { class: 'linha-acoes' }, aba
-            ? h('button', { class: 'btn btn-pequeno', onclick: () => abrir(x, aba, true) }, ui.icone(aba === 'tela' ? 'play' : 'grafico'), 'Abrir')
-            : [h('button', { class: 'btn btn-pequeno', onclick: () => abrir(x, 'analise') }, ui.icone('grafico'), 'Análise'),
-              h('button', { class: 'btn btn-pequeno', onclick: () => abrir(x, 'tela') }, ui.icone('play'), 'Tela do carro')])))));
+          h('div', { class: 'linha-acoes' },
+            h('button', { class: 'btn btn-pequeno', onclick: () => abrir(x, 'analise') }, ui.icone('grafico'), 'Análise'),
+            h('button', { class: 'btn btn-pequeno', onclick: () => abrir(x, 'tela') }, ui.icone('play'), 'Tela do carro'))))));
   }
 
   async function cartaoArquivar() {
@@ -279,28 +278,106 @@
       progresso ? h('p', { class: /^(Com problema|Não foi)/.test(progresso) ? 'aviso aviso-erro' : 'sub', text: progresso }) : null);
   }
 
-  /* Consulta dentro da Análise do arquivo e da Tela do carro (fechada até abrir; lê o Drive só ao abrir) */
-  const embutidos = []; // [{ el, aba }]
-  function renderEmbutido({ el, aba }) {
-    if (!nuvemOk()) { ui.trocar(el); return; }
-    const chave = `ciclos:aberto:${aba}`;
-    const aberto = !!U.pref.get(chave, false);
-    const det = h('details', { class: 'cartao ci-embutido', open: aberto || null },
-      h('summary', {}, h('strong', { text: 'Consultar ciclo anterior' }), abertoNome ? h('small', { class: 'sub', text: ` · aberto: ${abertoNome}` }) : null),
-      aberto ? cartaoConsulta(aba) : null,
-      aberto && progresso && !/^(Separando|Enviando)/.test(progresso) ? h('p', { class: /^(Com problema|Não foi)/.test(progresso) ? 'aviso aviso-erro' : 'sub', text: progresso }) : null);
-    det.addEventListener('toggle', () => {
-      if (det.open === aberto) return;
-      U.pref.set(chave, det.open);
-      renderEmbutido({ el, aba });
-      if (det.open && !ciclosDrive) lerDrive();
-    });
-    ui.trocar(el, det);
+  /* ---------------- Ciclo na Análise do arquivo e na Tela do carro ----------------
+   * Um campo "Ciclo" com os ciclos da Montagem e os arquivados. Ciclo da Montagem: a lista de arquivos de sempre.
+   * Ciclo arquivado: ramal, linha e km de/até → a lista dos arquivos que passaram pelo trecho. */
+  let locais = null; // ciclos com arquivos na Montagem deste aparelho
+  const ouvintes = new Set();
+  const avisar = () => ouvintes.forEach((f) => { try { f(); } catch (e) { console.error(e); } });
+  async function lerLocais() {
+    try { locais = (await App.montagem.ciclos()).map((x) => x.ciclo); } catch (e) { locais = []; }
+    avisar();
+  }
+  const naMontagem = () => (App.montagem && App.montagem.ciclo ? App.montagem.ciclo() || '' : '');
+  /** Ciclo arquivado escolhido (nome da pasta no Drive) ou null (ciclo da Montagem). */
+  function arquivado() {
+    const v = String(U.pref.get('ciclos:escolhido', '') || '');
+    if (!v.startsWith('a:') || !nuvemOk()) return null;
+    const c = v.slice(2);
+    return !ciclosDrive || ciclosDrive.some((x) => x.ciclo === c) ? c : null;
+  }
+  const rotuloArq = (c) => (c === 'sem-ciclo' ? 'Sem ciclo' : `Ciclo ${c}`);
+
+  function campoCiclo() {
+    const atual = naMontagem();
+    const loc = [...new Set([atual, ...(locais || [])])].sort();
+    const arqs = (ciclosDrive || []).map((x) => x.ciclo).sort();
+    const sel = arquivado();
+    if (sel && !arqs.includes(sel)) arqs.push(sel);
+    const valor = sel ? `a:${sel}` : `m:${atual}`;
+    const mudar = async (v) => {
+      if (v.startsWith('m:')) {
+        U.pref.set('ciclos:escolhido', '');
+        if (v.slice(2) !== atual && App.montagem.usarCiclo) await App.montagem.usarCiclo(v.slice(2));
+      } else {
+        U.pref.set('ciclos:escolhido', v);
+        if (!ciclosDrive) lerDrive();
+      }
+      avisar();
+    };
+    return h('label', { class: 'tc-campo' }, h('span', { text: 'Ciclo' }),
+      h('select', { 'aria-label': 'Ciclo', onchange: (e) => mudar(e.target.value) },
+        h('optgroup', { label: 'Na Montagem' }, loc.map((c) => h('option', { value: `m:${c}`, selected: valor === `m:${c}` || null, text: c ? `Ciclo ${c}` : 'Sem ciclo' }))),
+        arqs.length ? h('optgroup', { label: 'Arquivados (Google Drive)' }, arqs.map((c) => h('option', { value: `a:${c}`, selected: valor === `a:${c}` || null, text: `${rotuloArq(c)} · arquivado` }))) : null));
+  }
+
+  /** Campos da consulta ao ciclo arquivado, para a linha "Arquivo" da Análise ou da Tela do carro. */
+  const caixas = {};
+  function caixa(aba) {
+    if (!caixas[aba]) caixas[aba] = h('div', { class: 'ci-caixa', style: 'display: contents' });
+    renderCaixa(aba);
+    return caixas[aba];
+  }
+  function renderCaixa(aba) {
+    const el = caixas[aba];
+    if (!el) return;
+    const c = arquivado();
+    if (!c) { ui.trocar(el); return; }
+    const item = (ciclosDrive || []).find((x) => x.ciclo === c);
+    if (!item) {
+      ui.trocar(el, h('span', { class: 'sub', text: erroDrive ? `Não foi possível ler o Google Drive: ${erroDrive}` : 'Lendo o Google Drive…' }));
+      return;
+    }
+    const pref = U.pref.get('ciclos:trecho', {}) || {};
+    const chaves = Object.keys(item.indice.blocos).map((k) => k.split('|'));
+    const ramais = [...new Set(chaves.map((k) => k[0]))].sort();
+    const ramalSel = ramais.includes(pref.ramal) ? pref.ramal : ramais[0];
+    const linhas = [...new Set(chaves.filter((k) => k[0] === ramalSel).map((k) => k[1]))].sort();
+    const linhaSel = linhas.includes(pref.linha) ? pref.linha : linhas[0];
+    const salvar = (k, v) => { U.pref.set('ciclos:trecho', { ...pref, [k]: v }); Object.keys(caixas).forEach(renderCaixa); };
+    const de = h('input', { type: 'text', inputmode: 'decimal', value: pref.de || '', placeholder: 'ex.: 328+500', 'aria-label': 'Km de' });
+    const ate = h('input', { type: 'text', inputmode: 'decimal', value: pref.ate || '', placeholder: 'ex.: 330', 'aria-label': 'Km até' });
+    const buscar = () => {
+      const a = lerKm(de.value); const b = lerKm(ate.value);
+      if (a === null || b === null) { ui.toast('Informe o km de e até (ex.: 328+500 ou 328,5).', 'erro', 4000); return; }
+      U.pref.set('ciclos:trecho', { ...pref, ramal: ramalSel, linha: linhaSel, de: de.value.trim(), ate: ate.value.trim() });
+      consultar({ ciclo: c, ramal: ramalSel, linha: linhaSel, de: a, ate: b });
+    };
+    const enter = (e) => { if (e.key === 'Enter') buscar(); };
+    de.addEventListener('keydown', enter); ate.addEventListener('keydown', enter);
+    const q = consulta && consulta.ciclo === c && consulta.ramal === ramalSel && consulta.linha === linhaSel ? consulta : null;
+    const lista = q ? q.arquivos : [];
+    const k = q ? lista.findIndex((x) => x.nome === q.aberto) : -1;
+    const ir = (j) => { if (lista[j]) abrir(lista[j], aba); };
+    const campo = (rot, ctl) => h('label', { class: 'tc-campo' }, h('span', { text: rot }), ctl);
+    ui.trocar(el,
+      campo('Ramal', h('select', { onchange: (e) => salvar('ramal', e.target.value) }, ramais.map((r) => h('option', { value: r, selected: r === ramalSel || null, text: r })))),
+      campo('Linha', h('select', { onchange: (e) => salvar('linha', e.target.value) }, linhas.map((l) => h('option', { value: l, selected: l === linhaSel || null, text: `L${l}` })))),
+      campo('Km de', de), campo('Km até', ate),
+      h('div', { class: 'tc-botoes' }, h('button', { class: 'btn btn-primario btn-pequeno', type: 'button', disabled: ocupado || null, onclick: buscar }, ui.icone('busca'), ocupado && progresso.startsWith('Buscando') ? 'Buscando…' : 'Consultar')),
+      q ? h('label', { class: 'tc-campo tc-campo-arquivo' }, h('span', { text: lista.length ? `${lista.length} arquivo(s) no trecho ${kmTxt(q.de)} a ${kmTxt(q.ate)}` : 'Arquivos do trecho' }),
+        h('select', { 'aria-label': 'Arquivo do ciclo arquivado', disabled: !lista.length || null, onchange: (e) => ir(Number(e.target.value)) },
+          h('option', { value: '-1', selected: k < 0 || null, text: lista.length ? 'Escolha um arquivo' : `Nenhum arquivo passou por ${q.ramal} L${q.linha} nesse trecho` }),
+          lista.map((x, j) => h('option', { value: String(j), selected: j === k || null, text: `${x.nome} · ${x.info.data || '—'} · ${x.info.corretiva || '—'} · ${kmTxt(x.de)} → ${kmTxt(x.ate)}` })))) : null,
+      q && lista.length ? h('div', { class: 'tc-botoes' },
+        h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: k <= 0 || null, onclick: () => ir(k - 1) }, ui.icone('esquerda'), 'Anterior'),
+        h('button', { class: 'btn btn-secundario btn-pequeno', type: 'button', disabled: k >= lista.length - 1 || null, onclick: () => ir(k + 1) }, 'Próximo', ui.icone('direita'))) : null,
+      progresso && /^Não foi possível consultar/.test(progresso) ? h('p', { class: 'aviso aviso-erro', text: progresso }) : null);
   }
 
   let renderizando = 0;
   async function render() {
-    embutidos.forEach(renderEmbutido);
+    Object.keys(caixas).forEach(renderCaixa);
     if (!raiz) return;
     const vez = ++renderizando;
     if (!nuvemOk()) {
@@ -319,12 +396,14 @@
   App.ciclos = {
     montar(el) { raiz = el; render(); lerDrive(); },
     aoMostrar() { render(); if (!ocupado) lerDrive(); },
-    /** Põe a consulta (recolhível) no topo de outra aba; "aba" diz onde o arquivo abre ('analise' ou 'tela'). */
-    embutir(el, aba) {
-      const e = { el, aba };
-      embutidos.push(e);
-      renderEmbutido(e);
-      if (U.pref.get(`ciclos:aberto:${aba}`, false) && !ciclosDrive) lerDrive();
+    campoCiclo,
+    caixa,
+    arquivado,
+    /** A Análise e a Tela do carro se registram para atualizar quando o ciclo ou a lista muda. */
+    aoMudar(f) {
+      ouvintes.add(f);
+      if (locais === null) { locais = []; lerLocais(); }
+      if (nuvemOk() && !ciclosDrive && !erroDrive) lerDrive();
     },
     lerKm
   };
